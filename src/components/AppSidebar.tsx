@@ -8,6 +8,7 @@ import {
   FileCheck,
   CheckCircle,
   Upload,
+  ScanLine,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -33,6 +34,7 @@ const navigationItems = [
   { title: "Client Invoices", url: "/client-invoices", icon: FileCheck },
   { title: "Approvals", url: "/approvals", icon: CheckCircle },
   { title: "Tally Upload", url: "/tally-upload", icon: Upload },
+  { title: "PO Intake", url: "/po-intake", icon: ScanLine },
 ];
 
 export function AppSidebar() {

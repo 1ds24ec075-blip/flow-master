@@ -143,6 +143,54 @@ export type Database = {
         }
         Relationships: []
       }
+      po_intake_documents: {
+        Row: {
+          confidence_scores: Json | null
+          created_at: string
+          extracted_data: Json | null
+          file_name: string
+          file_path: string
+          file_type: string
+          id: string
+          reviewed_data: Json | null
+          status: string
+          tally_json: Json | null
+          tally_xml: string | null
+          updated_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          confidence_scores?: Json | null
+          created_at?: string
+          extracted_data?: Json | null
+          file_name: string
+          file_path: string
+          file_type: string
+          id?: string
+          reviewed_data?: Json | null
+          status?: string
+          tally_json?: Json | null
+          tally_xml?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          confidence_scores?: Json | null
+          created_at?: string
+          extracted_data?: Json | null
+          file_name?: string
+          file_path?: string
+          file_type?: string
+          id?: string
+          reviewed_data?: Json | null
+          status?: string
+          tally_json?: Json | null
+          tally_xml?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       purchase_orders: {
         Row: {
           amount: number | null
