@@ -5,9 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileText, Loader2, CheckCircle, AlertCircle, Download } from "lucide-react";
+import { Upload, FileText, Loader2, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function POIntake() {
@@ -65,7 +64,11 @@ export default function POIntake() {
     },
     onSuccess: (data) => {
       setEditedData(data.extracted_data);
-      toast.success("Extraction completed! Review the data below.");
+      if (data.purchase_order_created) {
+        toast.success("Extraction completed and saved to Purchase Orders!");
+      } else {
+        toast.success("Extraction completed! Data is shown below.");
+      }
       queryClient.invalidateQueries({ queryKey: ["po-intake", currentPoId] });
     },
     onError: (error: any) => {
@@ -73,39 +76,6 @@ export default function POIntake() {
     },
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async ({ poId, reviewedData }: { poId: string; reviewedData: any }) => {
-      const { data, error } = await supabase.functions.invoke("po-save", {
-        body: { poId, reviewedData },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Data saved successfully!");
-      queryClient.invalidateQueries({ queryKey: ["po-intake", currentPoId] });
-    },
-    onError: (error: any) => {
-      toast.error(`Save failed: ${error.message}`);
-    },
-  });
-
-  const tallyMutation = useMutation({
-    mutationFn: async (poId: string) => {
-      const { data, error } = await supabase.functions.invoke("po-generate-tally", {
-        body: { poId },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Tally payload generated!");
-      queryClient.invalidateQueries({ queryKey: ["po-intake", currentPoId] });
-    },
-    onError: (error: any) => {
-      toast.error(`Tally generation failed: ${error.message}`);
-    },
-  });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -126,59 +96,6 @@ export default function POIntake() {
     }
   };
 
-  const handleSave = () => {
-    if (currentPoId && editedData) {
-      saveMutation.mutate({ poId: currentPoId, reviewedData: editedData });
-    }
-  };
-
-  const handleGenerateTally = () => {
-    if (currentPoId) {
-      tallyMutation.mutate(currentPoId);
-    }
-  };
-
-  const handleFieldChange = (field: string, value: any) => {
-    setEditedData((prev: any) => ({ ...prev, [field]: value }));
-  };
-
-  const handleItemChange = (index: number, field: string, value: any) => {
-    setEditedData((prev: any) => {
-      const items = [...(prev.items || [])];
-      items[index] = { ...items[index], [field]: value };
-      return { ...prev, items };
-    });
-  };
-
-  const addItem = () => {
-    setEditedData((prev: any) => ({
-      ...prev,
-      items: [...(prev.items || []), { item_name: "", qty: 0, rate: 0, gst: 18, amount: 0 }],
-    }));
-  };
-
-  const removeItem = (index: number) => {
-    setEditedData((prev: any) => ({
-      ...prev,
-      items: prev.items.filter((_: any, i: number) => i !== index),
-    }));
-  };
-
-  const downloadTallyPayload = (format: 'json' | 'xml') => {
-    if (!currentPo) return;
-    
-    const content = format === 'json' 
-      ? JSON.stringify(currentPo.tally_json, null, 2)
-      : currentPo.tally_xml;
-    
-    const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'application/xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tally_po_${currentPo.id}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const getStatusBadge = (status: string) => {
     const colors = {
@@ -204,7 +121,7 @@ export default function POIntake() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">PO Intake & Extraction</h1>
-        <p className="text-muted-foreground">Upload → Extract → Review → Save → Generate Tally Payload</p>
+        <p className="text-muted-foreground">Upload PO document → AI will extract and automatically save to Purchase Orders</p>
       </div>
 
       {/* Upload Section */}
@@ -272,10 +189,10 @@ export default function POIntake() {
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            2. AI Extraction (Dual OCR + LLM Parse)
+            2. Extract & Save to Purchase Orders
           </h2>
           <p className="text-sm text-muted-foreground mb-4">
-            This will run two-layer OCR: traditional text extraction + AI structured parsing
+            AI will extract data using dual-layer OCR and automatically save to Purchase Orders database
           </p>
           <Button
             onClick={handleExtract}
@@ -285,28 +202,28 @@ export default function POIntake() {
             {extractMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Extracting... (this may take 30-60 seconds)
+                Extracting & Saving... (this may take 30-60 seconds)
               </>
             ) : (
               <>
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Extract PO Data
+                Extract & Save PO Data
               </>
             )}
           </Button>
         </Card>
       )}
 
-      {/* Review & Edit Section */}
-      {currentPo && editedData && (
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <AlertCircle className="h-5 w-5" />
-            3. Review & Edit Extracted Data
+      {/* Extracted Data View Section */}
+      {currentPo && editedData && currentPo.status === "extracted" && (
+        <Card className="p-6 bg-green-50 dark:bg-green-950">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-green-700 dark:text-green-300">
+            <CheckCircle className="h-5 w-5" />
+            Extraction Complete & Saved to Purchase Orders
           </h2>
-          
+
           {currentPo.confidence_scores && (
-            <div className="mb-4 p-3 bg-muted rounded">
+            <div className="mb-4 p-3 bg-white dark:bg-gray-800 rounded">
               <p className="text-sm font-medium mb-2">Confidence Scores:</p>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(currentPo.confidence_scores).map(([field, score]) => (
@@ -318,168 +235,54 @@ export default function POIntake() {
             </div>
           )}
 
-          <div className="space-y-4">
+          <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Client Name</Label>
-                <Input
-                  value={editedData.client_name || ""}
-                  onChange={(e) => handleFieldChange("client_name", e.target.value)}
-                />
+                <p className="font-medium text-gray-700 dark:text-gray-300">Client Name</p>
+                <p>{editedData.client_name || "N/A"}</p>
               </div>
               <div>
-                <Label>PO Number</Label>
-                <Input
-                  value={editedData.po_number || ""}
-                  onChange={(e) => handleFieldChange("po_number", e.target.value)}
-                />
+                <p className="font-medium text-gray-700 dark:text-gray-300">PO Number</p>
+                <p>{editedData.po_number || "N/A"}</p>
               </div>
               <div>
-                <Label>PO Date</Label>
-                <Input
-                  type="date"
-                  value={editedData.po_date || ""}
-                  onChange={(e) => handleFieldChange("po_date", e.target.value)}
-                />
+                <p className="font-medium text-gray-700 dark:text-gray-300">PO Date</p>
+                <p>{editedData.po_date || "N/A"}</p>
               </div>
               <div>
-                <Label>Delivery Date</Label>
-                <Input
-                  type="date"
-                  value={editedData.delivery_date || ""}
-                  onChange={(e) => handleFieldChange("delivery_date", e.target.value)}
-                />
+                <p className="font-medium text-gray-700 dark:text-gray-300">Delivery Date</p>
+                <p>{editedData.delivery_date || "N/A"}</p>
               </div>
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Items</Label>
-                <Button onClick={addItem} size="sm" variant="outline">
-                  + Add Item
-                </Button>
-              </div>
-              <div className="space-y-3">
+              <p className="font-medium text-gray-700 dark:text-gray-300 mb-2">Items</p>
+              <div className="space-y-2">
                 {editedData.items?.map((item: any, index: number) => (
-                  <div key={index} className="p-4 border rounded space-y-2">
-                    <div className="grid grid-cols-5 gap-2">
-                      <Input
-                        placeholder="Item Name"
-                        value={item.item_name || ""}
-                        onChange={(e) => handleItemChange(index, "item_name", e.target.value)}
-                        className="col-span-2"
-                      />
-                      <Input
-                        type="number"
-                        placeholder="Qty"
-                        value={item.qty || 0}
-                        onChange={(e) => handleItemChange(index, "qty", parseFloat(e.target.value))}
-                      />
-                      <Input
-                        type="number"
-                        placeholder="Rate"
-                        value={item.rate || 0}
-                        onChange={(e) => handleItemChange(index, "rate", parseFloat(e.target.value))}
-                      />
-                      <Input
-                        type="number"
-                        placeholder="GST %"
-                        value={item.gst || 18}
-                        onChange={(e) => handleItemChange(index, "gst", parseFloat(e.target.value))}
-                      />
-                    </div>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => removeItem(index)}
-                    >
-                      Remove
-                    </Button>
+                  <div key={index} className="p-3 bg-white dark:bg-gray-800 rounded">
+                    <p><span className="font-medium">Item:</span> {item.item_name}</p>
+                    <p><span className="font-medium">Qty:</span> {item.qty} | <span className="font-medium">Rate:</span> ₹{item.rate} | <span className="font-medium">GST:</span> {item.gst}%</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div>
-              <Label>Notes</Label>
-              <Textarea
-                value={editedData.notes || ""}
-                onChange={(e) => handleFieldChange("notes", e.target.value)}
-                rows={3}
-              />
-            </div>
-
-            <Button
-              onClick={handleSave}
-              disabled={saveMutation.isPending}
-              className="w-full"
-            >
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Save to Database
-                </>
-              )}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {/* Generate Tally Section */}
-      {currentPo && currentPo.status === "saved" && (
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            4. Generate Tally Payload
-          </h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Generate JSON and XML payloads for Tally import
-          </p>
-          <Button
-            onClick={handleGenerateTally}
-            disabled={tallyMutation.isPending}
-            className="w-full"
-          >
-            {tallyMutation.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Generate Tally Payload
-              </>
+            {editedData.notes && (
+              <div>
+                <p className="font-medium text-gray-700 dark:text-gray-300">Notes</p>
+                <p>{editedData.notes}</p>
+              </div>
             )}
-          </Button>
-        </Card>
-      )}
 
-      {/* Download Tally Payloads */}
-      {currentPo && currentPo.status === "ready_for_tally" && (
-        <Card className="p-6 bg-green-50 dark:bg-green-950">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-green-700 dark:text-green-300">
-            <CheckCircle className="h-5 w-5" />
-            ✓ Ready for Tally
-          </h2>
-          <p className="text-sm mb-4">Download the generated payloads:</p>
-          <div className="flex gap-2">
-            <Button onClick={() => downloadTallyPayload('json')} variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Download JSON
-            </Button>
-            <Button onClick={() => downloadTallyPayload('xml')} variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Download XML
-            </Button>
+            <div className="pt-4 border-t">
+              <p className="text-green-700 dark:text-green-300 font-medium">
+                This data has been automatically saved to the Purchase Orders page. You can view and manage it there.
+              </p>
+            </div>
           </div>
         </Card>
       )}
+
     </div>
   );
 }

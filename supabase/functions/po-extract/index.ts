@@ -155,7 +155,64 @@ Be precise. If a field is not found, use null. Return ONLY the JSON object, no m
 
     console.log('PO extraction completed successfully');
 
-    return new Response(JSON.stringify(updatedPo), {
+    // Automatically save to purchase_orders table
+    console.log('Saving to purchase_orders table...');
+
+    // Find or create client
+    let clientId = null;
+    if (extracted.client_name) {
+      const { data: existingClient } = await supabase
+        .from('clients')
+        .select('id')
+        .ilike('name', extracted.client_name)
+        .maybeSingle();
+
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        const { data: newClient, error: clientError } = await supabase
+          .from('clients')
+          .insert({ name: extracted.client_name })
+          .select('id')
+          .single();
+
+        if (!clientError && newClient) {
+          clientId = newClient.id;
+        }
+      }
+    }
+
+    // Calculate total amount
+    const totalAmount = extracted.total_amount || extracted.items?.reduce((sum: number, item: any) => {
+      return sum + (item.amount || (item.qty * item.rate * (1 + (item.gst || 0) / 100)));
+    }, 0) || 0;
+
+    // Create purchase order
+    const { data: purchaseOrder, error: poInsertError } = await supabase
+      .from('purchase_orders')
+      .insert({
+        po_number: extracted.po_number || `PO-${Date.now()}`,
+        client_id: clientId,
+        po_details: extracted.notes || `PO imported from ${poDoc.file_name}`,
+        material_items: extracted.items || [],
+        amount: totalAmount,
+        status: 'draft',
+        created_by: poDoc.uploaded_by,
+      })
+      .select()
+      .single();
+
+    if (poInsertError) {
+      console.error('Error creating purchase order:', poInsertError);
+    } else {
+      console.log('Purchase order created successfully:', purchaseOrder.id);
+    }
+
+    return new Response(JSON.stringify({
+      ...updatedPo,
+      purchase_order_id: purchaseOrder?.id,
+      purchase_order_created: !poInsertError,
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
