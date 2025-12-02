@@ -1,27 +1,32 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
   }
 
   try {
     const { poId } = await req.json();
-    
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const gcpApiKey = Deno.env.get('GCP_API_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Extracting PO:', poId);
 
-    // Get PO record
     const { data: poDoc, error: fetchError } = await supabase
       .from('po_intake_documents')
       .select('*')
@@ -30,7 +35,6 @@ serve(async (req) => {
 
     if (fetchError) throw fetchError;
 
-    // Get file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('po-documents')
       .download(poDoc.file_path);
@@ -39,37 +43,33 @@ serve(async (req) => {
 
     console.log('File downloaded, size:', fileData.size);
 
-    // Convert to base64 for AI processing
     const arrayBuffer = await fileData.arrayBuffer();
     const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     const imageUrl = `data:${poDoc.file_type};base64,${base64}`;
 
-    // Layer 1: Basic OCR - Extract all text
-    console.log('Running Layer 1 OCR...');
-    const ocrResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    console.log('Running Layer 1: Google Cloud Vision OCR...');
+    const ocrResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${gcpApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Extract all text from this document exactly as it appears. Return only the text, no formatting.' },
-            { type: 'image_url', image_url: { url: imageUrl } }
-          ]
+        requests: [{
+          image: {
+            content: base64,
+          },
+          features: [
+            { type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }
+          ],
         }],
       }),
     });
 
     const ocrData = await ocrResponse.json();
-    const ocrText = ocrData.choices?.[0]?.message?.content || '';
-    console.log('Layer 1 OCR completed, text length:', ocrText.length);
+    const ocrText = ocrData.responses?.[0]?.fullTextAnnotation?.text || '';
+    console.log('Layer 1 Google Cloud Vision OCR completed, text length:', ocrText.length);
 
-    // Layer 2: Structured Extraction
-    console.log('Running Layer 2 structured extraction...');
+    console.log('Running Layer 2: Gemini 1.5 Pro Vision structured extraction...');
     const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -77,12 +77,12 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'google/gemini-1.5-pro',
         messages: [{
           role: 'user',
           content: [
-            { 
-              type: 'text', 
+            {
+              type: 'text',
               text: `Extract the following fields from this Purchase Order document and return as JSON:
 {
   "client_name": "company or person name",
@@ -116,20 +116,19 @@ Be precise. If a field is not found, use null. Return ONLY the JSON object, no m
     const extractData = await extractResponse.json();
     let structuredData = extractData.choices?.[0]?.message?.content || '{}';
     
-    // Clean up markdown if present
     structuredData = structuredData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const extracted = JSON.parse(structuredData);
     
     console.log('Layer 2 extraction completed:', extracted);
 
-    // Merge layers with confidence scoring
     const mergedData = {
       ...extracted,
       raw_ocr_text: ocrText,
-      extraction_method: 'dual_layer_ai',
+      extraction_method: 'gcp_vision_gemini_pro',
+      layer1: 'Google Cloud Vision OCR',
+      layer2: 'Gemini 1.5 Pro Vision',
     };
 
-    // Calculate field-level confidence scores
     const confidenceScores = {
       client_name: extracted.client_name ? 90 : 50,
       po_number: extracted.po_number ? 95 : 50,
@@ -139,7 +138,6 @@ Be precise. If a field is not found, use null. Return ONLY the JSON object, no m
       overall: extracted.confidence || 85,
     };
 
-    // Update PO record with extracted data
     const { data: updatedPo, error: updateError } = await supabase
       .from('po_intake_documents')
       .update({
@@ -155,10 +153,8 @@ Be precise. If a field is not found, use null. Return ONLY the JSON object, no m
 
     console.log('PO extraction completed successfully');
 
-    // Automatically save to purchase_orders table
     console.log('Saving to purchase_orders table...');
 
-    // Find or create client
     let clientId = null;
     if (extracted.client_name) {
       const { data: existingClient } = await supabase
@@ -182,12 +178,10 @@ Be precise. If a field is not found, use null. Return ONLY the JSON object, no m
       }
     }
 
-    // Calculate total amount
     const totalAmount = extracted.total_amount || extracted.items?.reduce((sum: number, item: any) => {
       return sum + (item.amount || (item.qty * item.rate * (1 + (item.gst || 0) / 100)));
     }, 0) || 0;
 
-    // Create purchase order
     const { data: purchaseOrder, error: poInsertError } = await supabase
       .from('purchase_orders')
       .insert({
