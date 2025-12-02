@@ -1,1 +1,20 @@
 project_id = "pskuxhpfohmxlhmupeoz"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[functions.po-upload]
+verify_jwt = false
+
+[functions.po-extract]
+verify_jwt = false
+
+[functions.po-save]
+verify_jwt = false
+
+[functions.po-generate-tally]
+verify_jwt = false

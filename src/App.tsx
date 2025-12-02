@@ -13,6 +13,7 @@ import RawMaterialInvoices from "./pages/RawMaterialInvoices";
 import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
+import POIntake from "./pages/POIntake";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/client-invoices" element={<Layout><ClientInvoices /></Layout>} />
           <Route path="/approvals" element={<Layout><Approvals /></Layout>} />
           <Route path="/tally-upload" element={<Layout><TallyUpload /></Layout>} />
+          <Route path="/po-intake" element={<Layout><POIntake /></Layout>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
