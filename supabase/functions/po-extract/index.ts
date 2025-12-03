@@ -20,7 +20,7 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const gcpApiKey = Deno.env.get('GCP_API_KEY')!;
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+    const geminiApiKey = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GCP_API_KEY')!;
 
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -66,59 +66,65 @@ Deno.serve(async (req: Request) => {
     });
 
     const ocrData = await ocrResponse.json();
+
+    if (ocrData.responses?.[0]?.error) {
+      console.error('Google Cloud Vision error:', ocrData.responses[0].error);
+      throw new Error(`OCR failed: ${ocrData.responses[0].error.message}`);
+    }
+
     const ocrText = ocrData.responses?.[0]?.fullTextAnnotation?.text || '';
     console.log('Layer 1 Google Cloud Vision OCR completed, text length:', ocrText.length);
+    if (ocrText.length > 0) {
+      console.log('First 500 chars of OCR text:', ocrText.substring(0, 500));
+    }
 
     console.log('Running Layer 2: Gemini 1.5 Pro Vision structured extraction...');
-    const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+
+    const mimeType = poDoc.file_type || 'image/jpeg';
+
+    const extractResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-1.5-pro',
-        messages: [{
-          role: 'user',
-          content: [
+        contents: [{
+          parts: [
             {
-              type: 'text',
-              text: `Extract the following fields from this Purchase Order document and return as JSON:
-{
-  "client_name": "company or person name",
-  "po_number": "PO reference number",
-  "po_date": "date of PO (YYYY-MM-DD format)",
-  "delivery_date": "expected delivery date (YYYY-MM-DD format)",
-  "items": [
-    {
-      "item_name": "product/service name",
-      "qty": 0,
-      "rate": 0,
-      "gst": 18,
-      "amount": 0
-    }
-  ],
-  "subtotal": 0,
-  "tax_amount": 0,
-  "total_amount": 0,
-  "notes": "any special instructions or notes",
-  "confidence": 95
-}
-
-Be precise. If a field is not found, use null. Return ONLY the JSON object, no markdown or explanation.` 
+              text: `You are a Purchase Order extraction expert. Analyze this document and extract the following information.\n\nOCR Text from the document:\n${ocrText}\n\nExtract the following fields and return as JSON:\n{\n  \"client_name\": \"company or person name (exact as shown)\",\n  \"po_number\": \"PO reference number\",\n  \"po_date\": \"date of PO in YYYY-MM-DD format\",\n  \"delivery_date\": \"expected delivery date in YYYY-MM-DD format\",\n  \"items\": [\n    {\n      \"item_name\": \"product/service name\",\n      \"qty\": 0,\n      \"rate\": 0,\n      \"gst\": 18,\n      \"amount\": 0\n    }\n  ],\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"total_amount\": 0,\n  \"notes\": \"any special instructions or notes\",\n  \"confidence\": 95\n}\n\nIMPORTANT:\n- Extract ALL line items from the PO\n- For Indian formats, handle lakhs/crores notation\n- Parse dates in DD/MM/YYYY or DD-MM-YYYY format and convert to YYYY-MM-DD\n- If GST % is mentioned, use that value, otherwise default to 18\n- Calculate amounts if not explicitly stated\n- Use the OCR text above as the primary source\n- If a field is not found, use null\n- Return ONLY valid JSON, no markdown or explanation`
             },
-            { type: 'image_url', image_url: { url: imageUrl } }
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64
+              }
+            }
           ]
         }],
+        generationConfig: {
+          temperature: 0.1,
+          topK: 32,
+          topP: 1,
+          maxOutputTokens: 2048,
+        },
       }),
     });
 
     const extractData = await extractResponse.json();
-    let structuredData = extractData.choices?.[0]?.message?.content || '{}';
-    
+
+    if (extractData.error) {
+      console.error('Gemini API error:', extractData.error);
+      throw new Error(`Gemini extraction failed: ${extractData.error.message}`);
+    }
+
+    let structuredData = extractData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+
     structuredData = structuredData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+    console.log('Raw Gemini response:', structuredData);
+
     const extracted = JSON.parse(structuredData);
-    
+
     console.log('Layer 2 extraction completed:', extracted);
 
     const mergedData = {
