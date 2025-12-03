@@ -49,26 +49,38 @@ export default function TallyAI() {
   };
 
   const loadConversations = async () => {
-    const { data, error } = await supabase
-      .from('tally_ai_conversations')
-      .select('*')
-      .order('updated_at', { ascending: false })
-      .limit(10);
+    try {
+      const { data, error } = await supabase
+        .from('tally_ai_conversations')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(10);
 
-    if (!error && data) {
-      setConversations(data);
+      if (!error && data) {
+        setConversations(data);
+      } else if (error) {
+        console.error('Error loading conversations:', error);
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
     }
   };
 
   const loadMessages = async (conversationId: string) => {
-    const { data, error } = await supabase
-      .from('tally_ai_messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('tally_ai_messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
 
-    if (!error && data) {
-      setMessages(data);
+      if (!error && data) {
+        setMessages(data);
+      } else if (error) {
+        console.error('Error loading messages:', error);
+      }
+    } catch (err) {
+      console.error('Failed to load messages:', err);
     }
   };
 
@@ -124,10 +136,11 @@ export default function TallyAI() {
       await loadMessages(result.conversationId);
     } catch (error) {
       console.error('Error sending message:', error);
+      const errorDetails = error instanceof Error ? error.message : 'Unknown error';
       const errorMessage: Message = {
         id: 'temp-error',
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${errorDetails}. Please refresh the page and try again.`,
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev.filter(m => m.id !== 'temp-user'), errorMessage]);
