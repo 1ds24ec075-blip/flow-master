@@ -59,7 +59,14 @@ export default function POIntake() {
       const { data, error } = await supabase.functions.invoke("po-extract", {
         body: { poId },
       });
-      if (error) throw error;
+      if (error) {
+        console.error("Edge function error details:", error);
+        throw error;
+      }
+      if (data && data.error) {
+        console.error("Function returned error:", data.error);
+        throw new Error(data.error);
+      }
       return data;
     },
     onSuccess: (data) => {
@@ -72,7 +79,12 @@ export default function POIntake() {
       queryClient.invalidateQueries({ queryKey: ["po-intake", currentPoId] });
     },
     onError: (error: any) => {
-      toast.error(`Extraction failed: ${error.message}`);
+      console.error("Full extraction error:", error);
+      const errorMessage = error?.message || error?.error?.message || "Unknown error occurred";
+      toast.error(`Extraction failed: ${errorMessage}`, {
+        duration: 10000,
+        description: "Check browser console for detailed error logs"
+      });
     },
   });
 
