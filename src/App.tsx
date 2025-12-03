@@ -15,6 +15,7 @@ import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
 import POIntake from "./pages/POIntake";
 import TallyAI from "./pages/TallyAI";
+import BankStatementParser from "./pages/BankStatementParser";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/tally-upload" element={<Layout><TallyUpload /></Layout>} />
           <Route path="/po-intake" element={<Layout><POIntake /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
+          <Route path="/bank-statement-parser" element={<Layout><BankStatementParser /></Layout>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
