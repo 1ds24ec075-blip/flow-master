@@ -19,8 +19,7 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const gcpApiKey = Deno.env.get('GCP_API_KEY')!;
-    const geminiApiKey = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GCP_API_KEY')!;
+    const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY')!;
 
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -47,92 +46,67 @@ Deno.serve(async (req: Request) => {
     const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     const imageUrl = `data:${poDoc.file_type};base64,${base64}`;
 
-    console.log('Running Layer 1: Google Cloud Vision OCR...');
-    const ocrResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${gcpApiKey}`, {
+    console.log('Running single-layer extraction with OpenRouter GPT-4o Mini...');
+
+    const extractResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${openrouterApiKey}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': supabaseUrl,
+        'X-Title': 'PO Extraction System',
       },
       body: JSON.stringify({
-        requests: [{
-          image: {
-            content: base64,
-          },
-          features: [
-            { type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }
-          ],
-        }],
-      }),
-    });
-
-    const ocrData = await ocrResponse.json();
-
-    if (ocrData.responses?.[0]?.error) {
-      console.error('Google Cloud Vision error:', ocrData.responses[0].error);
-      throw new Error(`OCR failed: ${ocrData.responses[0].error.message}`);
-    }
-
-    const ocrText = ocrData.responses?.[0]?.fullTextAnnotation?.text || '';
-    console.log('Layer 1 Google Cloud Vision OCR completed, text length:', ocrText.length);
-    if (ocrText.length > 0) {
-      console.log('First 500 chars of OCR text:', ocrText.substring(0, 500));
-    }
-
-    console.log('Running Layer 2: Gemini 1.5 Pro Vision structured extraction...');
-
-    const mimeType = poDoc.file_type || 'image/jpeg';
-
-    const extractResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
+        model: 'openai/gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content: [
             {
-              text: `You are a Purchase Order extraction expert. Analyze this document and extract the following information.\n\nOCR Text from the document:\n${ocrText}\n\nExtract the following fields and return as JSON:\n{\n  \"client_name\": \"company or person name (exact as shown)\",\n  \"po_number\": \"PO reference number\",\n  \"po_date\": \"date of PO in YYYY-MM-DD format\",\n  \"delivery_date\": \"expected delivery date in YYYY-MM-DD format\",\n  \"items\": [\n    {\n      \"item_name\": \"product/service name\",\n      \"qty\": 0,\n      \"rate\": 0,\n      \"gst\": 18,\n      \"amount\": 0\n    }\n  ],\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"total_amount\": 0,\n  \"notes\": \"any special instructions or notes\",\n  \"confidence\": 95\n}\n\nIMPORTANT:\n- Extract ALL line items from the PO\n- For Indian formats, handle lakhs/crores notation\n- Parse dates in DD/MM/YYYY or DD-MM-YYYY format and convert to YYYY-MM-DD\n- If GST % is mentioned, use that value, otherwise default to 18\n- Calculate amounts if not explicitly stated\n- Use the OCR text above as the primary source\n- If a field is not found, use null\n- Return ONLY valid JSON, no markdown or explanation`
+              type: 'text',
+              text: `You are a Purchase Order extraction expert. Analyze this Purchase Order document image and extract ALL information with high precision.\n\nExtract the following fields and return as valid JSON:\n{\n  \"client_name\": \"company or person name (exact as shown)\",\n  \"po_number\": \"PO reference number\",\n  \"po_date\": \"date of PO in YYYY-MM-DD format\",\n  \"delivery_date\": \"expected delivery date in YYYY-MM-DD format\",\n  \"items\": [\n    {\n      \"item_name\": \"product/service name\",\n      \"qty\": 0,\n      \"rate\": 0,\n      \"gst\": 18,\n      \"amount\": 0\n    }\n  ],\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"total_amount\": 0,\n  \"notes\": \"any special instructions or notes\",\n  \"confidence\": 95\n}\n\nCRITICAL INSTRUCTIONS:\n- Extract ALL line items from the PO (do not skip any)\n- For Indian formats: handle lakhs (L), crores (Cr) notation and convert to numbers\n- Parse dates in DD/MM/YYYY, DD-MM-YYYY, or other formats and convert to YYYY-MM-DD\n- If GST % is mentioned per item, use that value; otherwise default to 18\n- Calculate amounts if not explicitly stated: amount = qty × rate × (1 + gst/100)\n- For subtotal: sum of all item amounts before tax\n- For tax_amount: sum of GST on all items\n- For total_amount: subtotal + tax_amount (or grand total if shown)\n- If a field is not found or unclear, use null\n- Confidence score: your overall confidence in the extraction (0-100)\n- Return ONLY valid JSON, no markdown formatting, no explanation\n\nBe extremely accurate with numbers, dates, and item details.`
             },
             {
-              inline_data: {
-                mime_type: mimeType,
-                data: base64
+              type: 'image_url',
+              image_url: {
+                url: imageUrl
               }
             }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          topK: 32,
-          topP: 1,
-          maxOutputTokens: 2048,
-        },
+        temperature: 0.1,
+        max_tokens: 2048,
+        response_format: { type: "json_object" }
       }),
     });
 
     const extractData = await extractResponse.json();
 
     if (extractData.error) {
-      console.error('Gemini API error:', extractData.error);
-      throw new Error(`Gemini extraction failed: ${extractData.error.message}`);
+      console.error('OpenRouter API error:', extractData.error);
+      throw new Error(`Extraction failed: ${extractData.error.message || JSON.stringify(extractData.error)}`);
     }
 
-    let structuredData = extractData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    let structuredData = extractData.choices?.[0]?.message?.content || '{}';
 
     structuredData = structuredData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-    console.log('Raw Gemini response:', structuredData);
+    console.log('Raw extraction response:', structuredData.substring(0, 500));
 
     const extracted = JSON.parse(structuredData);
 
-    console.log('Layer 2 extraction completed:', extracted);
+    console.log('Extraction completed:', {
+      client: extracted.client_name,
+      po_number: extracted.po_number,
+      items_count: extracted.items?.length,
+      total: extracted.total_amount,
+      confidence: extracted.confidence
+    });
 
     const mergedData = {
       ...extracted,
-      raw_ocr_text: ocrText,
-      extraction_method: 'gcp_vision_gemini_pro',
-      layer1: 'Google Cloud Vision OCR',
-      layer2: 'Gemini 1.5 Pro Vision',
+      extraction_method: 'openrouter_gpt4o_mini',
+      model: 'gpt-4o-mini',
+      extracted_at: new Date().toISOString(),
     };
 
     const confidenceScores = {
