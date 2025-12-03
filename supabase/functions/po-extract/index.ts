@@ -62,21 +62,20 @@ Deno.serve(async (req: Request) => {
     if (downloadError) throw downloadError;
 
     console.log('File downloaded, size:', fileData.size, 'bytes');
+    console.log('File type:', poDoc.file_type);
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+    const bytes = new Uint8Array(arrayBuffer);
 
-    let base64 = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, i + chunkSize);
-      base64 += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    base64 = btoa(base64);
+    const binString = Array.from(bytes, (byte) =>
+      String.fromCodePoint(byte),
+    ).join("");
+    const base64 = btoa(binString);
 
     const imageUrl = `data:${poDoc.file_type};base64,${base64}`;
 
-    console.log('Image encoded, size:', base64.length, 'characters');
+    console.log('Image encoded, base64 length:', base64.length, 'characters');
+    console.log('Image URL preview:', imageUrl.substring(0, 100) + '...');
     console.log('Running single-layer extraction with OpenAI GPT-4o Mini...');
 
     const requestBody = {
@@ -102,6 +101,12 @@ Deno.serve(async (req: Request) => {
       };
 
     console.log('Making OpenAI API request...');
+    console.log('Request body preview:', JSON.stringify({
+      model: requestBody.model,
+      message_role: requestBody.messages[0].role,
+      content_types: requestBody.messages[0].content.map((c: any) => c.type),
+      image_url_format: requestBody.messages[0].content[1].image_url.url.substring(0, 50)
+    }));
 
     const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -117,6 +122,13 @@ Deno.serve(async (req: Request) => {
     if (!extractResponse.ok) {
       const errorText = await extractResponse.text();
       console.error('OpenAI API error response:', errorText);
+      let parsedError;
+      try {
+        parsedError = JSON.parse(errorText);
+        console.error('Parsed error:', parsedError);
+      } catch (e) {
+        console.error('Could not parse error as JSON');
+      }
       throw new Error(`OpenAI API returned ${extractResponse.status}: ${errorText}`);
     }
 
