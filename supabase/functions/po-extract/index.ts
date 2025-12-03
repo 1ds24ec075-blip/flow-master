@@ -19,7 +19,7 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY')!;
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
 
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -46,18 +46,16 @@ Deno.serve(async (req: Request) => {
     const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     const imageUrl = `data:${poDoc.file_type};base64,${base64}`;
 
-    console.log('Running single-layer extraction with OpenRouter GPT-4o Mini...');
+    console.log('Running single-layer extraction with OpenAI GPT-4o Mini...');
 
-    const extractResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openrouterApiKey}`,
+        'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': supabaseUrl,
-        'X-Title': 'PO Extraction System',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
+        model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
           content: [
@@ -82,7 +80,7 @@ Deno.serve(async (req: Request) => {
     const extractData = await extractResponse.json();
 
     if (extractData.error) {
-      console.error('OpenRouter API error:', extractData.error);
+      console.error('OpenAI API error:', extractData.error);
       throw new Error(`Extraction failed: ${extractData.error.message || JSON.stringify(extractData.error)}`);
     }
 
@@ -104,7 +102,7 @@ Deno.serve(async (req: Request) => {
 
     const mergedData = {
       ...extracted,
-      extraction_method: 'openrouter_gpt4o_mini',
+      extraction_method: 'openai_gpt4o_mini',
       model: 'gpt-4o-mini',
       extracted_at: new Date().toISOString(),
     };
