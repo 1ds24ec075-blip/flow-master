@@ -15,11 +15,32 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { poId } = await req.json();
+    const body = await req.json();
+    console.log('Received request body:', body);
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
+    const { poId } = body;
+    if (!poId) {
+      throw new Error('poId is required');
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+
+    console.log('Environment check:', {
+      hasSupabaseUrl: !!supabaseUrl,
+      hasSupabaseKey: !!supabaseKey,
+      hasOpenAIKey: !!openaiApiKey,
+      openaiKeyPrefix: openaiApiKey ? openaiApiKey.substring(0, 7) : 'MISSING'
+    });
+
+    if (!openaiApiKey) {
+      throw new Error('OPENAI_API_KEY is not configured in Supabase secrets. Please add it via: Supabase Dashboard > Edge Functions > Secrets');
+    }
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase credentials are missing');
+    }
 
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -40,21 +61,25 @@ Deno.serve(async (req: Request) => {
 
     if (downloadError) throw downloadError;
 
-    console.log('File downloaded, size:', fileData.size);
+    console.log('File downloaded, size:', fileData.size, 'bytes');
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    let base64 = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, i + chunkSize);
+      base64 += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    base64 = btoa(base64);
+
     const imageUrl = `data:${poDoc.file_type};base64,${base64}`;
 
+    console.log('Image encoded, size:', base64.length, 'characters');
     console.log('Running single-layer extraction with OpenAI GPT-4o Mini...');
 
-    const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const requestBody = {
         model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
@@ -74,10 +99,29 @@ Deno.serve(async (req: Request) => {
         temperature: 0.1,
         max_tokens: 2048,
         response_format: { type: "json_object" }
-      }),
+      };
+
+    console.log('Making OpenAI API request...');
+
+    const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('OpenAI response status:', extractResponse.status, extractResponse.statusText);
+
+    if (!extractResponse.ok) {
+      const errorText = await extractResponse.text();
+      console.error('OpenAI API error response:', errorText);
+      throw new Error(`OpenAI API returned ${extractResponse.status}: ${errorText}`);
+    }
+
     const extractData = await extractResponse.json();
+    console.log('OpenAI response received, has choices:', !!extractData.choices);
 
     if (extractData.error) {
       console.error('OpenAI API error:', extractData.error);
