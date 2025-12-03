@@ -187,8 +187,10 @@ Deno.serve(async (req: Request) => {
 
     console.log('PO extraction completed successfully');
 
+    // === INTEGRATION: Link to purchase_orders and clients ===
     console.log('Saving to purchase_orders table...');
 
+    // Step 1: Find or create client
     let clientId = null;
     if (extracted.client_name) {
       const { data: existingClient } = await supabase
@@ -200,6 +202,7 @@ Deno.serve(async (req: Request) => {
       if (existingClient) {
         clientId = existingClient.id;
       } else {
+        // Create new client
         const { data: newClient, error: clientError } = await supabase
           .from('clients')
           .insert({ name: extracted.client_name })
@@ -212,6 +215,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Step 2: Create purchase_order record
     const totalAmount = extracted.total_amount || extracted.items?.reduce((sum: number, item: any) => {
       return sum + (item.amount || (item.qty * item.rate * (1 + (item.gst || 0) / 100)));
     }, 0) || 0;
