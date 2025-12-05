@@ -1,5 +1,3 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -36,10 +34,6 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
     const { message, conversationId } = await req.json();
 
     if (!message || typeof message !== 'string') {
@@ -52,46 +46,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    let currentConversationId = conversationId;
-
-    if (!currentConversationId) {
-      const { data: newConversation, error: convError } = await supabase
-        .from('tally_ai_conversations')
-        .insert({
-          title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-        })
-        .select()
-        .single();
-
-      if (convError) throw convError;
-      currentConversationId = newConversation.id;
-    }
-
-    const { error: userMsgError } = await supabase
-      .from('tally_ai_messages')
-      .insert({
-        conversation_id: currentConversationId,
-        role: 'user',
-        content: message,
-      });
-
-    if (userMsgError) throw userMsgError;
-
-    const { data: previousMessages } = await supabase
-      .from('tally_ai_messages')
-      .select('role, content')
-      .eq('conversation_id', currentConversationId)
-      .order('created_at', { ascending: true })
-      .limit(20);
-
-    const messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...(previousMessages || []),
-    ];
-
     if (!OPENAI_API_KEY) {
       throw new Error('OpenAI API key is not configured');
     }
+
+    const messages = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: message },
+    ];
 
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -116,25 +78,10 @@ Deno.serve(async (req: Request) => {
     const openaiData = await openaiResponse.json();
     const assistantMessage = openaiData.choices[0].message.content;
 
-    const { error: assistantMsgError } = await supabase
-      .from('tally_ai_messages')
-      .insert({
-        conversation_id: currentConversationId,
-        role: 'assistant',
-        content: assistantMessage,
-      });
-
-    if (assistantMsgError) throw assistantMsgError;
-
-    await supabase
-      .from('tally_ai_conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', currentConversationId);
-
     return new Response(
       JSON.stringify({
-        conversationId: currentConversationId,
-        message: assistantMessage,
+        conversationId: conversationId || crypto.randomUUID(),
+        response: assistantMessage,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
