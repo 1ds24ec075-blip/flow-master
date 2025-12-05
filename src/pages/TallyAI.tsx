@@ -3,12 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Database, TrendingUp } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Badge } from "@/components/ui/badge";
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  function_calls?: any;
   created_at: string;
 }
 
@@ -28,6 +31,10 @@ export default function TallyAI() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    loadConversations();
+  }, []);
+
+  useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
@@ -37,15 +44,50 @@ export default function TallyAI() {
     }
   };
 
+  const loadConversations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error loading conversations:', error);
+        return;
+      }
+
+      if (data) {
+        setConversations(data);
+      }
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+    }
+  };
+
+  const loadMessages = async (conversationId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error loading messages:', error);
+        return;
+      }
+
+      if (data) {
+        setMessages(data);
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  };
+
   const startNewConversation = () => {
-    const newConv: Conversation = {
-      id: crypto.randomUUID(),
-      title: 'New Conversation',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setConversations(prev => [newConv, ...prev]);
-    setCurrentConversationId(newConv.id);
+    setCurrentConversationId(null);
     setMessages([]);
     setInput("");
   };
@@ -56,20 +98,6 @@ export default function TallyAI() {
     const userMessage = input.trim();
     setInput("");
     setIsLoading(true);
-
-    // Create conversation if none exists
-    let convId = currentConversationId;
-    if (!convId) {
-      const newConv: Conversation = {
-        id: crypto.randomUUID(),
-        title: userMessage.substring(0, 30) + (userMessage.length > 30 ? '...' : ''),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      setConversations(prev => [newConv, ...prev]);
-      setCurrentConversationId(newConv.id);
-      convId = newConv.id;
-    }
 
     const tempUserMessage: Message = {
       id: crypto.randomUUID(),
@@ -82,7 +110,7 @@ export default function TallyAI() {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       const response = await fetch(`${supabaseUrl}/functions/v1/tally-ai-chat`, {
         method: 'POST',
@@ -92,7 +120,7 @@ export default function TallyAI() {
         },
         body: JSON.stringify({
           message: userMessage,
-          conversationId: convId,
+          conversationId: currentConversationId,
         }),
       });
 
@@ -105,11 +133,17 @@ export default function TallyAI() {
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: result.response || result.message || 'Sorry, I could not generate a response.',
+        content: result.response || 'Sorry, I could not generate a response.',
+        function_calls: result.functionCalls || null,
         created_at: new Date().toISOString(),
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+
+      if (!currentConversationId && result.conversationId) {
+        setCurrentConversationId(result.conversationId);
+        loadConversations();
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       const errorDetails = error instanceof Error ? error.message : 'Unknown error';
@@ -132,10 +166,139 @@ export default function TallyAI() {
     }
   };
 
-  const selectConversation = (conv: Conversation) => {
+  const selectConversation = async (conv: Conversation) => {
     setCurrentConversationId(conv.id);
-    // Messages are stored locally per session, so selecting clears for demo
-    setMessages([]);
+    await loadMessages(conv.id);
+  };
+
+  const renderFunctionCallResult = (functionCall: any) => {
+    const { name, result } = functionCall;
+
+    return (
+      <div className="mt-2 p-3 rounded-md bg-background/50 border border-border space-y-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Database className="h-3 w-3" />
+          {name.replace(/_/g, ' ').toUpperCase()}
+        </div>
+
+        {name === 'get_invoice_stats' && result.client_invoices && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Client Invoices:</span>
+              <Badge variant="secondary">{result.client_invoices.total_count}</Badge>
+            </div>
+            {result.client_invoices.pending_count > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Pending:</span>
+                <Badge variant="outline">{result.client_invoices.pending_count}</Badge>
+              </div>
+            )}
+          </div>
+        )}
+
+        {name === 'get_invoice_stats' && result.raw_material_invoices && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Raw Material Invoices:</span>
+              <Badge variant="secondary">{result.raw_material_invoices.total_count}</Badge>
+            </div>
+            {result.raw_material_invoices.pending_count > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Pending:</span>
+                <Badge variant="outline">{result.raw_material_invoices.pending_count}</Badge>
+              </div>
+            )}
+          </div>
+        )}
+
+        {name === 'get_client_info' && result.clients && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Clients:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+            {result.clients.length > 0 && (
+              <div className="text-xs text-muted-foreground mt-2">
+                Recent: {result.clients.map((c: any) => c.name).slice(0, 3).join(', ')}
+              </div>
+            )}
+          </div>
+        )}
+
+        {name === 'get_supplier_info' && result.suppliers && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Suppliers:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+            {result.suppliers.length > 0 && (
+              <div className="text-xs text-muted-foreground mt-2">
+                Recent: {result.suppliers.map((s: any) => s.name).slice(0, 3).join(', ')}
+              </div>
+            )}
+          </div>
+        )}
+
+        {name === 'get_po_stats' && result.purchase_orders && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total POs:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+            <div className="flex gap-2 text-xs">
+              {result.draft_count > 0 && <Badge variant="outline">Draft: {result.draft_count}</Badge>}
+              {result.sent_count > 0 && <Badge variant="outline">Sent: {result.sent_count}</Badge>}
+            </div>
+          </div>
+        )}
+
+        {name === 'get_document_stats' && result.documents && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Documents:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+            {result.error_count > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Errors:</span>
+                <Badge variant="destructive">{result.error_count}</Badge>
+              </div>
+            )}
+          </div>
+        )}
+
+        {name === 'get_approval_stats' && result.approvals && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Approvals:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+            <div className="flex gap-2 text-xs">
+              {result.pending_count > 0 && <Badge variant="outline">Pending: {result.pending_count}</Badge>}
+              {result.approved_count > 0 && <Badge variant="outline">Approved: {result.approved_count}</Badge>}
+            </div>
+          </div>
+        )}
+
+        {name === 'get_recent_activity' && result.activities && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Recent Activities:</span>
+              <Badge variant="secondary">{result.activities.length}</Badge>
+            </div>
+          </div>
+        )}
+
+        {name === 'get_bank_statement_stats' && result.statements && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Bank Statements:</span>
+              <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -143,7 +306,7 @@ export default function TallyAI() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">TallyAI Assistant</h1>
         <p className="text-muted-foreground mt-2">
-          Your AI-powered accounting and GST advisor
+          Your intelligent assistant for accounting, GST, and system insights
         </p>
       </div>
 
@@ -190,7 +353,7 @@ export default function TallyAI() {
                 TallyAI Chat
               </CardTitle>
               <CardDescription>
-                Ask questions about accounting, GST, and business finance
+                Ask about your data, accounting, GST, and business insights
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col overflow-hidden">
@@ -201,16 +364,21 @@ export default function TallyAI() {
                     <div>
                       <h3 className="text-lg font-semibold">Welcome to TallyAI</h3>
                       <p className="text-sm text-muted-foreground mt-2">
-                        Ask me anything about accounting, GST, or business finance.
+                        Ask me about your system data, accounting, GST, or business finance.
                         <br />
-                        I provide accurate, CA-level advice without hallucinating data.
+                        I can access real-time data to provide accurate answers.
                       </p>
                     </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <p className="font-semibold">Try asking:</p>
+                    <div className="text-xs text-muted-foreground space-y-1 max-w-md">
+                      <p className="font-semibold flex items-center gap-2 justify-center">
+                        <TrendingUp className="h-3 w-3" />
+                        Try asking:
+                      </p>
+                      <p>"How many invoices were processed today?"</p>
+                      <p>"Who are my recent clients?"</p>
+                      <p>"What's the status of pending approvals?"</p>
+                      <p>"Show me recent document uploads"</p>
                       <p>"What is the GST rate for textile products?"</p>
-                      <p>"How do I calculate input tax credit?"</p>
-                      <p>"What is the difference between CGST and SGST?"</p>
                     </div>
                   </div>
                 ) : (
@@ -235,6 +403,15 @@ export default function TallyAI() {
                           }`}
                         >
                           <p className="whitespace-pre-wrap">{message.content}</p>
+                          {message.role === 'assistant' && message.function_calls && message.function_calls.length > 0 && (
+                            <div className="space-y-2 mt-2">
+                              {message.function_calls.map((fc: any, idx: number) => (
+                                <div key={idx}>
+                                  {renderFunctionCallResult(fc)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         {message.role === 'user' && (
                           <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary flex items-center justify-center">
@@ -262,7 +439,7 @@ export default function TallyAI() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Ask a question about accounting, GST, or business finance..."
+                  placeholder="Ask about your data or general accounting questions..."
                   className="min-h-[60px] max-h-[120px]"
                   disabled={isLoading}
                 />

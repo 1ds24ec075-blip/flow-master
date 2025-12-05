@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Upload, FileText, CheckCircle2, XCircle } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { logActivity } from '@/lib/activityLogger';
 
 interface Transaction {
   date: string;
@@ -106,8 +107,29 @@ export default function BankStatementParser() {
 
       const data = await response.json();
       setResult(data);
+
+      logActivity({
+        activityType: 'parse',
+        entityType: 'bank_statement',
+        status: 'success',
+        metadata: {
+          fileName: fileName || 'pasted_text',
+          transactionCount: data.transactions?.length || 0,
+          matchCount: data.matches?.length || 0
+        }
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to parse bank statement');
+
+      logActivity({
+        activityType: 'parse',
+        entityType: 'bank_statement',
+        status: 'error',
+        metadata: {
+          fileName: fileName || 'pasted_text',
+          error: err.message
+        }
+      });
     } finally {
       setLoading(false);
     }

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Upload, FileText, Loader2, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
+import { logActivity } from "@/lib/activityLogger";
 
 export default function POIntake() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -48,9 +49,24 @@ export default function POIntake() {
       setSelectedFile(null);
       toast.success("File uploaded successfully!");
       queryClient.invalidateQueries({ queryKey: ["po-intake"] });
+
+      logActivity({
+        activityType: 'upload',
+        entityType: 'document',
+        entityId: data.id,
+        status: 'success',
+        metadata: { fileName: selectedFile?.name }
+      });
     },
     onError: (error: any) => {
       toast.error(`Upload failed: ${error.message}`);
+
+      logActivity({
+        activityType: 'upload',
+        entityType: 'document',
+        status: 'error',
+        metadata: { error: error.message, fileName: selectedFile?.name }
+      });
     },
   });
 
@@ -77,6 +93,17 @@ export default function POIntake() {
         toast.success("Extraction completed! Data is shown below.");
       }
       queryClient.invalidateQueries({ queryKey: ["po-intake", currentPoId] });
+
+      logActivity({
+        activityType: 'extract',
+        entityType: 'po',
+        entityId: data.purchase_order_id,
+        status: 'success',
+        metadata: {
+          poNumber: data.extracted_data?.po_number,
+          clientName: data.extracted_data?.client_name
+        }
+      });
     },
     onError: (error: any) => {
       console.error("Full extraction error:", error);
@@ -84,6 +111,14 @@ export default function POIntake() {
       toast.error(`Extraction failed: ${errorMessage}`, {
         duration: 10000,
         description: "Check browser console for detailed error logs"
+      });
+
+      logActivity({
+        activityType: 'extract',
+        entityType: 'document',
+        entityId: currentPoId || undefined,
+        status: 'error',
+        metadata: { error: errorMessage }
       });
     },
   });
