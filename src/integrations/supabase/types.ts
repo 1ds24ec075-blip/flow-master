@@ -47,6 +47,77 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_statements: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          file_name: string
+          id: string
+          parsed_data: Json | null
+          processed_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          file_name: string
+          id?: string
+          parsed_data?: Json | null
+          processed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          file_name?: string
+          id?: string
+          parsed_data?: Json | null
+          processed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      bank_transactions: {
+        Row: {
+          amount: number | null
+          created_at: string
+          description: string | null
+          id: string
+          statement_id: string
+          transaction_date: string | null
+          transaction_type: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          statement_id: string
+          transaction_date?: string | null
+          transaction_type?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          statement_id?: string
+          transaction_date?: string | null
+          transaction_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_transactions_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_invoices: {
         Row: {
           amount: number | null
@@ -142,6 +213,38 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      expense_matches: {
+        Row: {
+          created_at: string
+          expense_name: string
+          id: string
+          matched_amount: number | null
+          transaction_id: string
+        }
+        Insert: {
+          created_at?: string
+          expense_name: string
+          id?: string
+          matched_amount?: number | null
+          transaction_id: string
+        }
+        Update: {
+          created_at?: string
+          expense_name?: string
+          id?: string
+          matched_amount?: number | null
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_matches_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       po_intake_documents: {
         Row: {
