@@ -210,7 +210,7 @@ Deno.serve(async (req: Request) => {
         .from('bank_statements')
         .update({
           status: 'failed',
-          error_message: processingError.message,
+          error_message: processingError instanceof Error ? processingError.message : 'Unknown error',
           processed_at: new Date().toISOString(),
         })
         .eq('id', statement.id);
@@ -220,7 +220,7 @@ Deno.serve(async (req: Request) => {
   } catch (error) {
     console.error('Error in bank-statement-parser:', error);
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Internal server error' }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

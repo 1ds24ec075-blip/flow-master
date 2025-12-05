@@ -1,5 +1,3 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -105,7 +103,7 @@ Deno.serve(async (req: Request) => {
       model: requestBody.model,
       message_role: requestBody.messages[0].role,
       content_types: requestBody.messages[0].content.map((c: any) => c.type),
-      image_url_format: requestBody.messages[0].content[1].image_url.url.substring(0, 50)
+      image_url_format: (requestBody.messages[0].content[1] as any)?.image_url?.url?.substring(0, 50) || ''
     }));
 
     const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
