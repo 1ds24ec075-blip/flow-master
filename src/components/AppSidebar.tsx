@@ -11,6 +11,8 @@ import {
   ScanLine,
   Bot,
   Landmark,
+  Camera,
+  TrendingDown,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -39,6 +41,8 @@ const navigationItems = [
   { title: "PO Intake", url: "/po-intake", icon: ScanLine },
   { title: "TallyAI Assistant", url: "/tally-ai", icon: Bot },
   { title: "Bank Statement Parser", url: "/bank-statement-parser", icon: Landmark },
+  { title: "Bills", url: "/bills", icon: Camera },
+  { title: "Expenses", url: "/expenses", icon: TrendingDown },
 ];
 
 export function AppSidebar() {
