@@ -79,7 +79,14 @@ export default function TallyAI() {
       }
 
       if (data) {
-        setMessages(data);
+        const typedMessages: Message[] = data.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          function_calls: m.function_calls,
+          created_at: m.created_at
+        }));
+        setMessages(typedMessages);
       }
     } catch (error) {
       console.error('Error loading messages:', error);
@@ -110,7 +117,7 @@ export default function TallyAI() {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
       const response = await fetch(`${supabaseUrl}/functions/v1/tally-ai-chat`, {
         method: 'POST',
@@ -294,6 +301,37 @@ export default function TallyAI() {
             <div className="flex justify-between">
               <span className="text-muted-foreground">Bank Statements:</span>
               <Badge variant="secondary">{result.total_count}</Badge>
+            </div>
+          </div>
+        )}
+
+        {name === 'get_system_summary' && result.entities && (
+          <div className="space-y-1 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Clients:</span>
+                <Badge variant="secondary">{result.entities.clients}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Suppliers:</span>
+                <Badge variant="secondary">{result.entities.suppliers}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Client Invoices:</span>
+                <Badge variant="secondary">{result.entities.client_invoices}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">POs:</span>
+                <Badge variant="secondary">{result.entities.purchase_orders}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Documents:</span>
+                <Badge variant="secondary">{result.entities.documents}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Approvals:</span>
+                <Badge variant="secondary">{result.entities.approvals}</Badge>
+              </div>
             </div>
           </div>
         )}
