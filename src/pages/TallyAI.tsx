@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Bot, User, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   id: string;
@@ -29,16 +28,6 @@ export default function TallyAI() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadConversations();
-  }, []);
-
-  useEffect(() => {
-    if (currentConversationId) {
-      loadMessages(currentConversationId);
-    }
-  }, [currentConversationId]);
-
-  useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
@@ -48,44 +37,15 @@ export default function TallyAI() {
     }
   };
 
-  const loadConversations = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tally_ai_conversations')
-        .select('*')
-        .order('updated_at', { ascending: false })
-        .limit(10);
-
-      if (!error && data) {
-        setConversations(data);
-      } else if (error) {
-        console.error('Error loading conversations:', error);
-      }
-    } catch (err) {
-      console.error('Failed to load conversations:', err);
-    }
-  };
-
-  const loadMessages = async (conversationId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('tally_ai_messages')
-        .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-      if (!error && data) {
-        setMessages(data);
-      } else if (error) {
-        console.error('Error loading messages:', error);
-      }
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  };
-
   const startNewConversation = () => {
-    setCurrentConversationId(null);
+    const newConv: Conversation = {
+      id: crypto.randomUUID(),
+      title: 'New Conversation',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setConversations(prev => [newConv, ...prev]);
+    setCurrentConversationId(newConv.id);
     setMessages([]);
     setInput("");
   };
@@ -97,8 +57,22 @@ export default function TallyAI() {
     setInput("");
     setIsLoading(true);
 
+    // Create conversation if none exists
+    let convId = currentConversationId;
+    if (!convId) {
+      const newConv: Conversation = {
+        id: crypto.randomUUID(),
+        title: userMessage.substring(0, 30) + (userMessage.length > 30 ? '...' : ''),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setConversations(prev => [newConv, ...prev]);
+      setCurrentConversationId(newConv.id);
+      convId = newConv.id;
+    }
+
     const tempUserMessage: Message = {
-      id: 'temp-user',
+      id: crypto.randomUUID(),
       role: 'user',
       content: userMessage,
       created_at: new Date().toISOString(),
@@ -108,17 +82,17 @@ export default function TallyAI() {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
       const response = await fetch(`${supabaseUrl}/functions/v1/tally-ai-chat`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'Authorization': `Bearer ${supabaseKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message: userMessage,
-          conversationId: currentConversationId,
+          conversationId: convId,
         }),
       });
 
@@ -128,22 +102,24 @@ export default function TallyAI() {
 
       const result = await response.json();
 
-      if (!currentConversationId) {
-        setCurrentConversationId(result.conversationId);
-        await loadConversations();
-      }
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: result.response || result.message || 'Sorry, I could not generate a response.',
+        created_at: new Date().toISOString(),
+      };
 
-      await loadMessages(result.conversationId);
+      setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error sending message:', error);
       const errorDetails = error instanceof Error ? error.message : 'Unknown error';
       const errorMessage: Message = {
-        id: 'temp-error',
+        id: crypto.randomUUID(),
         role: 'assistant',
-        content: `Sorry, I encountered an error: ${errorDetails}. Please refresh the page and try again.`,
+        content: `Sorry, I encountered an error: ${errorDetails}. Please try again.`,
         created_at: new Date().toISOString(),
       };
-      setMessages(prev => [...prev.filter(m => m.id !== 'temp-user'), errorMessage]);
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -154,6 +130,12 @@ export default function TallyAI() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  const selectConversation = (conv: Conversation) => {
+    setCurrentConversationId(conv.id);
+    // Messages are stored locally per session, so selecting clears for demo
+    setMessages([]);
   };
 
   return (
@@ -185,7 +167,7 @@ export default function TallyAI() {
                   {conversations.map((conv) => (
                     <Button
                       key={conv.id}
-                      onClick={() => setCurrentConversationId(conv.id)}
+                      onClick={() => selectConversation(conv)}
                       variant={currentConversationId === conv.id ? "secondary" : "ghost"}
                       className="w-full justify-start text-left"
                     >

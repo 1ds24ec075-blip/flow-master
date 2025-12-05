@@ -18,3 +18,9 @@ verify_jwt = false
 
 [functions.po-generate-tally]
 verify_jwt = false
+
+[functions.bank-statement-parser]
+verify_jwt = false
+
+[functions.tally-ai-chat]
+verify_jwt = false
