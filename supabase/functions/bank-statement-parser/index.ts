@@ -92,11 +92,11 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { statementText, expenses, fileName } = await req.json();
+    const { statementText, pdfBase64, expenses, fileName } = await req.json();
 
-    if (!statementText || typeof statementText !== 'string') {
+    if (!statementText && !pdfBase64) {
       return new Response(
-        JSON.stringify({ error: 'statementText is required' }),
+        JSON.stringify({ error: 'statementText or pdfBase64 is required' }),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -120,6 +120,37 @@ Deno.serve(async (req: Request) => {
     if (statementError) throw statementError;
 
     try {
+      let messages: any[];
+
+      if (pdfBase64) {
+        // Handle PDF using vision model
+        console.log('Processing PDF with vision model');
+        messages = [
+          { role: 'system', content: EXTRACTION_PROMPT },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Extract all transactions from this bank statement PDF. Follow the extraction rules strictly.',
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: pdfBase64,
+                },
+              },
+            ],
+          },
+        ];
+      } else {
+        // Handle text
+        messages = [
+          { role: 'system', content: EXTRACTION_PROMPT },
+          { role: 'user', content: statementText },
+        ];
+      }
+
       const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -128,10 +159,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: EXTRACTION_PROMPT },
-            { role: 'user', content: statementText },
-          ],
+          messages,
           temperature: 0,
           response_format: { type: 'json_object' },
         }),

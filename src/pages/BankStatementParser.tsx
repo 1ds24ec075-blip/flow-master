@@ -34,25 +34,39 @@ export default function BankStatementParser() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [error, setError] = useState('');
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [isPdf, setIsPdf] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
+    const isPdfFile = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    setIsPdf(isPdfFile);
+
     const reader = new FileReader();
 
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setStatementText(text);
-    };
-
-    reader.readAsText(file);
+    if (isPdfFile) {
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setPdfBase64(base64);
+        setStatementText(''); // Clear text when PDF is uploaded
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        setStatementText(text);
+        setPdfBase64(null);
+      };
+      reader.readAsText(file);
+    }
   };
 
   const handleParse = async () => {
-    if (!statementText.trim()) {
-      setError('Please provide bank statement text');
+    if (!statementText.trim() && !pdfBase64) {
+      setError('Please provide bank statement text or upload a PDF');
       return;
     }
 
@@ -78,7 +92,8 @@ export default function BankStatementParser() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          statementText,
+          statementText: isPdf ? '' : statementText,
+          pdfBase64: isPdf ? pdfBase64 : null,
           expenses,
           fileName: fileName || 'uploaded_statement.txt',
         }),
@@ -133,14 +148,19 @@ export default function BankStatementParser() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="file-upload">Upload File (TXT)</Label>
+              <Label htmlFor="file-upload">Upload File (PDF, TXT, CSV)</Label>
               <Input
                 id="file-upload"
                 type="file"
-                accept=".txt,.csv"
+                accept=".pdf,.txt,.csv"
                 onChange={handleFileUpload}
                 disabled={loading}
               />
+              {isPdf && pdfBase64 && (
+                <p className="text-sm text-muted-foreground">
+                  PDF uploaded: {fileName} - AI will extract transactions from the document
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -172,7 +192,7 @@ export default function BankStatementParser() {
 
             <Button
               onClick={handleParse}
-              disabled={loading || !statementText.trim()}
+              disabled={loading || (!statementText.trim() && !pdfBase64)}
               className="w-full"
             >
               {loading ? (
