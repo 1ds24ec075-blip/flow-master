@@ -148,6 +148,65 @@ export type Database = {
           },
         ]
       }
+      bills: {
+        Row: {
+          bill_date: string | null
+          bill_number: string | null
+          category_id: string | null
+          created_at: string
+          extraction_confidence: number | null
+          id: string
+          image_url: string | null
+          is_verified: boolean | null
+          payment_status: string
+          total_amount: number
+          updated_at: string
+          vendor_gst: string | null
+          vendor_name: string
+          verified_at: string | null
+        }
+        Insert: {
+          bill_date?: string | null
+          bill_number?: string | null
+          category_id?: string | null
+          created_at?: string
+          extraction_confidence?: number | null
+          id?: string
+          image_url?: string | null
+          is_verified?: boolean | null
+          payment_status?: string
+          total_amount?: number
+          updated_at?: string
+          vendor_gst?: string | null
+          vendor_name: string
+          verified_at?: string | null
+        }
+        Update: {
+          bill_date?: string | null
+          bill_number?: string | null
+          category_id?: string | null
+          created_at?: string
+          extraction_confidence?: number | null
+          id?: string
+          image_url?: string | null
+          is_verified?: boolean | null
+          payment_status?: string
+          total_amount?: number
+          updated_at?: string
+          vendor_gst?: string | null
+          vendor_name?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bills_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_invoices: {
         Row: {
           amount: number | null
@@ -261,6 +320,36 @@ export type Database = {
           created_at?: string
           id?: string
           title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      expense_categories: {
+        Row: {
+          color: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
           updated_at?: string
         }
         Relationships: []
