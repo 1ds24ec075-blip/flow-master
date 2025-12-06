@@ -18,6 +18,7 @@ import TallyAI from "./pages/TallyAI";
 import BankStatementParser from "./pages/BankStatementParser";
 import Bills from "./pages/Bills";
 import Expenses from "./pages/Expenses";
+import GmailIntegration from "./pages/GmailIntegration";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
           <Route path="/bank-statement-parser" element={<Layout><BankStatementParser /></Layout>} />
           <Route path="/bills" element={<Layout><Bills /></Layout>} />
           <Route path="/expenses" element={<Layout><Expenses /></Layout>} />
+          <Route path="/gmail-integration" element={<Layout><GmailIntegration /></Layout>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

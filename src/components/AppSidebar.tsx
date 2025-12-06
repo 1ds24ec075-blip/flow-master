@@ -13,6 +13,7 @@ import {
   Landmark,
   Camera,
   TrendingDown,
+  Mail,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -43,6 +44,7 @@ const navigationItems = [
   { title: "Bank Statement Parser", url: "/bank-statement-parser", icon: Landmark },
   { title: "Bills", url: "/bills", icon: Camera },
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
+  { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
 ];
 
 export function AppSidebar() {
