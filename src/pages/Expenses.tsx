@@ -22,6 +22,9 @@ import {
   Edit,
   Save,
   X,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Table,
@@ -32,7 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -114,6 +117,34 @@ export default function Expenses() {
     },
   });
 
+  const previousMonth = format(
+    subMonths(new Date(selectedMonth + "-01"), 1),
+    "yyyy-MM"
+  );
+
+  const { data: previousBills } = useQuery({
+    queryKey: ["expenses", previousMonth],
+    queryFn: async () => {
+      const startDate = startOfMonth(new Date(previousMonth + "-01"));
+      const endDate = endOfMonth(new Date(previousMonth + "-01"));
+
+      const { data, error } = await supabase
+        .from("bills" as any)
+        .select(
+          `
+          *,
+          expense_categories(name, color)
+        `
+        )
+        .gte("bill_date", format(startDate, "yyyy-MM-dd"))
+        .lte("bill_date", format(endDate, "yyyy-MM-dd"))
+        .order("bill_date", { ascending: false });
+
+      if (error) throw error;
+      return data as unknown as Bill[];
+    },
+  });
+
   const updateBillMutation = useMutation({
     mutationFn: async ({
       billId,
@@ -153,6 +184,32 @@ export default function Expenses() {
         count: bills.length,
       }
     : { total: 0, paid: 0, pending: 0, count: 0 };
+
+  const previousStats = previousBills
+    ? {
+        total: previousBills.reduce((sum, bill) => sum + bill.total_amount, 0),
+        paid: previousBills.filter((b) => b.payment_status === "paid").length,
+        pending: previousBills.filter((b) => b.payment_status === "pending")
+          .length,
+        count: previousBills.length,
+      }
+    : { total: 0, paid: 0, pending: 0, count: 0 };
+
+  const handlePreviousMonth = () => {
+    const newDate = subMonths(new Date(selectedMonth + "-01"), 1);
+    setSelectedMonth(format(newDate, "yyyy-MM"));
+  };
+
+  const handleNextMonth = () => {
+    const newDate = addMonths(new Date(selectedMonth + "-01"), 1);
+    const today = new Date();
+    if (newDate <= today) {
+      setSelectedMonth(format(newDate, "yyyy-MM"));
+    }
+  };
+
+  const isCurrentMonth =
+    selectedMonth === format(new Date(), "yyyy-MM");
 
   const categoryStats: CategoryStats[] = bills
     ? Object.values(
@@ -207,14 +264,33 @@ export default function Expenses() {
             Monitor and categorize your business expenses
           </p>
         </div>
-        <div className="w-48">
-          <Label>Select Month</Label>
-          <Input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="mt-1"
-          />
+        <div className="flex items-end gap-2">
+          <div>
+            <Label>Select Month</Label>
+            <div className="flex gap-1 mt-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handlePreviousMonth}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-44"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleNextMonth}
+                disabled={isCurrentMonth}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -233,6 +309,21 @@ export default function Expenses() {
             <p className="text-xs text-muted-foreground">
               {stats.count} bills this month
             </p>
+            {previousStats.total > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <ArrowUpDown className="h-3 w-3" />
+                <span className={`text-xs ${
+                  stats.total > previousStats.total
+                    ? "text-red-500"
+                    : stats.total < previousStats.total
+                    ? "text-green-500"
+                    : "text-muted-foreground"
+                }`}>
+                  {stats.total > previousStats.total ? "+" : ""}
+                  {((stats.total - previousStats.total) / previousStats.total * 100).toFixed(1)}% vs prev month
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -246,6 +337,13 @@ export default function Expenses() {
             <p className="text-xs text-muted-foreground">
               {((stats.paid / (stats.count || 1)) * 100).toFixed(0)}% of total
             </p>
+            {previousStats.paid > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-xs text-muted-foreground">
+                  {previousStats.paid} paid last month
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -261,6 +359,13 @@ export default function Expenses() {
             <p className="text-xs text-muted-foreground">
               Requires attention
             </p>
+            {previousStats.pending > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-xs text-muted-foreground">
+                  {previousStats.pending} pending last month
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -276,6 +381,13 @@ export default function Expenses() {
               ₹{(stats.total / (stats.count || 1)).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
             </div>
             <p className="text-xs text-muted-foreground">Average expense</p>
+            {previousStats.total > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-xs text-muted-foreground">
+                  ₹{(previousStats.total / (previousStats.count || 1)).toLocaleString("en-IN", { maximumFractionDigits: 0 })} avg last month
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -332,7 +444,104 @@ export default function Expenses() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Expenses</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            <span>Previous Month Comparison</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              {format(new Date(previousMonth + "-01"), "MMMM yyyy")}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {previousBills && previousBills.length > 0 ? (
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Total Expenses</p>
+                  <p className="text-2xl font-bold">
+                    ₹{previousStats.total.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Bills Count</p>
+                  <p className="text-2xl font-bold">{previousStats.count}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Payment Status</p>
+                  <div className="flex gap-2 items-center">
+                    <Badge variant="default">{previousStats.paid} Paid</Badge>
+                    <Badge variant="secondary">{previousStats.pending} Pending</Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Vendor</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previousBills.slice(0, 5).map((bill) => (
+                      <TableRow key={bill.id}>
+                        <TableCell>
+                          {format(new Date(bill.bill_date), "dd MMM yyyy")}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {bill.vendor_name}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            style={{
+                              backgroundColor:
+                                bill.expense_categories?.color || "#6b7280",
+                            }}
+                          >
+                            {bill.expense_categories?.name || "Uncategorized"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              bill.payment_status === "paid"
+                                ? "default"
+                                : bill.payment_status === "pending"
+                                ? "secondary"
+                                : "destructive"
+                            }
+                          >
+                            {bill.payment_status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ₹{bill.total_amount.toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {previousBills.length > 5 && (
+                <p className="text-sm text-muted-foreground text-center">
+                  Showing 5 of {previousBills.length} bills from previous month
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No expenses recorded in previous month
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Expenses - {format(new Date(selectedMonth + "-01"), "MMMM yyyy")}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
