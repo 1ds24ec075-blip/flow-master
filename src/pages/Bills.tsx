@@ -49,12 +49,12 @@ export default function Bills() {
     queryKey: ["bills"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("bills")
+        .from("bills" as any)
         .select("*")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data as Bill[];
+      return data as unknown as Bill[];
     },
   });
 
@@ -64,25 +64,26 @@ export default function Bills() {
       const filePath = fileName;
 
       const { error: uploadError } = await supabase.storage
-        .from("bills")
+        .from("bills" as any)
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
       const { data: bill, error: insertError } = await supabase
-        .from("bills")
+        .from("bills" as any)
         .insert({
           image_url: filePath,
           vendor_name: "Processing...",
           payment_status: "pending",
-        })
+        } as any)
         .select()
         .single();
 
       if (insertError) throw insertError;
 
+      const billData = bill as unknown as { id: string };
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
       const extractResponse = await fetch(
         `${supabaseUrl}/functions/v1/bill-extract`,
@@ -92,7 +93,7 @@ export default function Bills() {
             Authorization: `Bearer ${supabaseKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ billId: bill.id }),
+          body: JSON.stringify({ billId: billData.id }),
         }
       );
 
@@ -117,10 +118,10 @@ export default function Bills() {
     mutationFn: async (billId: string) => {
       const bill = bills?.find((b) => b.id === billId);
       if (bill?.image_url) {
-        await supabase.storage.from("bills").remove([bill.image_url]);
+        await supabase.storage.from("bills" as any).remove([bill.image_url]);
       }
 
-      const { error } = await supabase.from("bills").delete().eq("id", billId);
+      const { error } = await supabase.from("bills" as any).delete().eq("id", billId);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -135,11 +136,11 @@ export default function Bills() {
   const verifyMutation = useMutation({
     mutationFn: async (billId: string) => {
       const { error } = await supabase
-        .from("bills")
+        .from("bills" as any)
         .update({
           is_verified: true,
           verified_at: new Date().toISOString(),
-        })
+        } as any)
         .eq("id", billId);
 
       if (error) throw error;

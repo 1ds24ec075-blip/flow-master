@@ -81,13 +81,13 @@ export default function Expenses() {
     queryKey: ["expense-categories"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("expense_categories")
+        .from("expense_categories" as any)
         .select("*")
         .eq("is_active", true)
         .order("name");
 
       if (error) throw error;
-      return data as ExpenseCategory[];
+      return data as unknown as ExpenseCategory[];
     },
   });
 
@@ -98,7 +98,7 @@ export default function Expenses() {
       const endDate = endOfMonth(new Date(selectedMonth + "-01"));
 
       const { data, error } = await supabase
-        .from("bills")
+        .from("bills" as any)
         .select(
           `
           *,
@@ -110,7 +110,7 @@ export default function Expenses() {
         .order("bill_date", { ascending: false });
 
       if (error) throw error;
-      return data as Bill[];
+      return data as unknown as Bill[];
     },
   });
 
@@ -129,7 +129,7 @@ export default function Expenses() {
       if (paymentStatus) updates.payment_status = paymentStatus;
 
       const { error } = await supabase
-        .from("bills")
+        .from("bills" as any)
         .update(updates)
         .eq("id", billId);
 
