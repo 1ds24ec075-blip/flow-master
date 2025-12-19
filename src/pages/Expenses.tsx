@@ -108,6 +108,7 @@ export default function Expenses() {
           expense_categories(name, color)
         `
         )
+        .eq("is_verified", true)
         .gte("bill_date", format(startDate, "yyyy-MM-dd"))
         .lte("bill_date", format(endDate, "yyyy-MM-dd"))
         .order("bill_date", { ascending: false });
@@ -136,6 +137,7 @@ export default function Expenses() {
           expense_categories(name, color)
         `
         )
+        .eq("is_verified", true)
         .gte("bill_date", format(startDate, "yyyy-MM-dd"))
         .lte("bill_date", format(endDate, "yyyy-MM-dd"))
         .order("bill_date", { ascending: false });
