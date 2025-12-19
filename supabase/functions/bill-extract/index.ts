@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -23,24 +25,22 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
 
     console.log('Environment check:', {
       hasSupabaseUrl: !!supabaseUrl,
       hasSupabaseKey: !!supabaseKey,
-      hasOpenAIKey: !!openaiApiKey,
-      openaiKeyPrefix: openaiApiKey ? openaiApiKey.substring(0, 7) : 'MISSING'
+      hasLovableApiKey: !!lovableApiKey,
     });
 
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY is not configured in Supabase secrets. Please add it via: Supabase Dashboard > Edge Functions > Secrets');
+    if (!lovableApiKey) {
+      throw new Error('LOVABLE_API_KEY is not configured');
     }
 
     if (!supabaseUrl || !supabaseKey) {
       throw new Error('Supabase credentials are missing');
     }
 
-    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Extracting Bill:', billId);
@@ -77,56 +77,85 @@ Deno.serve(async (req: Request) => {
     const imageUrl = `data:${fileType};base64,${base64}`;
 
     console.log('Image encoded, base64 length:', base64.length, 'characters');
-    console.log('Running extraction with OpenAI GPT-4o Mini...');
+    console.log('Running extraction with Lovable AI (Gemini Flash)...');
 
-    const requestBody = {
-        model: 'gpt-4o-mini',
+    const extractionPrompt = `You are a bill/receipt extraction expert. Analyze this bill or receipt image and extract ALL information with high precision.
+
+Extract the following fields and return as valid JSON:
+{
+  "bill_number": "bill/invoice/receipt number",
+  "vendor_name": "merchant or vendor name",
+  "vendor_gst": "GST number if available",
+  "bill_date": "date of bill in YYYY-MM-DD format",
+  "subtotal": 0,
+  "tax_amount": 0,
+  "total_amount": 0,
+  "currency": "INR",
+  "payment_method": "cash/card/upi/etc",
+  "items": [
+    {
+      "item_description": "item name",
+      "quantity": 1,
+      "unit_price": 0,
+      "tax_rate": 0,
+      "amount": 0
+    }
+  ],
+  "notes": "any additional information",
+  "confidence": 95
+}
+
+CRITICAL INSTRUCTIONS:
+- Extract ALL line items from the bill (do not skip any)
+- For Indian formats: handle lakhs (L), crores (Cr) notation and convert to numbers
+- Parse dates in DD/MM/YYYY, DD-MM-YYYY, or other formats and convert to YYYY-MM-DD
+- Extract GST/tax information accurately
+- Calculate amounts if not explicitly stated
+- For subtotal: sum of all item amounts before tax
+- For tax_amount: total GST/tax amount
+- For total_amount: final payable amount
+- If payment method is visible (cash/card/UPI), extract it
+- If a field is not found or unclear, use null
+- Confidence score: your overall confidence in the extraction (0-100)
+- Return ONLY valid JSON, no markdown formatting, no explanation
+
+Be extremely accurate with numbers, dates, and item details.`;
+
+    const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${lovableApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
         messages: [{
           role: 'user',
           content: [
-            {
-              type: 'text',
-              text: `You are a bill/receipt extraction expert. Analyze this bill or receipt image and extract ALL information with high precision.\n\nExtract the following fields and return as valid JSON:\n{\n  \"bill_number\": \"bill/invoice/receipt number\",\n  \"vendor_name\": \"merchant or vendor name\",\n  \"vendor_gst\": \"GST number if available\",\n  \"bill_date\": \"date of bill in YYYY-MM-DD format\",\n  \"subtotal\": 0,\n  \"tax_amount\": 0,\n  \"total_amount\": 0,\n  \"currency\": \"INR\",\n  \"payment_method\": \"cash/card/upi/etc\",\n  \"items\": [\n    {\n      \"item_description\": \"item name\",\n      \"quantity\": 1,\n      \"unit_price\": 0,\n      \"tax_rate\": 0,\n      \"amount\": 0\n    }\n  ],\n  \"notes\": \"any additional information\",\n  \"confidence\": 95\n}\n\nCRITICAL INSTRUCTIONS:\n- Extract ALL line items from the bill (do not skip any)\n- For Indian formats: handle lakhs (L), crores (Cr) notation and convert to numbers\n- Parse dates in DD/MM/YYYY, DD-MM-YYYY, or other formats and convert to YYYY-MM-DD\n- Extract GST/tax information accurately\n- Calculate amounts if not explicitly stated\n- For subtotal: sum of all item amounts before tax\n- For tax_amount: total GST/tax amount\n- For total_amount: final payable amount\n- If payment method is visible (cash/card/UPI), extract it\n- If a field is not found or unclear, use null\n- Confidence score: your overall confidence in the extraction (0-100)\n- Return ONLY valid JSON, no markdown formatting, no explanation\n\nBe extremely accurate with numbers, dates, and item details.`
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: imageUrl
-              }
-            }
+            { type: 'text', text: extractionPrompt },
+            { type: 'image_url', image_url: { url: imageUrl } }
           ]
         }],
-        temperature: 0.1,
-        max_tokens: 2048,
-        response_format: { type: "json_object" }
-      };
-
-    console.log('Making OpenAI API request...');
-
-    const extractResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
+      }),
     });
 
-    console.log('OpenAI response status:', extractResponse.status, extractResponse.statusText);
+    console.log('Lovable AI response status:', extractResponse.status, extractResponse.statusText);
 
     if (!extractResponse.ok) {
       const errorText = await extractResponse.text();
-      console.error('OpenAI API error response:', errorText);
-      throw new Error(`OpenAI API returned ${extractResponse.status}: ${errorText}`);
+      console.error('Lovable AI error response:', errorText);
+      
+      if (extractResponse.status === 429) {
+        throw new Error('Rate limit exceeded. Please try again later.');
+      }
+      if (extractResponse.status === 402) {
+        throw new Error('API credits exhausted. Please add credits to continue.');
+      }
+      throw new Error(`Lovable AI returned ${extractResponse.status}: ${errorText}`);
     }
 
     const extractData = await extractResponse.json();
-    console.log('OpenAI response received, has choices:', !!extractData.choices);
-
-    if (extractData.error) {
-      console.error('OpenAI API error:', extractData.error);
-      throw new Error(`Extraction failed: ${extractData.error.message || JSON.stringify(extractData.error)}`);
-    }
+    console.log('Lovable AI response received');
 
     let structuredData = extractData.choices?.[0]?.message?.content || '{}';
     structuredData = structuredData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -150,12 +179,7 @@ Deno.serve(async (req: Request) => {
         vendor_name: extracted.vendor_name || bill.vendor_name,
         vendor_gst: extracted.vendor_gst || bill.vendor_gst,
         bill_date: extracted.bill_date || bill.bill_date,
-        subtotal: extracted.subtotal || 0,
-        tax_amount: extracted.tax_amount || 0,
         total_amount: extracted.total_amount || 0,
-        currency: extracted.currency || 'INR',
-        payment_method: extracted.payment_method || bill.payment_method,
-        description: extracted.notes || bill.description,
         extraction_confidence: extracted.confidence || 0,
       })
       .eq('id', billId)

@@ -1,3 +1,6 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { google } from "https://esm.sh/googleapis@128";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -94,7 +97,6 @@ async function processAttachments(
             image_url: fileName,
             vendor_name: 'Processing from Gmail...',
             payment_status: 'pending',
-            email_source_id: processedEmailId,
           })
           .select()
           .single();
@@ -142,9 +144,11 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  let requestBody: { integrationId?: string } = {};
+
   try {
-    const body = await req.json();
-    const { integrationId } = body;
+    requestBody = await req.json();
+    const { integrationId } = requestBody;
 
     if (!integrationId) {
       throw new Error('integrationId is required');
@@ -157,7 +161,6 @@ Deno.serve(async (req: Request) => {
       throw new Error('Supabase credentials are missing');
     }
 
-    const { createClient } = await import('npm:@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { data: integration, error: integrationError } = await supabase
@@ -173,7 +176,6 @@ Deno.serve(async (req: Request) => {
       throw new Error('No access token available');
     }
 
-    const { google } = await import('npm:googleapis@128');
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({
       access_token: integration.access_token,
@@ -292,11 +294,10 @@ Deno.serve(async (req: Request) => {
   } catch (error) {
     console.error('Error in gmail-sync:', error);
 
-    if (body?.integrationId) {
+    if (requestBody?.integrationId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL');
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
       if (supabaseUrl && supabaseKey) {
-        const { createClient } = await import('npm:@supabase/supabase-js@2');
         const supabase = createClient(supabaseUrl, supabaseKey);
         await supabase
           .from('gmail_integrations')
@@ -304,7 +305,7 @@ Deno.serve(async (req: Request) => {
             sync_status: 'error',
             error_message: error instanceof Error ? error.message : 'Unknown error',
           })
-          .eq('id', body.integrationId);
+          .eq('id', requestBody.integrationId);
       }
     }
 
