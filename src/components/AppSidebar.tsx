@@ -30,7 +30,8 @@ import {
 } from "@/components/ui/sidebar";
 
 const navigationItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Talligence", url: "/", icon: LayoutDashboard },
+  { title: "Ask AI", url: "/tally-ai", icon: Bot },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Suppliers", url: "/suppliers", icon: Package },
   { title: "Quotations", url: "/quotations", icon: FileText },
@@ -40,7 +41,6 @@ const navigationItems = [
   { title: "Approvals", url: "/approvals", icon: CheckCircle },
   { title: "Tally Upload", url: "/tally-upload", icon: Upload },
   { title: "PO Intake", url: "/po-intake", icon: ScanLine },
-  { title: "TallyAI Assistant", url: "/tally-ai", icon: Bot },
   { title: "Bank Statement Parser", url: "/bank-statement-parser", icon: Landmark },
   { title: "Bills", url: "/bills", icon: Camera },
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
