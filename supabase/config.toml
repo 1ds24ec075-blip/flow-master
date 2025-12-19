@@ -33,3 +33,6 @@ verify_jwt = false
 
 [functions.gmail-webhook]
 verify_jwt = false
+
+[functions.generate-insights]
+verify_jwt = false
