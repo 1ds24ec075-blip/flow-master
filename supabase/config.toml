@@ -24,3 +24,12 @@ verify_jwt = false
 
 [functions.tally-ai-chat]
 verify_jwt = false
+
+[functions.bill-extract]
+verify_jwt = false
+
+[functions.gmail-sync]
+verify_jwt = false
+
+[functions.gmail-webhook]
+verify_jwt = false

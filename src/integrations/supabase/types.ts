@@ -354,6 +354,47 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_line_items: {
+        Row: {
+          amount: number | null
+          bill_id: string | null
+          created_at: string | null
+          id: string
+          item_description: string | null
+          quantity: number | null
+          tax_rate: number | null
+          unit_price: number | null
+        }
+        Insert: {
+          amount?: number | null
+          bill_id?: string | null
+          created_at?: string | null
+          id?: string
+          item_description?: string | null
+          quantity?: number | null
+          tax_rate?: number | null
+          unit_price?: number | null
+        }
+        Update: {
+          amount?: number | null
+          bill_id?: string | null
+          created_at?: string | null
+          id?: string
+          item_description?: string | null
+          quantity?: number | null
+          tax_rate?: number | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_line_items_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_matches: {
         Row: {
           created_at: string
