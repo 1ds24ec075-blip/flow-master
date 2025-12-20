@@ -150,6 +150,8 @@ export type Database = {
       }
       bills: {
         Row: {
+          bank_transaction_id: string | null
+          bank_verified: boolean | null
           bill_date: string | null
           bill_number: string | null
           category_id: string | null
@@ -164,8 +166,11 @@ export type Database = {
           vendor_gst: string | null
           vendor_name: string
           verified_at: string | null
+          verified_date: string | null
         }
         Insert: {
+          bank_transaction_id?: string | null
+          bank_verified?: boolean | null
           bill_date?: string | null
           bill_number?: string | null
           category_id?: string | null
@@ -180,8 +185,11 @@ export type Database = {
           vendor_gst?: string | null
           vendor_name: string
           verified_at?: string | null
+          verified_date?: string | null
         }
         Update: {
+          bank_transaction_id?: string | null
+          bank_verified?: boolean | null
           bill_date?: string | null
           bill_number?: string | null
           category_id?: string | null
@@ -196,6 +204,7 @@ export type Database = {
           vendor_gst?: string | null
           vendor_name?: string
           verified_at?: string | null
+          verified_date?: string | null
         }
         Relationships: [
           {

@@ -40,43 +40,158 @@ interface Transaction {
   type: 'credit' | 'debit';
 }
 
-interface Expense {
-  amount: number;
-  name: string;
+interface Bill {
+  id: string;
+  vendor_name: string;
+  total_amount: number;
+  bill_date: string;
+  bill_number: string | null;
+  payment_status: string;
 }
 
-interface Match {
-  expense_name: string;
-  amount: number;
-  matched_with: Transaction | null;
+interface VerificationResult {
+  bill_id: string;
+  bill_vendor: string;
+  bill_amount: number;
+  bill_date: string;
+  bill_number: string | null;
+  matched: boolean;
+  matched_transaction: Transaction | null;
+  match_confidence: 'high' | 'medium' | 'low' | null;
+  match_reason: string | null;
 }
 
-function matchTransactions(transactions: Transaction[], expenses: Expense[]): Match[] {
-  const matches: Match[] = [];
+// Fuzzy string matching - Levenshtein distance based similarity
+function stringSimilarity(str1: string, str2: string): number {
+  const s1 = str1.toLowerCase().trim();
+  const s2 = str2.toLowerCase().trim();
+  
+  if (s1 === s2) return 1;
+  if (s1.length === 0 || s2.length === 0) return 0;
+  
+  // Check if one contains the other
+  if (s1.includes(s2) || s2.includes(s1)) return 0.8;
+  
+  // Check word overlap
+  const words1 = s1.split(/\s+/);
+  const words2 = s2.split(/\s+/);
+  const commonWords = words1.filter(w => words2.some(w2 => w2.includes(w) || w.includes(w2)));
+  
+  if (commonWords.length > 0) {
+    return 0.5 + (commonWords.length / Math.max(words1.length, words2.length)) * 0.3;
+  }
+  
+  return 0;
+}
 
-  for (const expense of expenses) {
-    let matchedTransaction: Transaction | null = null;
+// Check date proximity (within N days)
+function datesWithinDays(date1: string, date2: string, days: number): boolean {
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  const diffTime = Math.abs(d2.getTime() - d1.getTime());
+  const diffDays = diffTime / (1000 * 60 * 60 * 24);
+  return diffDays <= days;
+}
 
-    for (const transaction of transactions) {
-      const amountMatch = Math.abs(transaction.amount - expense.amount) < 0.01;
-      const descriptionMatch = transaction.description
-        .toLowerCase()
-        .includes(expense.name.toLowerCase());
+// Match bills with transactions
+function matchBillsWithTransactions(
+  bills: Bill[],
+  transactions: Transaction[]
+): VerificationResult[] {
+  const results: VerificationResult[] = [];
+  const usedTransactions = new Set<number>();
 
-      if (amountMatch || descriptionMatch) {
-        matchedTransaction = transaction;
-        break;
+  for (const bill of bills) {
+    let bestMatch: { transaction: Transaction; index: number; confidence: 'high' | 'medium' | 'low'; reason: string } | null = null;
+    let bestScore = 0;
+
+    for (let i = 0; i < transactions.length; i++) {
+      if (usedTransactions.has(i)) continue;
+      
+      const transaction = transactions[i];
+      
+      // Only match with debit transactions (money going out for bills)
+      if (transaction.type !== 'debit') continue;
+      
+      let score = 0;
+      let matchReasons: string[] = [];
+
+      // Amount matching (with ±1 tolerance for rounding)
+      const amountDiff = Math.abs(transaction.amount - bill.total_amount);
+      if (amountDiff < 0.01) {
+        score += 50;
+        matchReasons.push('Exact amount match');
+      } else if (amountDiff <= 1) {
+        score += 40;
+        matchReasons.push('Amount match (±1)');
+      } else if (amountDiff <= bill.total_amount * 0.01) {
+        score += 30;
+        matchReasons.push('Amount within 1%');
+      }
+
+      // Vendor name similarity
+      const nameSimilarity = stringSimilarity(bill.vendor_name, transaction.description);
+      if (nameSimilarity >= 0.8) {
+        score += 30;
+        matchReasons.push('Vendor name match');
+      } else if (nameSimilarity >= 0.5) {
+        score += 15;
+        matchReasons.push('Partial vendor match');
+      }
+
+      // Date proximity (bill date should be close to transaction date)
+      if (bill.bill_date && transaction.date) {
+        if (datesWithinDays(bill.bill_date, transaction.date, 3)) {
+          score += 20;
+          matchReasons.push('Date within 3 days');
+        } else if (datesWithinDays(bill.bill_date, transaction.date, 7)) {
+          score += 10;
+          matchReasons.push('Date within 7 days');
+        }
+      }
+
+      // Update best match if this is better
+      if (score > bestScore && score >= 40) { // Minimum threshold
+        bestScore = score;
+        const confidence = score >= 70 ? 'high' : score >= 50 ? 'medium' : 'low';
+        bestMatch = {
+          transaction,
+          index: i,
+          confidence,
+          reason: matchReasons.join(', ')
+        };
       }
     }
 
-    matches.push({
-      expense_name: expense.name,
-      amount: expense.amount,
-      matched_with: matchedTransaction,
-    });
+    if (bestMatch) {
+      usedTransactions.add(bestMatch.index);
+      results.push({
+        bill_id: bill.id,
+        bill_vendor: bill.vendor_name,
+        bill_amount: bill.total_amount,
+        bill_date: bill.bill_date,
+        bill_number: bill.bill_number,
+        matched: true,
+        matched_transaction: bestMatch.transaction,
+        match_confidence: bestMatch.confidence,
+        match_reason: bestMatch.reason
+      });
+    } else {
+      results.push({
+        bill_id: bill.id,
+        bill_vendor: bill.vendor_name,
+        bill_amount: bill.total_amount,
+        bill_date: bill.bill_date,
+        bill_number: bill.bill_number,
+        matched: false,
+        matched_transaction: null,
+        match_confidence: null,
+        match_reason: null
+      });
+    }
   }
 
-  return matches;
+  return results;
 }
 
 Deno.serve(async (req: Request) => {
@@ -92,7 +207,7 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { statementText, pdfBase64, expenses, fileName } = await req.json();
+    const { statementText, pdfBase64, fileName, month } = await req.json();
 
     if (!statementText && !pdfBase64) {
       return new Response(
@@ -108,6 +223,32 @@ Deno.serve(async (req: Request) => {
       throw new Error('OpenAI API key is not configured');
     }
 
+    console.log('Processing bank statement for month:', month);
+
+    // Fetch bills for the selected month
+    let billsQuery = supabase
+      .from('bills')
+      .select('id, vendor_name, total_amount, bill_date, bill_number, payment_status')
+      .eq('bank_verified', false);
+
+    if (month) {
+      const startDate = new Date(month);
+      const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+      billsQuery = billsQuery
+        .gte('bill_date', startDate.toISOString().split('T')[0])
+        .lte('bill_date', endDate.toISOString().split('T')[0]);
+    }
+
+    const { data: bills, error: billsError } = await billsQuery;
+
+    if (billsError) {
+      console.error('Error fetching bills:', billsError);
+      throw new Error('Failed to fetch bills from database');
+    }
+
+    console.log(`Found ${bills?.length || 0} unverified bills for the period`);
+
+    // Create statement record
     const { data: statement, error: statementError } = await supabase
       .from('bank_statements')
       .insert({
@@ -123,7 +264,6 @@ Deno.serve(async (req: Request) => {
       let messages: any[];
 
       if (pdfBase64) {
-        // Handle PDF using vision model
         console.log('Processing PDF with vision model');
         messages = [
           { role: 'system', content: EXTRACTION_PROMPT },
@@ -144,7 +284,6 @@ Deno.serve(async (req: Request) => {
           },
         ];
       } else {
-        // Handle text
         messages = [
           { role: 'system', content: EXTRACTION_PROMPT },
           { role: 'user', content: statementText },
@@ -180,7 +319,9 @@ Deno.serve(async (req: Request) => {
       }
 
       const transactions: Transaction[] = extractedData.transactions;
+      console.log(`Extracted ${transactions.length} transactions from statement`);
 
+      // Store transactions in database
       for (const transaction of transactions) {
         await supabase.from('bank_transactions').insert({
           statement_id: statement.id,
@@ -191,34 +332,47 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      let matches: Match[] = [];
-      if (expenses && Array.isArray(expenses) && expenses.length > 0) {
-        matches = matchTransactions(transactions, expenses);
+      // Match bills with transactions
+      const verificationResults = matchBillsWithTransactions(bills || [], transactions);
+      
+      // Update matched bills in database
+      const matchedResults = verificationResults.filter(r => r.matched);
+      console.log(`Matched ${matchedResults.length} bills with transactions`);
 
-        for (const match of matches) {
-          if (match.matched_with) {
-            const { data: transactionRecord } = await supabase
-              .from('bank_transactions')
-              .select('id')
-              .eq('statement_id', statement.id)
-              .eq('transaction_date', match.matched_with.date)
-              .eq('amount', match.matched_with.amount)
-              .maybeSingle();
+      for (const result of matchedResults) {
+        // Get the transaction ID from the database
+        const { data: txRecord } = await supabase
+          .from('bank_transactions')
+          .select('id')
+          .eq('statement_id', statement.id)
+          .eq('transaction_date', result.matched_transaction?.date)
+          .eq('amount', result.matched_transaction?.amount)
+          .maybeSingle();
 
-            if (transactionRecord) {
-              await supabase.from('expense_matches').insert({
-                transaction_id: transactionRecord.id,
-                expense_name: match.expense_name,
-                matched_amount: match.amount,
-              });
-            }
-          }
+        if (txRecord) {
+          await supabase
+            .from('bills')
+            .update({
+              bank_verified: true,
+              bank_transaction_id: txRecord.id,
+              verified_date: new Date().toISOString(),
+            })
+            .eq('id', result.bill_id);
         }
       }
 
       const responseData = {
         transactions,
-        matches,
+        verification_results: verificationResults,
+        summary: {
+          total_transactions: transactions.length,
+          total_bills: bills?.length || 0,
+          matched_bills: matchedResults.length,
+          unmatched_bills: verificationResults.filter(r => !r.matched).length,
+          high_confidence_matches: matchedResults.filter(r => r.match_confidence === 'high').length,
+          medium_confidence_matches: matchedResults.filter(r => r.match_confidence === 'medium').length,
+          low_confidence_matches: matchedResults.filter(r => r.match_confidence === 'low').length,
+        }
       };
 
       await supabase
