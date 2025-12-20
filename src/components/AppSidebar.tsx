@@ -15,9 +15,6 @@ import {
   TrendingDown,
   Mail,
   ClipboardList,
-  UserCheck,
-  DollarSign,
-  AlertTriangle,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -37,9 +34,6 @@ const navigationItems = [
   { title: "Talligence", url: "/", icon: LayoutDashboard },
   { title: "Ask AI", url: "/tally-ai", icon: Bot },
   { title: "PO Dashboard", url: "/po-dashboard", icon: ClipboardList },
-  { title: "Customer Master", url: "/customer-master", icon: UserCheck },
-  { title: "Price List", url: "/price-list", icon: DollarSign },
-  { title: "Review", url: "/review", icon: AlertTriangle },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Suppliers", url: "/suppliers", icon: Package },
   { title: "Quotations", url: "/quotations", icon: FileText },
