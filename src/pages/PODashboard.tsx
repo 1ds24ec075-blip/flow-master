@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -55,6 +55,9 @@ import {
   Upload,
   Loader2,
   Code,
+  Clock,
+  CheckCircle2,
+  DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -95,14 +98,6 @@ interface LineItem {
   unit: string;
   unitPrice: number;
 }
-
-const statusColors: Record<string, string> = {
-  pending: "bg-gray-500",
-  processed: "bg-yellow-500",
-  converted: "bg-green-500",
-  duplicate: "bg-red-500",
-  price_mismatch: "bg-orange-500",
-};
 
 export default function PODashboard() {
   const queryClient = useQueryClient();
@@ -266,7 +261,7 @@ export default function PODashboard() {
       toast.success("Sales order email sent successfully!");
       queryClient.invalidateQueries({ queryKey: ["po-orders"] });
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to send email: ${error.message}`);
     },
   });
@@ -331,7 +326,7 @@ export default function PODashboard() {
 
           if (ext.items && ext.items.length > 0) {
             setLineItems(
-              ext.items.map((item: any) => ({
+              ext.items.map((item: { description?: string; quantity?: number; unit?: string; unit_price?: number }) => ({
                 description: item.description || "",
                 quantity: item.quantity || 1,
                 unit: item.unit || "Nos",
@@ -344,8 +339,9 @@ export default function PODashboard() {
         }
       };
       reader.readAsDataURL(file);
-    } catch (error: any) {
-      toast.error(`Extraction failed: ${error.message}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Extraction failed: ${errorMessage}`);
     } finally {
       setIsExtracting(false);
     }
@@ -448,20 +444,56 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
   UrlFetchApp.fetch(EDGE_FUNCTION_URL, options);
 }`;
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return (
+          <Badge variant="outline" className="border-muted-foreground text-muted-foreground">
+            Pending
+          </Badge>
+        );
+      case "processed":
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+            Processed
+          </Badge>
+        );
+      case "converted":
+        return (
+          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+            Converted
+          </Badge>
+        );
+      case "duplicate":
+        return (
+          <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+            Duplicate
+          </Badge>
+        );
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-slate-50 min-h-screen p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">PO Processor</h1>
-          <p className="text-muted-foreground">
-            Purchase Order to Sales Order Converter
-          </p>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-background rounded-xl p-4 shadow-sm border">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
+            <FileText className="h-6 w-6 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-foreground">PO Processor</h1>
+            <p className="text-sm text-muted-foreground">
+              Purchase Order to Sales Order Converter
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="h-4 w-4 mr-2" />
                 Add PO
               </Button>
@@ -710,28 +742,28 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
             </DialogContent>
           </Dialog>
 
-          <Button variant="outline" onClick={() => navigate("/customer-master")}>
+          <Button variant="outline" onClick={() => navigate("/customer-master")} className="bg-background">
             <Users className="h-4 w-4 mr-2" />
             Customers
           </Button>
-          <Button variant="outline" onClick={() => navigate("/price-list")}>
+          <Button variant="outline" onClick={() => navigate("/price-list")} className="bg-background">
             <List className="h-4 w-4 mr-2" />
             Price List
           </Button>
           <Button
             variant="outline"
-            className="relative"
+            className="relative bg-background"
             onClick={() => navigate("/review")}
           >
-            <AlertTriangle className="h-4 w-4 mr-2 text-orange-500" />
+            <AlertTriangle className="h-4 w-4 mr-2" />
             Review
             {priceMismatchCount ? (
-              <Badge className="ml-2 bg-orange-500">{priceMismatchCount}</Badge>
+              <Badge className="ml-2 bg-orange-500 text-white">{priceMismatchCount}</Badge>
             ) : null}
           </Button>
           <Dialog open={showAppsScriptDialog} onOpenChange={setShowAppsScriptDialog}>
             <DialogTrigger asChild>
-              <Button variant="outline">
+              <Button variant="outline" className="bg-background">
                 <Code className="h-4 w-4 mr-2" />
                 Apps Script
               </Button>
@@ -772,69 +804,94 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
               </div>
             </DialogContent>
           </Dialog>
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
+          <Button variant="outline" onClick={() => refetch()} className="bg-background">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
           </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Total Orders</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stats.total}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-background shadow-sm border">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                <FileText className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Orders</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Processed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-yellow-600">{stats.processed}</p>
+        <Card className="bg-background shadow-sm border">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-orange-100 flex items-center justify-center">
+                <Clock className="h-6 w-6 text-orange-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Processed</p>
+                <p className="text-2xl font-bold">{stats.processed}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Converted</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-green-600">{stats.converted}</p>
+        <Card className="bg-background shadow-sm border">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-green-100 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Converted</p>
+                <p className="text-2xl font-bold">{stats.converted}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Total Value</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">₹{stats.totalValue.toLocaleString()}</p>
+        <Card className="bg-background shadow-sm border">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                <DollarSign className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Value</p>
+                <p className="text-2xl font-bold">₹{stats.totalValue.toLocaleString()}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Orders Table */}
-      <Card>
+      <Card className="bg-background shadow-sm border">
+        <CardHeader className="pb-3">
+          <CardTitle>Purchase Orders</CardTitle>
+          <CardDescription>View and manage all processed purchase orders</CardDescription>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground">Loading...</div>
           ) : orders && orders.length > 0 ? (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>PO Number</TableHead>
-                  <TableHead>Vendor</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="font-medium">PO Number</TableHead>
+                  <TableHead className="font-medium">Vendor</TableHead>
+                  <TableHead className="font-medium">Customer</TableHead>
+                  <TableHead className="font-medium">Date</TableHead>
+                  <TableHead className="font-medium">Amount</TableHead>
+                  <TableHead className="font-medium">Status</TableHead>
+                  <TableHead className="font-medium text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orders.map((order) => (
-                  <TableRow key={order.id}>
+                  <TableRow key={order.id} className="hover:bg-muted/30">
                     <TableCell className="font-medium">
                       {order.po_number || "-"}
                     </TableCell>
@@ -842,166 +899,170 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                     <TableCell>{order.customer_name || "-"}</TableCell>
                     <TableCell>
                       {order.order_date
-                        ? new Date(order.order_date).toLocaleDateString()
+                        ? new Date(order.order_date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
                         : "-"}
                     </TableCell>
                     <TableCell>
-                      {order.currency} {order.total_amount?.toLocaleString() || "0"}
+                      ₹{order.total_amount?.toLocaleString() || "0"}
                     </TableCell>
                     <TableCell>
-                      <Badge className={statusColors[order.status]}>
-                        {order.status}
-                      </Badge>
+                      {getStatusBadge(order.status)}
                     </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setSelectedPO(order)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>
-                              Order Details - {selectedPO?.po_number}
-                            </DialogTitle>
-                          </DialogHeader>
-                          {selectedPO && (
-                            <div className="space-y-4">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                  <Label className="text-muted-foreground">Vendor</Label>
-                                  <p>{selectedPO.vendor_name || "-"}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {selectedPO.vendor_address}
-                                  </p>
-                                </div>
-                                <div>
-                                  <Label className="text-muted-foreground">Customer</Label>
-                                  <p>{selectedPO.customer_name || "-"}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {selectedPO.customer_address}
-                                  </p>
-                                </div>
-                                <div>
-                                  <Label className="text-muted-foreground">Order Date</Label>
-                                  <p>
-                                    {selectedPO.order_date
-                                      ? new Date(selectedPO.order_date).toLocaleDateString()
-                                      : "-"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <Label className="text-muted-foreground">Delivery Date</Label>
-                                  <p>
-                                    {selectedPO.delivery_date
-                                      ? new Date(selectedPO.delivery_date).toLocaleDateString()
-                                      : "-"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <Label className="text-muted-foreground">Payment Terms</Label>
-                                  <p>{selectedPO.payment_terms || "-"}</p>
-                                </div>
-                                <div>
-                                  <Label className="text-muted-foreground">Total</Label>
-                                  <p className="font-semibold">
-                                    {selectedPO.currency}{" "}
-                                    {selectedPO.total_amount?.toLocaleString()}
-                                  </p>
-                                </div>
-                              </div>
-
-                              {orderItems && orderItems.length > 0 && (
-                                <div>
-                                  <Label className="text-muted-foreground">Line Items</Label>
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>Description</TableHead>
-                                        <TableHead>Qty</TableHead>
-                                        <TableHead>Unit</TableHead>
-                                        <TableHead>Unit Price</TableHead>
-                                        <TableHead>Total</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {orderItems.map((item) => (
-                                        <TableRow key={item.id}>
-                                          <TableCell>{item.description}</TableCell>
-                                          <TableCell>{item.quantity}</TableCell>
-                                          <TableCell>{item.unit}</TableCell>
-                                          <TableCell>{item.unit_price}</TableCell>
-                                          <TableCell>{item.total_price}</TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              )}
-
-                              {selectedPO.email_from && (
-                                <div className="bg-muted p-3 rounded-lg text-sm">
-                                  <Label className="text-muted-foreground">Email Source</Label>
-                                  <p>From: {selectedPO.email_from}</p>
-                                  <p>Subject: {selectedPO.email_subject}</p>
-                                  <p>
-                                    Date:{" "}
-                                    {selectedPO.email_date
-                                      ? new Date(selectedPO.email_date).toLocaleString()
-                                      : "-"}
-                                  </p>
-                                </div>
-                              )}
-
-                              <div className="flex justify-end gap-2">
-                                <Button variant="outline">
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download PDF
-                                </Button>
-                                <Button
-                                  onClick={() =>
-                                    sendEmailMutation.mutate({ orderId: selectedPO.id })
-                                  }
-                                  disabled={sendEmailMutation.isPending}
-                                >
-                                  <Mail className="h-4 w-4 mr-2" />
-                                  Send Email
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </DialogContent>
-                      </Dialog>
-
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Order</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this order? This action
-                              cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteMutation.mutate(order.id)}
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setSelectedPO(order)}
                             >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            <DialogHeader>
+                              <DialogTitle>
+                                Order Details - {selectedPO?.po_number}
+                              </DialogTitle>
+                            </DialogHeader>
+                            {selectedPO && (
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                  <div>
+                                    <Label className="text-muted-foreground">Vendor</Label>
+                                    <p>{selectedPO.vendor_name || "-"}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {selectedPO.vendor_address}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-muted-foreground">Customer</Label>
+                                    <p>{selectedPO.customer_name || "-"}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {selectedPO.customer_address}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-muted-foreground">Order Date</Label>
+                                    <p>
+                                      {selectedPO.order_date
+                                        ? new Date(selectedPO.order_date).toLocaleDateString()
+                                        : "-"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-muted-foreground">Delivery Date</Label>
+                                    <p>
+                                      {selectedPO.delivery_date
+                                        ? new Date(selectedPO.delivery_date).toLocaleDateString()
+                                        : "-"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-muted-foreground">Payment Terms</Label>
+                                    <p>{selectedPO.payment_terms || "-"}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-muted-foreground">Total</Label>
+                                    <p className="font-semibold">
+                                      {selectedPO.currency}{" "}
+                                      {selectedPO.total_amount?.toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {orderItems && orderItems.length > 0 && (
+                                  <div>
+                                    <Label className="text-muted-foreground">Line Items</Label>
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Description</TableHead>
+                                          <TableHead>Qty</TableHead>
+                                          <TableHead>Unit</TableHead>
+                                          <TableHead>Unit Price</TableHead>
+                                          <TableHead>Total</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {orderItems.map((item) => (
+                                          <TableRow key={item.id}>
+                                            <TableCell>{item.description}</TableCell>
+                                            <TableCell>{item.quantity}</TableCell>
+                                            <TableCell>{item.unit}</TableCell>
+                                            <TableCell>{item.unit_price}</TableCell>
+                                            <TableCell>{item.total_price}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                )}
+
+                                {selectedPO.email_from && (
+                                  <div className="bg-muted p-3 rounded-lg text-sm">
+                                    <Label className="text-muted-foreground">Email Source</Label>
+                                    <p>From: {selectedPO.email_from}</p>
+                                    <p>Subject: {selectedPO.email_subject}</p>
+                                    <p>
+                                      Date:{" "}
+                                      {selectedPO.email_date
+                                        ? new Date(selectedPO.email_date).toLocaleString()
+                                        : "-"}
+                                    </p>
+                                  </div>
+                                )}
+
+                                <div className="flex justify-end gap-2">
+                                  <Button variant="outline">
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Download PDF
+                                  </Button>
+                                  <Button
+                                    onClick={() =>
+                                      sendEmailMutation.mutate({ orderId: selectedPO.id })
+                                    }
+                                    disabled={sendEmailMutation.isPending}
+                                  >
+                                    <Mail className="h-4 w-4 mr-2" />
+                                    Send Email
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Order</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this order? This action
+                                cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteMutation.mutate(order.id)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
