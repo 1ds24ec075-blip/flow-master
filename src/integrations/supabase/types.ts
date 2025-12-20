@@ -324,6 +324,54 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_master: {
+        Row: {
+          billing_address: string | null
+          created_at: string | null
+          currency: string | null
+          customer_name: string
+          email: string | null
+          gst_number: string | null
+          id: string
+          is_active: boolean | null
+          payment_terms: string | null
+          phone: string | null
+          shipping_address: string | null
+          tally_ledger_name: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          billing_address?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_name: string
+          email?: string | null
+          gst_number?: string | null
+          id?: string
+          is_active?: boolean | null
+          payment_terms?: string | null
+          phone?: string | null
+          shipping_address?: string | null
+          tally_ledger_name?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          billing_address?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_name?: string
+          email?: string | null
+          gst_number?: string | null
+          id?: string
+          is_active?: boolean | null
+          payment_terms?: string | null
+          phone?: string | null
+          shipping_address?: string | null
+          tally_ledger_name?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       expense_categories: {
         Row: {
           color: string
@@ -507,6 +555,191 @@ export type Database = {
           tally_xml?: string | null
           updated_at?: string
           uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      po_order_items: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          item_number: number | null
+          po_order_id: string
+          quantity: number | null
+          total_price: number | null
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          item_number?: number | null
+          po_order_id: string
+          quantity?: number | null
+          total_price?: number | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          item_number?: number | null
+          po_order_id?: string
+          quantity?: number | null
+          total_price?: number | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "po_order_items_po_order_id_fkey"
+            columns: ["po_order_id"]
+            isOneToOne: false
+            referencedRelation: "po_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      po_orders: {
+        Row: {
+          billing_address: string | null
+          created_at: string | null
+          currency: string | null
+          customer_address: string | null
+          customer_master_id: string | null
+          customer_match_log: Json | null
+          customer_name: string | null
+          delivery_date: string | null
+          email_date: string | null
+          email_from: string | null
+          email_subject: string | null
+          gst_number: string | null
+          id: string
+          order_date: string | null
+          original_filename: string | null
+          payment_terms: string | null
+          po_number: string | null
+          populated_at: string | null
+          population_source: string | null
+          price_mismatch_details: Json | null
+          raw_text: string | null
+          shipping_address: string | null
+          source_customer_master_id: string | null
+          status: string | null
+          tally_ledger_name: string | null
+          total_amount: number | null
+          updated_at: string | null
+          vendor_address: string | null
+          vendor_name: string | null
+        }
+        Insert: {
+          billing_address?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_address?: string | null
+          customer_master_id?: string | null
+          customer_match_log?: Json | null
+          customer_name?: string | null
+          delivery_date?: string | null
+          email_date?: string | null
+          email_from?: string | null
+          email_subject?: string | null
+          gst_number?: string | null
+          id?: string
+          order_date?: string | null
+          original_filename?: string | null
+          payment_terms?: string | null
+          po_number?: string | null
+          populated_at?: string | null
+          population_source?: string | null
+          price_mismatch_details?: Json | null
+          raw_text?: string | null
+          shipping_address?: string | null
+          source_customer_master_id?: string | null
+          status?: string | null
+          tally_ledger_name?: string | null
+          total_amount?: number | null
+          updated_at?: string | null
+          vendor_address?: string | null
+          vendor_name?: string | null
+        }
+        Update: {
+          billing_address?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_address?: string | null
+          customer_master_id?: string | null
+          customer_match_log?: Json | null
+          customer_name?: string | null
+          delivery_date?: string | null
+          email_date?: string | null
+          email_from?: string | null
+          email_subject?: string | null
+          gst_number?: string | null
+          id?: string
+          order_date?: string | null
+          original_filename?: string | null
+          payment_terms?: string | null
+          po_number?: string | null
+          populated_at?: string | null
+          population_source?: string | null
+          price_mismatch_details?: Json | null
+          raw_text?: string | null
+          shipping_address?: string | null
+          source_customer_master_id?: string | null
+          status?: string | null
+          tally_ledger_name?: string | null
+          total_amount?: number | null
+          updated_at?: string | null
+          vendor_address?: string | null
+          vendor_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_po_orders_customer_master"
+            columns: ["customer_master_id"]
+            isOneToOne: false
+            referencedRelation: "customer_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_po_orders_source_customer_master"
+            columns: ["source_customer_master_id"]
+            isOneToOne: false
+            referencedRelation: "customer_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_list: {
+        Row: {
+          created_at: string | null
+          currency: string | null
+          id: string
+          product_name: string | null
+          sku: string
+          unit_price: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          currency?: string | null
+          id?: string
+          product_name?: string | null
+          sku: string
+          unit_price: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string | null
+          id?: string
+          product_name?: string | null
+          sku?: string
+          unit_price?: number
+          updated_at?: string | null
         }
         Relationships: []
       }
