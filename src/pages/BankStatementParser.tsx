@@ -1,324 +1,442 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Upload, FileText, CheckCircle2, XCircle } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { logActivity } from '@/lib/activityLogger';
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { logActivity } from "@/lib/activityLogger";
+import { 
+  Upload, 
+  FileText, 
+  CheckCircle, 
+  XCircle, 
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  RefreshCw
+} from "lucide-react";
+import { format, startOfMonth, addMonths, subMonths } from "date-fns";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 
 interface Transaction {
   date: string;
   description: string;
   amount: number;
-  type: 'credit' | 'debit';
+  type: "credit" | "debit";
 }
 
-interface Match {
-  expense_name: string;
-  amount: number;
-  matched_with: Transaction | null;
+interface VerificationResult {
+  bill_id: string;
+  bill_vendor: string;
+  bill_amount: number;
+  bill_date: string;
+  bill_number: string | null;
+  matched: boolean;
+  matched_transaction: Transaction | null;
+  match_confidence: 'high' | 'medium' | 'low' | null;
+  match_reason: string | null;
 }
 
 interface ParseResult {
   transactions: Transaction[];
-  matches: Match[];
+  verification_results: VerificationResult[];
+  summary: {
+    total_transactions: number;
+    total_bills: number;
+    matched_bills: number;
+    unmatched_bills: number;
+    high_confidence_matches: number;
+    medium_confidence_matches: number;
+    low_confidence_matches: number;
+  };
 }
 
 export default function BankStatementParser() {
-  const [statementText, setStatementText] = useState('');
-  const [fileName, setFileName] = useState('');
-  const [expensesJson, setExpensesJson] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [statementText, setStatementText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ParseResult | null>(null);
-  const [error, setError] = useState('');
-  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
-  const [isPdf, setIsPdf] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const uploadedFile = e.target.files?.[0];
+    if (uploadedFile) {
+      setFile(uploadedFile);
+      setError(null);
 
-    setFileName(file.name);
-    const isPdfFile = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    setIsPdf(isPdfFile);
-
-    const reader = new FileReader();
-
-    if (isPdfFile) {
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        setPdfBase64(base64);
-        setStatementText(''); // Clear text when PDF is uploaded
-      };
-      reader.readAsDataURL(file);
-    } else {
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        setStatementText(text);
-        setPdfBase64(null);
-      };
-      reader.readAsText(file);
+      // For text files, read content
+      if (uploadedFile.type === "text/plain") {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setStatementText(event.target?.result as string);
+        };
+        reader.readAsText(uploadedFile);
+      }
     }
   };
 
   const handleParse = async () => {
-    if (!statementText.trim() && !pdfBase64) {
-      setError('Please provide bank statement text or upload a PDF');
+    if (!statementText && !file) {
+      toast.error("Please upload a file or paste statement text");
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setIsLoading(true);
+    setError(null);
     setResult(null);
 
     try {
-      let expenses = [];
-      if (expensesJson.trim()) {
-        try {
-          expenses = JSON.parse(expensesJson);
-        } catch {
-          throw new Error('Invalid expenses JSON format');
-        }
+      let payload: Record<string, any> = {
+        fileName: file?.name || "pasted_statement.txt",
+        month: format(startOfMonth(selectedMonth), 'yyyy-MM-dd'),
+      };
+
+      if (file && file.type === "application/pdf") {
+        // Convert PDF to base64
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        payload.pdfBase64 = base64;
+      } else {
+        payload.statementText = statementText;
       }
 
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/bank-statement-parser`;
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          statementText: isPdf ? '' : statementText,
-          pdfBase64: isPdf ? pdfBase64 : null,
-          expenses,
-          fileName: fileName || 'uploaded_statement.txt',
-        }),
-      });
+      const { data, error: parseError } = await supabase.functions.invoke(
+        "bank-statement-parser",
+        { body: payload }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to parse statement');
-      }
+      if (parseError) throw parseError;
 
-      const data = await response.json();
       setResult(data);
-
-      logActivity({
-        activityType: 'parse',
-        entityType: 'bank_statement',
-        status: 'success',
-        metadata: {
-          fileName: fileName || 'pasted_text',
-          transactionCount: data.transactions?.length || 0,
-          matchCount: data.matches?.length || 0
-        }
+      
+      await logActivity({
+        activityType: "parse",
+        entityType: "bank_statement",
+        status: "success",
+        metadata: { 
+          fileName: file?.name,
+          month: format(selectedMonth, 'MMMM yyyy'),
+          transactionsCount: data.transactions?.length,
+          matchedBills: data.summary?.matched_bills,
+        },
       });
-    } catch (err: any) {
-      setError(err.message || 'Failed to parse bank statement');
 
-      logActivity({
-        activityType: 'parse',
-        entityType: 'bank_statement',
-        status: 'error',
-        metadata: {
-          fileName: fileName || 'pasted_text',
-          error: err.message
-        }
-      });
+      toast.success(`Parsed ${data.transactions?.length || 0} transactions, matched ${data.summary?.matched_bills || 0} bills`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to parse statement";
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
+  };
+
+  const handlePreviousMonth = () => {
+    setSelectedMonth(prev => subMonths(prev, 1));
+    setResult(null);
+  };
+
+  const handleNextMonth = () => {
+    setSelectedMonth(prev => addMonths(prev, 1));
+    setResult(null);
   };
 
   const exportJson = () => {
     if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bank_verification_${format(selectedMonth, 'yyyy-MM')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-    const dataStr = JSON.stringify(result, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-    const exportFileDefaultName = 'bank_statement_parsed.json';
-
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
+  const getConfidenceBadge = (confidence: string | null) => {
+    switch (confidence) {
+      case 'high':
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">High</Badge>;
+      case 'medium':
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Medium</Badge>;
+      case 'low':
+        return <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">Low</Badge>;
+      default:
+        return null;
+    }
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Bank Statement Parser</h1>
-        <p className="text-muted-foreground">
-          Upload and parse bank statements to extract transactions and match with expenses
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Bank Statement Parser</h1>
+          <p className="text-muted-foreground mt-1">
+            Upload bank statements to verify expenses against recorded bills
+          </p>
+        </div>
+        
+        {/* Month Selector */}
+        <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-4 py-2">
+          <Button variant="ghost" size="icon" onClick={handlePreviousMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="font-medium min-w-[140px] text-center">
+            {format(selectedMonth, 'MMMM yyyy')}
+          </span>
+          <Button variant="ghost" size="icon" onClick={handleNextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Upload Statement
-            </CardTitle>
-            <CardDescription>
-              Upload a text file or paste your bank statement content
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* Upload Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Upload Statement
+          </CardTitle>
+          <CardDescription>
+            Upload a bank statement (PDF or text) to automatically verify bills for {format(selectedMonth, 'MMMM yyyy')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="file-upload">Upload File (PDF, TXT, CSV)</Label>
+              <Label>Upload File (PDF or Text)</Label>
               <Input
-                id="file-upload"
                 type="file"
-                accept=".pdf,.txt,.csv"
+                accept=".txt,.pdf"
                 onChange={handleFileUpload}
-                disabled={loading}
+                className="cursor-pointer"
               />
-              {isPdf && pdfBase64 && (
-                <p className="text-sm text-muted-foreground">
-                  PDF uploaded: {fileName} - AI will extract transactions from the document
+              {file && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  {file.name}
                 </p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="statement-text">Or Paste Statement Text</Label>
+              <Label>Or Paste Statement Text</Label>
               <Textarea
-                id="statement-text"
-                placeholder="Paste your bank statement here..."
+                placeholder="Paste your bank statement text here..."
                 value={statementText}
                 onChange={(e) => setStatementText(e.target.value)}
-                rows={10}
-                disabled={loading}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="expenses-json">Expenses (Optional JSON)</Label>
-              <Textarea
-                id="expenses-json"
-                placeholder='[{"amount": 5000, "name": "Swiggy"}, {"amount": 12000, "name": "Internet Bill"}]'
-                value={expensesJson}
-                onChange={(e) => setExpensesJson(e.target.value)}
                 rows={4}
-                disabled={loading}
+                disabled={file?.type === "application/pdf"}
               />
-              <p className="text-xs text-muted-foreground">
-                Format: [&#123;"amount": number, "name": "string"&#125;]
-              </p>
             </div>
+          </div>
 
-            <Button
-              onClick={handleParse}
-              disabled={loading || (!statementText.trim() && !pdfBase64)}
-              className="w-full"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Parsing...
-                </>
-              ) : (
-                <>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Parse Statement
-                </>
-              )}
-            </Button>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+          <Button onClick={handleParse} disabled={isLoading} className="w-full">
+            {isLoading ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Parse & Verify Bills
+              </>
             )}
-          </CardContent>
-        </Card>
+          </Button>
 
-        {result && (
+          {error && (
+            <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+              <p className="text-destructive text-sm">{error}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Results Section */}
+      {result && (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Card className="bg-card">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">{result.summary.total_transactions}</p>
+                  <p className="text-sm text-muted-foreground">Transactions</p>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-card">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">{result.summary.total_bills}</p>
+                  <p className="text-sm text-muted-foreground">Bills to Verify</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-green-500/10 border-green-500/30">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-green-400">{result.summary.matched_bills}</p>
+                  <p className="text-sm text-green-400/80">Verified</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-red-500/10 border-red-500/30">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-red-400">{result.summary.unmatched_bills}</p>
+                  <p className="text-sm text-red-400/80">Unverified</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">
+                    {result.summary.total_bills > 0 
+                      ? Math.round((result.summary.matched_bills / result.summary.total_bills) * 100) 
+                      : 0}%
+                  </p>
+                  <p className="text-sm text-muted-foreground">Match Rate</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Verified Bills */}
+          {result.verification_results.filter(r => r.matched).length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-green-400">
+                    <CheckCircle className="h-5 w-5" />
+                    Verified Bills ({result.summary.matched_bills})
+                  </CardTitle>
+                  <CardDescription>
+                    Bills matched with bank transactions
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={exportJson}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vendor</TableHead>
+                      <TableHead>Bill Amount</TableHead>
+                      <TableHead>Bill Date</TableHead>
+                      <TableHead>Transaction</TableHead>
+                      <TableHead>Confidence</TableHead>
+                      <TableHead>Match Reason</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.verification_results
+                      .filter(r => r.matched)
+                      .map((item) => (
+                        <TableRow key={item.bill_id}>
+                          <TableCell className="font-medium">{item.bill_vendor}</TableCell>
+                          <TableCell>₹{item.bill_amount.toLocaleString()}</TableCell>
+                          <TableCell>{item.bill_date}</TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <p className="text-muted-foreground">{item.matched_transaction?.description}</p>
+                              <p className="font-medium">₹{item.matched_transaction?.amount.toLocaleString()}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getConfidenceBadge(item.match_confidence)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[200px]">
+                            {item.match_reason}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Unverified Bills */}
+          {result.verification_results.filter(r => !r.matched).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-red-400">
+                  <XCircle className="h-5 w-5" />
+                  Unverified Bills ({result.summary.unmatched_bills})
+                </CardTitle>
+                <CardDescription>
+                  Bills without matching bank transactions - may need manual review
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vendor</TableHead>
+                      <TableHead>Bill Number</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.verification_results
+                      .filter(r => !r.matched)
+                      .map((item) => (
+                        <TableRow key={item.bill_id}>
+                          <TableCell className="font-medium">{item.bill_vendor}</TableCell>
+                          <TableCell>{item.bill_number || '-'}</TableCell>
+                          <TableCell>₹{item.bill_amount.toLocaleString()}</TableCell>
+                          <TableCell>{item.bill_date}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-yellow-400 border-yellow-400/30">
+                              <AlertCircle className="h-3 w-3 mr-1" />
+                              No Match
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* All Transactions */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Results</CardTitle>
-                <Button onClick={exportJson} variant="outline" size="sm">
-                  Export JSON
-                </Button>
-              </div>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                All Transactions ({result.transactions.length})
+              </CardTitle>
               <CardDescription>
-                Found {result.transactions.length} transactions
-                {result.matches.length > 0 && ` and ${result.matches.length} expense matches`}
+                Extracted transactions from the bank statement
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <h3 className="font-semibold">Summary</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Total Credits</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      ₹{result.transactions
-                        .filter(t => t.type === 'credit')
-                        .reduce((sum, t) => sum + t.amount, 0)
-                        .toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Total Debits</p>
-                    <p className="text-2xl font-bold text-red-600">
-                      ₹{result.transactions
-                        .filter(t => t.type === 'debit')
-                        .reduce((sum, t) => sum + t.amount, 0)
-                        .toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {result.matches.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="font-semibold">Expense Matches</h3>
-                  <div className="space-y-2">
-                    {result.matches.map((match, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 border rounded-lg"
-                      >
-                        <div>
-                          <p className="font-medium">{match.expense_name}</p>
-                          <p className="text-sm text-muted-foreground">₹{match.amount}</p>
-                        </div>
-                        {match.matched_with ? (
-                          <Badge variant="default" className="gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Matched
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1">
-                            <XCircle className="h-3 w-3" />
-                            Not Found
-                          </Badge>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {result && result.transactions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Extracted Transactions</CardTitle>
-            <CardDescription>All transactions found in the statement</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border">
+            <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -329,33 +447,32 @@ export default function BankStatementParser() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {result.transactions.map((transaction, index) => (
+                  {result.transactions.map((tx, index) => (
                     <TableRow key={index}>
-                      <TableCell className="font-medium">
-                        {transaction.date || 'N/A'}
-                      </TableCell>
-                      <TableCell>{transaction.description || 'N/A'}</TableCell>
+                      <TableCell>{tx.date}</TableCell>
+                      <TableCell className="max-w-[300px] truncate">{tx.description}</TableCell>
                       <TableCell>
                         <Badge
-                          variant={transaction.type === 'credit' ? 'default' : 'secondary'}
+                          variant="outline"
+                          className={
+                            tx.type === "credit"
+                              ? "text-green-400 border-green-400/30"
+                              : "text-red-400 border-red-400/30"
+                          }
                         >
-                          {transaction.type}
+                          {tx.type}
                         </Badge>
                       </TableCell>
-                      <TableCell
-                        className={`text-right font-semibold ${
-                          transaction.type === 'credit' ? 'text-green-600' : 'text-red-600'
-                        }`}
-                      >
-                        ₹{transaction.amount?.toFixed(2) || '0.00'}
+                      <TableCell className="text-right font-medium">
+                        ₹{tx.amount.toLocaleString()}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );
