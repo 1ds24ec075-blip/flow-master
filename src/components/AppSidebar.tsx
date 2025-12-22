@@ -15,6 +15,7 @@ import {
   TrendingDown,
   Mail,
   ClipboardList,
+  Sparkles,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -34,6 +35,7 @@ const navigationItems = [
   { title: "Talligence", url: "/", icon: LayoutDashboard },
   { title: "Ask AI", url: "/tally-ai", icon: Bot },
   { title: "PO Dashboard", url: "/po-dashboard", icon: ClipboardList },
+  { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Suppliers", url: "/suppliers", icon: Package },
   { title: "Quotations", url: "/quotations", icon: FileText },
