@@ -42,3 +42,6 @@ verify_jwt = false
 
 [functions.send-sales-order]
 verify_jwt = false
+
+[functions.smart-segregation]
+verify_jwt = false

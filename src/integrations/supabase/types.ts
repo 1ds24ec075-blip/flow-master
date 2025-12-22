@@ -917,6 +917,122 @@ export type Database = {
           },
         ]
       }
+      segregated_transactions: {
+        Row: {
+          amount: number
+          confidence_score: number | null
+          created_at: string
+          final_category: string | null
+          id: string
+          is_reviewed: boolean | null
+          narration: string | null
+          suggested_category: string
+          transaction_date: string | null
+          transaction_type: string
+          upload_id: string
+        }
+        Insert: {
+          amount?: number
+          confidence_score?: number | null
+          created_at?: string
+          final_category?: string | null
+          id?: string
+          is_reviewed?: boolean | null
+          narration?: string | null
+          suggested_category?: string
+          transaction_date?: string | null
+          transaction_type: string
+          upload_id: string
+        }
+        Update: {
+          amount?: number
+          confidence_score?: number | null
+          created_at?: string
+          final_category?: string | null
+          id?: string
+          is_reviewed?: boolean | null
+          narration?: string | null
+          suggested_category?: string
+          transaction_date?: string | null
+          transaction_type?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segregated_transactions_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "segregation_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      segregation_rules: {
+        Row: {
+          business_name: string
+          category: string
+          created_at: string
+          id: string
+          pattern: string
+          updated_at: string
+          usage_count: number | null
+        }
+        Insert: {
+          business_name: string
+          category: string
+          created_at?: string
+          id?: string
+          pattern: string
+          updated_at?: string
+          usage_count?: number | null
+        }
+        Update: {
+          business_name?: string
+          category?: string
+          created_at?: string
+          id?: string
+          pattern?: string
+          updated_at?: string
+          usage_count?: number | null
+        }
+        Relationships: []
+      }
+      segregation_uploads: {
+        Row: {
+          account_name: string
+          business_name: string
+          created_at: string
+          file_name: string
+          id: string
+          status: string
+          total_transactions: number | null
+          updated_at: string
+          upload_date: string
+        }
+        Insert: {
+          account_name: string
+          business_name: string
+          created_at?: string
+          file_name: string
+          id?: string
+          status?: string
+          total_transactions?: number | null
+          updated_at?: string
+          upload_date?: string
+        }
+        Update: {
+          account_name?: string
+          business_name?: string
+          created_at?: string
+          file_name?: string
+          id?: string
+          status?: string
+          total_transactions?: number | null
+          updated_at?: string
+          upload_date?: string
+        }
+        Relationships: []
+      }
       suppliers: {
         Row: {
           created_at: string | null
