@@ -79,47 +79,70 @@ Deno.serve(async (req: Request) => {
     console.log('Image encoded, base64 length:', base64.length, 'characters');
     console.log('Running extraction with Lovable AI (Gemini Flash)...');
 
-    const extractionPrompt = `You are a bill/receipt extraction expert. Analyze this bill or receipt image and extract ALL information with high precision.
+    const extractionPrompt = `You are an expert OCR and document extraction specialist with advanced capabilities for reading HANDWRITTEN text, messy receipts, and low-quality scans.
+
+CRITICAL HANDWRITING RECOGNITION GUIDELINES:
+1. For handwritten text: Look carefully at each character, consider context to disambiguate similar letters (0 vs O, 1 vs l vs I, 5 vs S, 8 vs B, 2 vs Z)
+2. Read numbers digit by digit - handwritten amounts are often the most critical data
+3. For dates: Consider common date formats and validate the date makes logical sense
+4. If text is partially obscured or smudged, use surrounding context to infer meaning
+5. Pay special attention to:
+   - Handwritten totals (often circled or underlined)
+   - Handwritten corrections or additions
+   - Signatures that may contain names
+   - Margin notes with prices or quantities
+
+EXTRACTION RULES:
+- Analyze the ENTIRE image systematically: top-to-bottom, left-to-right
+- For printed + handwritten mixed documents: extract BOTH
+- If handwritten text overwrites/corrects printed text, prefer the handwritten version
+- Look for handwritten calculations in margins that may indicate the true total
 
 Extract the following fields and return as valid JSON:
 {
-  "bill_number": "bill/invoice/receipt number",
-  "vendor_name": "merchant or vendor name",
-  "vendor_gst": "GST number if available",
-  "bill_date": "date of bill in YYYY-MM-DD format",
+  "bill_number": "bill/invoice/receipt number (check for handwritten bill # at top)",
+  "vendor_name": "merchant or vendor name (may be stamped, printed, or handwritten)",
+  "vendor_gst": "GST number if available (often printed, sometimes handwritten)",
+  "bill_date": "date of bill in YYYY-MM-DD format (check for handwritten dates)",
   "subtotal": 0,
   "tax_amount": 0,
   "total_amount": 0,
   "currency": "INR",
-  "payment_method": "cash/card/upi/etc",
+  "payment_method": "cash/card/upi/etc (look for handwritten payment notes)",
   "items": [
     {
-      "item_description": "item name",
+      "item_description": "item name (may be abbreviated or handwritten)",
       "quantity": 1,
       "unit_price": 0,
       "tax_rate": 0,
       "amount": 0
     }
   ],
-  "notes": "any additional information",
-  "confidence": 95
+  "notes": "any additional handwritten notes, corrections, or annotations",
+  "confidence": 95,
+  "handwriting_detected": true,
+  "extraction_notes": "brief note about document quality and any challenges"
 }
 
 CRITICAL INSTRUCTIONS:
-- Extract ALL line items from the bill (do not skip any)
+- Extract ALL line items from the bill (do not skip any, even if handwritten)
 - For Indian formats: handle lakhs (L), crores (Cr) notation and convert to numbers
-- Parse dates in DD/MM/YYYY, DD-MM-YYYY, or other formats and convert to YYYY-MM-DD
-- Extract GST/tax information accurately
+- Parse dates in DD/MM/YYYY, DD-MM-YYYY, or handwritten formats and convert to YYYY-MM-DD
+- Extract GST/tax information accurately (CGST, SGST, IGST)
 - Calculate amounts if not explicitly stated
 - For subtotal: sum of all item amounts before tax
 - For tax_amount: total GST/tax amount
-- For total_amount: final payable amount
+- For total_amount: final payable amount (prioritize handwritten totals if present)
 - If payment method is visible (cash/card/UPI), extract it
 - If a field is not found or unclear, use null
-- Confidence score: your overall confidence in the extraction (0-100)
+- Confidence score: your overall confidence in the extraction (0-100), lower for poor handwriting
+- Set handwriting_detected to true if ANY handwritten content is present
 - Return ONLY valid JSON, no markdown formatting, no explanation
 
-Be extremely accurate with numbers, dates, and item details.`;
+QUALITY ASSESSMENT:
+- If image is blurry/tilted, still attempt extraction
+- For very poor quality, provide best effort with lower confidence score
+- Note any specific fields that were difficult to read in extraction_notes`;
 
     const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
