@@ -39,8 +39,9 @@ interface Bill {
 }
 
 export default function Bills() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -105,9 +106,7 @@ export default function Bills() {
       return await extractResponse.json();
     },
     onSuccess: () => {
-      toast.success("Bill uploaded and processed successfully!");
       queryClient.invalidateQueries({ queryKey: ["bills"] });
-      setSelectedFile(null);
     },
     onError: (error: Error) => {
       toast.error(`Failed to process bill: ${error.message}`);
@@ -155,28 +154,53 @@ export default function Bills() {
   });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
-        return;
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const validFiles: File[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name}: File size must be less than 10MB`);
+          continue;
+        }
+        if (!file.type.startsWith("image/")) {
+          toast.error(`${file.name}: Only image files are allowed`);
+          continue;
+        }
+        validFiles.push(file);
       }
-      if (!file.type.startsWith("image/")) {
-        toast.error("Only image files are allowed");
-        return;
-      }
-      setSelectedFile(file);
+      setSelectedFiles(validFiles);
     }
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setUploading(true);
-    try {
-      await uploadMutation.mutateAsync(selectedFile);
-    } finally {
-      setUploading(false);
+    setUploadProgress({ current: 0, total: selectedFiles.length });
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < selectedFiles.length; i++) {
+      setUploadProgress({ current: i + 1, total: selectedFiles.length });
+      try {
+        await uploadMutation.mutateAsync(selectedFiles[i]);
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    
+    setUploading(false);
+    setSelectedFiles([]);
+    setUploadProgress({ current: 0, total: 0 });
+    
+    if (successCount > 0) {
+      toast.success(`${successCount} bill(s) uploaded and processed successfully!`);
+    }
+    if (failCount > 0) {
+      toast.error(`${failCount} bill(s) failed to process`);
     }
   };
 
@@ -208,34 +232,42 @@ export default function Bills() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="bill-upload">Select Bill Image</Label>
+            <Label htmlFor="bill-upload">Select Bill Images</Label>
             <Input
               id="bill-upload"
               type="file"
               accept="image/*"
+              multiple
               onChange={handleFileSelect}
               disabled={uploading}
             />
-            {selectedFile && (
-              <p className="text-sm text-muted-foreground">
-                Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-              </p>
+            {selectedFiles.length > 0 && (
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p className="font-medium">{selectedFiles.length} file(s) selected:</p>
+                <ul className="list-disc list-inside max-h-32 overflow-y-auto">
+                  {selectedFiles.map((file, index) => (
+                    <li key={index}>
+                      {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
           <Button
             onClick={handleUpload}
-            disabled={!selectedFile || uploading}
+            disabled={selectedFiles.length === 0 || uploading}
             className="w-full"
           >
             {uploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
+                Processing {uploadProgress.current} of {uploadProgress.total}...
               </>
             ) : (
               <>
                 <Upload className="mr-2 h-4 w-4" />
-                Upload and Extract
+                Upload and Extract {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ""}
               </>
             )}
           </Button>
