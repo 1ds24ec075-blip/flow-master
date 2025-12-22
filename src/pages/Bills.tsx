@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle } from "lucide-react";
+import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -22,6 +22,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { format } from "date-fns";
 
 interface Bill {
@@ -38,12 +45,23 @@ interface Bill {
   created_at: string;
 }
 
+interface EditableBill {
+  bill_number: string;
+  vendor_name: string;
+  vendor_gst: string;
+  bill_date: string;
+  total_amount: string;
+  payment_status: string;
+}
+
 export default function Bills() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedBill, setEditedBill] = useState<EditableBill | null>(null);
   const queryClient = useQueryClient();
 
   const { data: bills, isLoading } = useQuery({
@@ -153,6 +171,26 @@ export default function Bills() {
     },
   });
 
+  const updateBillMutation = useMutation({
+    mutationFn: async ({ billId, updates }: { billId: string; updates: Partial<Bill> }) => {
+      const { error } = await supabase
+        .from("bills" as any)
+        .update(updates as any)
+        .eq("id", billId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Bill updated successfully");
+      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      setIsEditing(false);
+      setViewDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update bill: ${error.message}`);
+    },
+  });
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
@@ -206,7 +244,44 @@ export default function Bills() {
 
   const handleView = (bill: Bill) => {
     setSelectedBill(bill);
+    setIsEditing(false);
+    setEditedBill(null);
     setViewDialogOpen(true);
+  };
+
+  const handleStartEdit = () => {
+    if (selectedBill) {
+      setEditedBill({
+        bill_number: selectedBill.bill_number || "",
+        vendor_name: selectedBill.vendor_name || "",
+        vendor_gst: selectedBill.vendor_gst || "",
+        bill_date: selectedBill.bill_date || "",
+        total_amount: selectedBill.total_amount?.toString() || "0",
+        payment_status: selectedBill.payment_status || "pending",
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedBill(null);
+  };
+
+  const handleSaveEdit = () => {
+    if (!selectedBill || !editedBill) return;
+
+    updateBillMutation.mutate({
+      billId: selectedBill.id,
+      updates: {
+        bill_number: editedBill.bill_number || null,
+        vendor_name: editedBill.vendor_name,
+        vendor_gst: editedBill.vendor_gst || null,
+        bill_date: editedBill.bill_date || null,
+        total_amount: parseFloat(editedBill.total_amount) || 0,
+        payment_status: editedBill.payment_status,
+      } as any,
+    });
   };
 
   const getImageUrl = (path: string) => {
@@ -381,58 +456,147 @@ export default function Bills() {
         </CardContent>
       </Card>
 
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+      <Dialog open={viewDialogOpen} onOpenChange={(open) => {
+        setViewDialogOpen(open);
+        if (!open) {
+          setIsEditing(false);
+          setEditedBill(null);
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Bill Details</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Bill Details</DialogTitle>
+              {selectedBill && !isEditing && (
+                <Button variant="outline" size="sm" onClick={handleStartEdit}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+              )}
+              {isEditing && (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCancelEdit}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={handleSaveEdit} disabled={updateBillMutation.isPending}>
+                    {updateBillMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              )}
+            </div>
           </DialogHeader>
           {selectedBill && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className="space-y-2">
                   <Label>Bill Number</Label>
-                  <p className="text-sm font-medium mt-1">
-                    {selectedBill.bill_number || "N/A"}
-                  </p>
+                  {isEditing ? (
+                    <Input
+                      value={editedBill?.bill_number || ""}
+                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, bill_number: e.target.value } : null)}
+                      placeholder="Enter bill number"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium mt-1">
+                      {selectedBill.bill_number || "N/A"}
+                    </p>
+                  )}
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label>Vendor Name</Label>
-                  <p className="text-sm font-medium mt-1">
-                    {selectedBill.vendor_name}
-                  </p>
+                  {isEditing ? (
+                    <Input
+                      value={editedBill?.vendor_name || ""}
+                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, vendor_name: e.target.value } : null)}
+                      placeholder="Enter vendor name"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium mt-1">
+                      {selectedBill.vendor_name}
+                    </p>
+                  )}
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label>GST Number</Label>
-                  <p className="text-sm font-medium mt-1">
-                    {selectedBill.vendor_gst || "N/A"}
-                  </p>
+                  {isEditing ? (
+                    <Input
+                      value={editedBill?.vendor_gst || ""}
+                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, vendor_gst: e.target.value } : null)}
+                      placeholder="Enter GST number"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium mt-1">
+                      {selectedBill.vendor_gst || "N/A"}
+                    </p>
+                  )}
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label>Bill Date</Label>
-                  <p className="text-sm font-medium mt-1">
-                    {selectedBill.bill_date
-                      ? format(new Date(selectedBill.bill_date), "dd MMM yyyy")
-                      : "N/A"}
-                  </p>
+                  {isEditing ? (
+                    <Input
+                      type="date"
+                      value={editedBill?.bill_date || ""}
+                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, bill_date: e.target.value } : null)}
+                    />
+                  ) : (
+                    <p className="text-sm font-medium mt-1">
+                      {selectedBill.bill_date
+                        ? format(new Date(selectedBill.bill_date), "dd MMM yyyy")
+                        : "N/A"}
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <Label>Total Amount</Label>
-                  <p className="text-sm font-medium mt-1">
-                    ₹{selectedBill.total_amount.toFixed(2)}
-                  </p>
+                <div className="space-y-2">
+                  <Label>Total Amount (₹)</Label>
+                  {isEditing ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editedBill?.total_amount || ""}
+                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, total_amount: e.target.value } : null)}
+                      placeholder="Enter amount"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium mt-1">
+                      ₹{selectedBill.total_amount.toFixed(2)}
+                    </p>
+                  )}
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label>Payment Status</Label>
-                  <Badge
-                    className="mt-1"
-                    variant={
-                      selectedBill.payment_status === "paid"
-                        ? "default"
-                        : "secondary"
-                    }
-                  >
-                    {selectedBill.payment_status}
-                  </Badge>
+                  {isEditing ? (
+                    <Select
+                      value={editedBill?.payment_status || "pending"}
+                      onValueChange={(value) => setEditedBill(prev => prev ? { ...prev, payment_status: value } : null)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="overdue">Overdue</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge
+                      className="mt-1"
+                      variant={
+                        selectedBill.payment_status === "paid"
+                          ? "default"
+                          : "secondary"
+                      }
+                    >
+                      {selectedBill.payment_status}
+                    </Badge>
+                  )}
                 </div>
               </div>
               {selectedBill.image_url && (
