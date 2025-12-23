@@ -115,6 +115,23 @@ All colors MUST be HSL.
   h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
   }
+
+  /* Hide browser autofill indicators */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: hsl(var(--foreground));
+    transition: background-color 5000s ease-in-out 0s;
+    box-shadow: inset 0 0 20px 20px hsl(var(--background));
+  }
+
+  /* Remove datalist/autocomplete dropdown indicators */
+  input::-webkit-calendar-picker-indicator,
+  input::-webkit-list-button {
+    display: none !important;
+  }
 }
 
 @layer utilities {
