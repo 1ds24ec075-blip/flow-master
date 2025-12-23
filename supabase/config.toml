@@ -45,3 +45,6 @@ verify_jwt = false
 
 [functions.smart-segregation]
 verify_jwt = false
+
+[functions.parse-pdf-statement]
+verify_jwt = false
