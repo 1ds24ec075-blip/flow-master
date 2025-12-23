@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, ArrowLeftRight, User, HelpCircle } from "lucide-react";
+import { Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, ArrowLeftRight, User, HelpCircle, Lock, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import * as XLSX from "xlsx";
 
 interface Transaction {
@@ -54,6 +55,8 @@ export default function SmartSegregation() {
   const [businessName, setBusinessName] = useState("");
   const [accountName, setAccountName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [showPasswordField, setShowPasswordField] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -87,6 +90,20 @@ export default function SmartSegregation() {
     
     setFilteredTransactions(filtered);
   }, [transactions, categoryFilter, showLowConfidence]);
+
+  // Show password field when PDF is selected
+  useEffect(() => {
+    if (file) {
+      const isPdf = file.name.toLowerCase().endsWith('.pdf');
+      setShowPasswordField(isPdf);
+      if (!isPdf) {
+        setPdfPassword("");
+      }
+    } else {
+      setShowPasswordField(false);
+      setPdfPassword("");
+    }
+  }, [file]);
 
   const fetchUploadHistory = async () => {
     const { data, error } = await supabase
@@ -141,7 +158,7 @@ export default function SmartSegregation() {
     });
   };
 
-  const parseFile = async (file: File): Promise<Transaction[]> => {
+  const parseExcelFile = async (file: File): Promise<Transaction[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       
@@ -243,6 +260,57 @@ export default function SmartSegregation() {
     });
   };
 
+  const parsePdfFile = async (file: File, password?: string): Promise<Transaction[]> => {
+    // Convert file to base64
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove data URL prefix
+        const base64Data = result.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    // Call edge function to parse PDF
+    const response = await supabase.functions.invoke('parse-pdf-statement', {
+      body: {
+        pdfBase64: base64,
+        password: password || undefined
+      }
+    });
+
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+
+    const data = response.data;
+
+    // Handle password required error
+    if (data.code === 'PASSWORD_REQUIRED' || data.code === 'PASSWORD_INCORRECT') {
+      const error = new Error(data.error);
+      (error as any).code = data.code;
+      (error as any).isPasswordProtected = true;
+      throw error;
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to parse PDF');
+    }
+
+    // Map to Transaction interface
+    return data.transactions.map((tx: any) => ({
+      transaction_date: tx.transaction_date,
+      narration: tx.narration,
+      amount: tx.amount,
+      transaction_type: tx.transaction_type,
+      suggested_category: 'Unknown',
+      confidence_score: 0
+    }));
+  };
+
   const handleUpload = async () => {
     if (!file || !businessName || !accountName) {
       toast.error("Please fill in all fields and select a file");
@@ -252,8 +320,17 @@ export default function SmartSegregation() {
     setIsProcessing(true);
     
     try {
-      // Parse the file
-      const parsedTransactions = await parseFile(file);
+      let parsedTransactions: Transaction[];
+      const isPdf = file.name.toLowerCase().endsWith('.pdf');
+
+      if (isPdf) {
+        // Parse PDF file
+        toast.info("Processing PDF file...");
+        parsedTransactions = await parsePdfFile(file, pdfPassword);
+      } else {
+        // Parse Excel/CSV file
+        parsedTransactions = await parseExcelFile(file);
+      }
       
       if (parsedTransactions.length === 0) {
         toast.error("No transactions found in the file");
@@ -300,10 +377,18 @@ export default function SmartSegregation() {
       
       // Reset form
       setFile(null);
+      setPdfPassword("");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to process file');
+      
+      // Handle password-related errors
+      if (error.code === 'PASSWORD_REQUIRED' || error.code === 'PASSWORD_INCORRECT' || error.isPasswordProtected) {
+        toast.error(error.message || 'PDF password required');
+        // Keep the file so user can try again with password
+      } else {
+        toast.error(error instanceof Error ? error.message : 'Failed to process file');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -424,39 +509,83 @@ export default function SmartSegregation() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <Label htmlFor="businessName">Business Name</Label>
-                <Input
-                  id="businessName"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="Your Company Ltd"
-                />
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="businessName">Business Name</Label>
+                  <Input
+                    id="businessName"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="Your Company Ltd"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="accountName">Bank/Card Account</Label>
+                  <Input
+                    id="accountName"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    placeholder="HDFC Current A/C"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="file">Statement File</Label>
+                  <Input
+                    id="file"
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.pdf"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="accountName">Bank/Card Account</Label>
-                <Input
-                  id="accountName"
-                  value={accountName}
-                  onChange={(e) => setAccountName(e.target.value)}
-                  placeholder="HDFC Current A/C"
-                />
-              </div>
-              <div>
-                <Label htmlFor="file">Statement File</Label>
-                <Input
-                  id="file"
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
-              </div>
-              <div className="flex items-end">
+
+              {/* Password field for PDF files */}
+              {showPasswordField && (
+                <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg border border-dashed">
+                  <Lock className="h-5 w-5 text-muted-foreground mt-0.5" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="pdfPassword" className="text-sm font-medium">
+                        PDF Password (if protected)
+                      </Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Info className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="font-medium mb-1">Common bank statement passwords:</p>
+                            <ul className="text-xs space-y-1">
+                              <li>• SBI, HDFC, ICICI: DOB (DDMMYYYY)</li>
+                              <li>• Axis: Last 4 digits of account number</li>
+                              <li>• Kotak: DOB or Customer ID</li>
+                              <li>• HDFC: PAN first 4 chars + DOB</li>
+                            </ul>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Input
+                      id="pdfPassword"
+                      type="password"
+                      value={pdfPassword}
+                      onChange={(e) => setPdfPassword(e.target.value)}
+                      placeholder="Enter password if PDF is protected"
+                      className="max-w-md"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Usually your DOB (DDMMYYYY) or account number. Leave empty if not protected.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end">
                 <Button 
                   onClick={handleUpload} 
                   disabled={isProcessing || !file}
-                  className="w-full"
+                  size="lg"
                 >
                   {isProcessing ? 'Processing...' : 'Classify Transactions'}
                 </Button>
