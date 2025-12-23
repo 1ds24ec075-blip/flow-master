@@ -165,6 +165,7 @@ export type Database = {
           updated_at: string
           vendor_gst: string | null
           vendor_name: string
+          vendor_tin: string | null
           verified_at: string | null
           verified_date: string | null
         }
@@ -184,6 +185,7 @@ export type Database = {
           updated_at?: string
           vendor_gst?: string | null
           vendor_name: string
+          vendor_tin?: string | null
           verified_at?: string | null
           verified_date?: string | null
         }
@@ -203,6 +205,7 @@ export type Database = {
           updated_at?: string
           vendor_gst?: string | null
           vendor_name?: string
+          vendor_tin?: string | null
           verified_at?: string | null
           verified_date?: string | null
         }
