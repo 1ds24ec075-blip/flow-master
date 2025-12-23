@@ -9,8 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, ArrowLeftRight, User, HelpCircle, Lock, Info } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, ArrowLeftRight, User, HelpCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Transaction {
@@ -55,8 +54,7 @@ export default function SmartSegregation() {
   const [businessName, setBusinessName] = useState("");
   const [accountName, setAccountName] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [pdfPassword, setPdfPassword] = useState("");
-  const [showPasswordField, setShowPasswordField] = useState(false);
+  const [showPdfWarning, setShowPdfWarning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -91,17 +89,13 @@ export default function SmartSegregation() {
     setFilteredTransactions(filtered);
   }, [transactions, categoryFilter, showLowConfidence]);
 
-  // Show password field when PDF is selected
+  // Show PDF warning when PDF is selected
   useEffect(() => {
     if (file) {
       const isPdf = file.name.toLowerCase().endsWith('.pdf');
-      setShowPasswordField(isPdf);
-      if (!isPdf) {
-        setPdfPassword("");
-      }
+      setShowPdfWarning(isPdf);
     } else {
-      setShowPasswordField(false);
-      setPdfPassword("");
+      setShowPdfWarning(false);
     }
   }, [file]);
 
@@ -260,7 +254,7 @@ export default function SmartSegregation() {
     });
   };
 
-  const parsePdfFile = async (file: File, password?: string): Promise<Transaction[]> => {
+  const parsePdfFile = async (file: File): Promise<Transaction[]> => {
     // Convert file to base64
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -277,8 +271,7 @@ export default function SmartSegregation() {
     // Call edge function to parse PDF
     const response = await supabase.functions.invoke('parse-pdf-statement', {
       body: {
-        pdfBase64: base64,
-        password: password || undefined
+        pdfBase64: base64
       }
     });
 
@@ -288,16 +281,18 @@ export default function SmartSegregation() {
 
     const data = response.data;
 
-    // Handle password required error
-    if (data.code === 'PASSWORD_REQUIRED' || data.code === 'PASSWORD_INCORRECT') {
+    // Handle various error codes
+    if (data.code === 'PASSWORD_REQUIRED' || data.code === 'PASSWORD_INCORRECT' || 
+        data.code === 'PDF_ENCRYPTED' || data.code === 'PDF_UNREADABLE') {
       const error = new Error(data.error);
       (error as any).code = data.code;
-      (error as any).isPasswordProtected = true;
+      (error as any).isPasswordProtected = data.isPasswordProtected;
+      (error as any).suggestion = data.suggestion;
       throw error;
     }
 
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to parse PDF');
+    if (!data.success && data.error) {
+      throw new Error(data.error);
     }
 
     // Map to Transaction interface
@@ -326,7 +321,7 @@ export default function SmartSegregation() {
       if (isPdf) {
         // Parse PDF file
         toast.info("Processing PDF file...");
-        parsedTransactions = await parsePdfFile(file, pdfPassword);
+        parsedTransactions = await parsePdfFile(file);
       } else {
         // Parse Excel/CSV file
         parsedTransactions = await parseExcelFile(file);
@@ -377,15 +372,19 @@ export default function SmartSegregation() {
       
       // Reset form
       setFile(null);
-      setPdfPassword("");
 
     } catch (error: any) {
       console.error('Upload error:', error);
       
       // Handle password-related errors
       if (error.code === 'PASSWORD_REQUIRED' || error.code === 'PASSWORD_INCORRECT' || error.isPasswordProtected) {
-        toast.error(error.message || 'PDF password required');
-        // Keep the file so user can try again with password
+        toast.error(error.message || 'PDF password required', { duration: 8000 });
+        // Keep the file so user can try again
+      } else if (error.code === 'PDF_ENCRYPTED' || error.code === 'PDF_UNREADABLE') {
+        toast.error(error.message || 'Cannot read encrypted PDF. Please use Excel/CSV format instead.', { 
+          duration: 10000,
+          description: error.suggestion || 'Download the statement as Excel/CSV from your bank portal.'
+        });
       } else {
         toast.error(error instanceof Error ? error.message : 'Failed to process file');
       }
@@ -540,42 +539,21 @@ export default function SmartSegregation() {
                 </div>
               </div>
 
-              {/* Password field for PDF files */}
-              {showPasswordField && (
-                <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg border border-dashed">
-                  <Lock className="h-5 w-5 text-muted-foreground mt-0.5" />
+              {/* PDF notice */}
+              {showPdfWarning && (
+                <div className="flex items-start gap-4 p-4 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
                   <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Label htmlFor="pdfPassword" className="text-sm font-medium">
-                        PDF Password (if protected)
-                      </Label>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <Info className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            <p className="font-medium mb-1">Common bank statement passwords:</p>
-                            <ul className="text-xs space-y-1">
-                              <li>• SBI, HDFC, ICICI: DOB (DDMMYYYY)</li>
-                              <li>• Axis: Last 4 digits of account number</li>
-                              <li>• Kotak: DOB or Customer ID</li>
-                              <li>• HDFC: PAN first 4 chars + DOB</li>
-                            </ul>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Input
-                      id="pdfPassword"
-                      type="password"
-                      value={pdfPassword}
-                      onChange={(e) => setPdfPassword(e.target.value)}
-                      placeholder="Enter password if PDF is protected"
-                      className="max-w-md"
-                    />
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                      PDF files detected
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      <strong>Note:</strong> Password-protected PDFs cannot be processed. If your bank statement is encrypted, 
+                      please download it as <strong>Excel (.xlsx)</strong> or <strong>CSV</strong> format from your bank's 
+                      online portal instead.
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      Usually your DOB (DDMMYYYY) or account number. Leave empty if not protected.
+                      Most banks offer Excel/CSV download options which work better for transaction extraction.
                     </p>
                   </div>
                 </div>
