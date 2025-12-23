@@ -16,10 +16,10 @@ const CATEGORIES = [
 ];
 
 interface Transaction {
-  date: string;
+  transaction_date: string;
   narration: string;
   amount: number;
-  type: 'debit' | 'credit';
+  transaction_type: 'debit' | 'credit';
 }
 
 interface ClassifiedTransaction extends Transaction {
@@ -111,7 +111,7 @@ serve(async (req) => {
 Also provide a confidence score (0-100) for each classification.
 
 Transactions to classify:
-${txForAI.map((tx: Transaction, idx: number) => `${idx + 1}. Date: ${tx.date}, Narration: "${tx.narration}", Amount: ${tx.amount}, Type: ${tx.type}`).join('\n')}
+${txForAI.map((tx: Transaction, idx: number) => `${idx + 1}. Date: ${tx.transaction_date}, Narration: "${tx.narration}", Amount: ${tx.amount}, Type: ${tx.transaction_type}`).join('\n')}
 
 Respond with JSON array only, no explanation:
 [{"index": 1, "category": "Business Expense", "confidence": 85}, ...]`;
@@ -180,10 +180,10 @@ Respond with JSON array only, no explanation:
     // Store transactions in database
     const transactionsToInsert = classifiedTransactions.map(tx => ({
       upload_id: uploadId,
-      transaction_date: tx.date || null,
+      transaction_date: tx.transaction_date || null,
       narration: tx.narration,
       amount: Math.abs(tx.amount),
-      transaction_type: tx.type,
+      transaction_type: tx.transaction_type,
       suggested_category: tx.category,
       confidence_score: tx.confidence
     }));
@@ -255,7 +255,7 @@ function classifyBySimpleRules(tx: Transaction): string {
   }
   
   // Income patterns (credits)
-  if (tx.type === 'credit') {
+  if (tx.transaction_type === 'credit') {
     if (narration.includes('payment') || narration.includes('received') ||
         narration.includes('sale') || narration.includes('invoice')) {
       return 'Business Income';
@@ -263,7 +263,7 @@ function classifyBySimpleRules(tx: Transaction): string {
   }
   
   // Expense patterns (debits)
-  if (tx.type === 'debit') {
+  if (tx.transaction_type === 'debit') {
     if (narration.includes('bill') || narration.includes('rent') ||
         narration.includes('utility') || narration.includes('vendor') ||
         narration.includes('purchase') || narration.includes('subscription')) {
@@ -272,5 +272,5 @@ function classifyBySimpleRules(tx: Transaction): string {
   }
   
   // Default based on type
-  return tx.type === 'debit' ? 'Business Expense' : 'Business Income';
+  return tx.transaction_type === 'debit' ? 'Business Expense' : 'Business Income';
 }
