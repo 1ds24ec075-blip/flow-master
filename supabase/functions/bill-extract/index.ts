@@ -92,6 +92,17 @@ CRITICAL HANDWRITING RECOGNITION GUIDELINES:
    - Signatures that may contain names
    - Margin notes with prices or quantities
 
+CRITICAL GST vs TIN DISTINCTION:
+- GST Number (GSTIN) format: 15 characters - 2 digit state code + 10 character PAN + 1 entity code + 1Z + 1 checksum
+  Example: 27AABCU9603R1ZM, 09AAACH7409R1ZZ
+  Pattern: First 2 digits (01-37), then 5 uppercase letters, then 4 digits, then 1 letter, then 1 alphanumeric, then Z, then 1 alphanumeric
+- TIN Number: 11-digit number that was used before GST era (pre-2017)
+  Example: 27400200717, 09123456789
+  Pattern: Just 11 digits, often starts with state code (2 digits)
+- IMPORTANT: If a document shows "TIN No." or "TIN:" with an 11-digit number, extract it as vendor_tin, NOT as vendor_gst
+- Only extract as vendor_gst if it matches the 15-character GSTIN format
+- If both TIN and GST are present, extract both separately
+
 EXTRACTION RULES:
 - Analyze the ENTIRE image systematically: top-to-bottom, left-to-right
 - For printed + handwritten mixed documents: extract BOTH
@@ -102,7 +113,8 @@ Extract the following fields and return as valid JSON:
 {
   "bill_number": "bill/invoice/receipt number (check for handwritten bill # at top)",
   "vendor_name": "merchant or vendor name (may be stamped, printed, or handwritten)",
-  "vendor_gst": "GST number if available (often printed, sometimes handwritten)",
+  "vendor_gst": "GST number ONLY if it matches 15-char GSTIN format (e.g., 27AABCU9603R1ZM), else null",
+  "vendor_tin": "TIN number if present (11-digit number), else null",
   "bill_date": "date of bill in YYYY-MM-DD format (check for handwritten dates)",
   "subtotal": 0,
   "tax_amount": 0,
@@ -129,6 +141,9 @@ CRITICAL INSTRUCTIONS:
 - For Indian formats: handle lakhs (L), crores (Cr) notation and convert to numbers
 - Parse dates in DD/MM/YYYY, DD-MM-YYYY, or handwritten formats and convert to YYYY-MM-DD
 - Extract GST/tax information accurately (CGST, SGST, IGST)
+- GST VALIDATION: Only put a value in vendor_gst if it strictly matches the GSTIN format (15 chars, pattern: ##XXXXX####X#Z#)
+- TIN EXTRACTION: If you see "TIN No." or "TIN:" followed by an 11-digit number, put it in vendor_tin
+- DO NOT put TIN numbers in the vendor_gst field!
 - Calculate amounts if not explicitly stated
 - For subtotal: sum of all item amounts before tax
 - For tax_amount: total GST/tax amount
@@ -195,12 +210,24 @@ QUALITY ASSESSMENT:
       confidence: extracted.confidence
     });
 
+    // Validate GST format before saving - must be 15 chars matching GSTIN pattern
+    const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    const validatedGst = extracted.vendor_gst && gstPattern.test(extracted.vendor_gst) 
+      ? extracted.vendor_gst 
+      : null;
+    
+    // Log GST validation result
+    if (extracted.vendor_gst && !validatedGst) {
+      console.log('GST validation failed:', extracted.vendor_gst, '- does not match GSTIN format');
+    }
+
     const { data: updatedBill, error: updateError } = await supabase
       .from('bills')
       .update({
         bill_number: extracted.bill_number || bill.bill_number,
         vendor_name: extracted.vendor_name || bill.vendor_name,
-        vendor_gst: extracted.vendor_gst || bill.vendor_gst,
+        vendor_gst: validatedGst || bill.vendor_gst,
+        vendor_tin: extracted.vendor_tin || bill.vendor_tin,
         bill_date: extracted.bill_date || bill.bill_date,
         total_amount: extracted.total_amount || 0,
         extraction_confidence: extracted.confidence || 0,

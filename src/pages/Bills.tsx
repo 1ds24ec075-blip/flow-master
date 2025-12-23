@@ -36,6 +36,7 @@ interface Bill {
   bill_number: string;
   vendor_name: string;
   vendor_gst: string;
+  vendor_tin: string;
   bill_date: string;
   total_amount: number;
   payment_status: string;
@@ -528,7 +529,7 @@ export default function Bills() {
                     <Input
                       value={editedBill?.vendor_gst || ""}
                       onChange={(e) => setEditedBill(prev => prev ? { ...prev, vendor_gst: e.target.value } : null)}
-                      placeholder="Enter GST number"
+                      placeholder="Enter GST number (15 chars)"
                     />
                   ) : (
                     <p className="text-sm font-medium mt-1">
@@ -536,6 +537,14 @@ export default function Bills() {
                     </p>
                   )}
                 </div>
+                {selectedBill.vendor_tin && (
+                  <div className="space-y-2">
+                    <Label>TIN Number</Label>
+                    <p className="text-sm font-medium mt-1">
+                      {selectedBill.vendor_tin}
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Bill Date</Label>
                   {isEditing ? (
