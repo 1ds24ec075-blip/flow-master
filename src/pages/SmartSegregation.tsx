@@ -307,10 +307,14 @@ export default function SmartSegregation() {
   };
 
   const handleUpload = async () => {
-    if (!file || !businessName || !accountName) {
-      toast.error("Please fill in all fields and select a file");
+    if (!file) {
+      toast.error("Please select a file");
       return;
     }
+
+    // Use defaults if fields are empty
+    const effectiveBusinessName = businessName.trim() || 'Default Business';
+    const effectiveAccountName = accountName.trim() || 'Primary Account';
 
     setIsProcessing(true);
     
@@ -339,8 +343,8 @@ export default function SmartSegregation() {
       const { data: uploadData, error: uploadError } = await supabase
         .from('segregation_uploads')
         .insert({
-          business_name: businessName,
-          account_name: accountName,
+          business_name: effectiveBusinessName,
+          account_name: effectiveAccountName,
           file_name: file.name,
           status: 'processing'
         })
@@ -355,8 +359,8 @@ export default function SmartSegregation() {
       const response = await supabase.functions.invoke('smart-segregation', {
         body: {
           transactions: parsedTransactions,
-          businessName,
-          accountName,
+          businessName: effectiveBusinessName,
+          accountName: effectiveAccountName,
           fileName: file.name,
           uploadId: uploadData.id
         }
@@ -511,22 +515,24 @@ export default function SmartSegregation() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="businessName">Business Name</Label>
+                  <Label htmlFor="businessName">Business Name <span className="text-muted-foreground text-xs">(optional)</span></Label>
                   <Input
                     id="businessName"
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
-                    placeholder="Your Company Ltd"
+                    placeholder="Default Business"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">Used for personalized rules</p>
                 </div>
                 <div>
-                  <Label htmlFor="accountName">Bank/Card Account</Label>
+                  <Label htmlFor="accountName">Bank/Card Account <span className="text-muted-foreground text-xs">(optional)</span></Label>
                   <Input
                     id="accountName"
                     value={accountName}
                     onChange={(e) => setAccountName(e.target.value)}
-                    placeholder="HDFC Current A/C"
+                    placeholder="Primary Account"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">Helps organize multiple accounts</p>
                 </div>
                 <div>
                   <Label htmlFor="file">Statement File</Label>

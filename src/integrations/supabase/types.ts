@@ -972,7 +972,7 @@ export type Database = {
       }
       segregation_rules: {
         Row: {
-          business_name: string
+          business_name: string | null
           category: string
           created_at: string
           id: string
@@ -981,7 +981,7 @@ export type Database = {
           usage_count: number | null
         }
         Insert: {
-          business_name: string
+          business_name?: string | null
           category: string
           created_at?: string
           id?: string
@@ -990,7 +990,7 @@ export type Database = {
           usage_count?: number | null
         }
         Update: {
-          business_name?: string
+          business_name?: string | null
           category?: string
           created_at?: string
           id?: string
@@ -1002,8 +1002,8 @@ export type Database = {
       }
       segregation_uploads: {
         Row: {
-          account_name: string
-          business_name: string
+          account_name: string | null
+          business_name: string | null
           created_at: string
           file_name: string
           id: string
@@ -1013,8 +1013,8 @@ export type Database = {
           upload_date: string
         }
         Insert: {
-          account_name: string
-          business_name: string
+          account_name?: string | null
+          business_name?: string | null
           created_at?: string
           file_name: string
           id?: string
@@ -1024,8 +1024,8 @@ export type Database = {
           upload_date?: string
         }
         Update: {
-          account_name?: string
-          business_name?: string
+          account_name?: string | null
+          business_name?: string | null
           created_at?: string
           file_name?: string
           id?: string
