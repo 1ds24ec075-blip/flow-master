@@ -42,7 +42,10 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Processing ${transactions.length} transactions for ${businessName}`);
+    // Use defaults if fields are empty/null
+    const effectiveBusinessName = businessName?.trim() || 'Default Business';
+    
+    console.log(`Processing ${transactions.length} transactions for ${effectiveBusinessName}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -52,7 +55,7 @@ serve(async (req) => {
     const { data: existingRules } = await supabase
       .from('segregation_rules')
       .select('pattern, category')
-      .eq('business_name', businessName);
+      .eq('business_name', effectiveBusinessName);
 
     const rulesMap = new Map<string, string>();
     if (existingRules) {
@@ -61,7 +64,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Found ${rulesMap.size} existing rules for ${businessName}`);
+    console.log(`Found ${rulesMap.size} existing rules for ${effectiveBusinessName}`);
 
     // Use AI to classify transactions
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
