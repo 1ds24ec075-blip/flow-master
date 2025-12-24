@@ -164,41 +164,114 @@ export default function SmartSegregation() {
           const sheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
           
+          console.log('Excel data rows:', jsonData.length);
+          console.log('First 5 rows:', jsonData.slice(0, 5));
+          
           // Find header row and parse transactions
           const transactions: Transaction[] = [];
           let headerRow = -1;
           
-          // Look for common header patterns
-          for (let i = 0; i < Math.min(10, jsonData.length); i++) {
+          // Look for common header patterns - more flexible matching
+          for (let i = 0; i < Math.min(15, jsonData.length); i++) {
             const row = jsonData[i];
-            if (!row) continue;
+            if (!row || row.length < 2) continue;
             const rowStr = row.join(' ').toLowerCase();
-            if (rowStr.includes('date') && (rowStr.includes('narration') || rowStr.includes('description') || rowStr.includes('particular'))) {
+            
+            // Check for date column
+            const hasDate = rowStr.includes('date') || rowStr.includes('txn') || rowStr.includes('value');
+            // Check for description column
+            const hasDesc = rowStr.includes('narration') || rowStr.includes('description') || 
+                           rowStr.includes('particular') || rowStr.includes('remark') || 
+                           rowStr.includes('detail') || rowStr.includes('memo');
+            // Check for amount columns
+            const hasAmount = rowStr.includes('amount') || rowStr.includes('debit') || 
+                             rowStr.includes('credit') || rowStr.includes('withdrawal') || 
+                             rowStr.includes('deposit') || rowStr.includes('dr') || rowStr.includes('cr');
+            
+            if ((hasDate && hasDesc) || (hasDate && hasAmount) || (hasDesc && hasAmount)) {
               headerRow = i;
+              console.log('Found header at row:', i, 'Content:', row);
               break;
+            }
+          }
+          
+          if (headerRow === -1) {
+            // Fallback: find first row with multiple text values that look like headers
+            for (let i = 0; i < Math.min(10, jsonData.length); i++) {
+              const row = jsonData[i];
+              if (!row || row.length < 3) continue;
+              const textCells = row.filter((cell: any) => typeof cell === 'string' && cell.length > 0);
+              if (textCells.length >= 3) {
+                headerRow = i;
+                console.log('Fallback header at row:', i, 'Content:', row);
+                break;
+              }
             }
           }
           
           if (headerRow === -1) headerRow = 0;
           
-          const headers = jsonData[headerRow]?.map((h: any) => String(h).toLowerCase().trim()) || [];
+          const headers = jsonData[headerRow]?.map((h: any) => String(h || '').toLowerCase().trim()) || [];
+          console.log('Detected headers:', headers);
           
-          // Find column indices
-          const dateIdx = headers.findIndex((h: string) => h.includes('date'));
-          const narrationIdx = headers.findIndex((h: string) => 
-            h.includes('narration') || h.includes('description') || h.includes('particular')
+          // Find column indices - more flexible matching
+          const dateIdx = headers.findIndex((h: string) => 
+            h.includes('date') || h.includes('txn') || h === 'value'
           );
-          const debitIdx = headers.findIndex((h: string) => h.includes('debit') || h.includes('withdrawal'));
-          const creditIdx = headers.findIndex((h: string) => h.includes('credit') || h.includes('deposit'));
-          const amountIdx = headers.findIndex((h: string) => h.includes('amount') && !h.includes('debit') && !h.includes('credit'));
+          const narrationIdx = headers.findIndex((h: string) => 
+            h.includes('narration') || h.includes('description') || h.includes('particular') ||
+            h.includes('remark') || h.includes('detail') || h.includes('memo') || h.includes('reference')
+          );
+          const debitIdx = headers.findIndex((h: string) => 
+            h.includes('debit') || h.includes('withdrawal') || h === 'dr' || h.includes('dr.')
+          );
+          const creditIdx = headers.findIndex((h: string) => 
+            h.includes('credit') || h.includes('deposit') || h === 'cr' || h.includes('cr.')
+          );
+          const amountIdx = headers.findIndex((h: string) => 
+            (h.includes('amount') || h === 'amt') && !h.includes('debit') && !h.includes('credit')
+          );
+          
+          console.log('Column indices - date:', dateIdx, 'narration:', narrationIdx, 
+                      'debit:', debitIdx, 'credit:', creditIdx, 'amount:', amountIdx);
+          
+          // If no narration column found, try to use any text-heavy column
+          let effectiveNarrationIdx = narrationIdx;
+          if (effectiveNarrationIdx === -1) {
+            // Find the column with the longest average text content (excluding date/amount columns)
+            const skipCols = new Set([dateIdx, debitIdx, creditIdx, amountIdx].filter(i => i >= 0));
+            let maxAvgLength = 0;
+            for (let col = 0; col < headers.length; col++) {
+              if (skipCols.has(col)) continue;
+              let totalLength = 0;
+              let count = 0;
+              for (let row = headerRow + 1; row < Math.min(headerRow + 20, jsonData.length); row++) {
+                const cell = jsonData[row]?.[col];
+                if (cell && typeof cell === 'string') {
+                  totalLength += cell.length;
+                  count++;
+                }
+              }
+              const avgLength = count > 0 ? totalLength / count : 0;
+              if (avgLength > maxAvgLength) {
+                maxAvgLength = avgLength;
+                effectiveNarrationIdx = col;
+              }
+            }
+            console.log('Auto-detected narration column:', effectiveNarrationIdx, 'avg length:', maxAvgLength);
+          }
           
           // Parse data rows
           for (let i = headerRow + 1; i < jsonData.length; i++) {
             const row = jsonData[i];
             if (!row || row.length === 0) continue;
             
+            // Skip empty rows
+            const nonEmptyCells = row.filter((cell: any) => cell !== null && cell !== undefined && cell !== '');
+            if (nonEmptyCells.length < 2) continue;
+            
             let date = dateIdx >= 0 ? row[dateIdx] : null;
-            const narration = narrationIdx >= 0 ? String(row[narrationIdx] || '') : '';
+            const narration = effectiveNarrationIdx >= 0 ? String(row[effectiveNarrationIdx] || '') : '';
             
             let amount = 0;
             let type: 'debit' | 'credit' = 'debit';
@@ -215,11 +288,24 @@ export default function SmartSegregation() {
                 type = 'credit';
               }
             } else if (amountIdx >= 0) {
-              amount = Math.abs(parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) || 0);
-              type = parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) < 0 ? 'debit' : 'credit';
+              const rawAmt = parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
+              amount = Math.abs(rawAmt);
+              type = rawAmt < 0 ? 'debit' : 'credit';
+            } else {
+              // Try to find any numeric column that could be an amount
+              for (let col = 0; col < row.length; col++) {
+                if (col === dateIdx || col === effectiveNarrationIdx) continue;
+                const val = parseFloat(String(row[col] || '0').replace(/[^0-9.-]/g, ''));
+                if (!isNaN(val) && val !== 0) {
+                  amount = Math.abs(val);
+                  type = val < 0 ? 'debit' : 'credit';
+                  break;
+                }
+              }
             }
             
-            if (amount > 0 && narration) {
+            // Be more lenient - allow transactions even without narration
+            if (amount > 0) {
               // Parse date
               let parsedDate = '';
               if (date) {
@@ -234,7 +320,7 @@ export default function SmartSegregation() {
               
               transactions.push({
                 transaction_date: parsedDate,
-                narration: narration.trim(),
+                narration: narration.trim() || `Transaction ${i}`,
                 amount,
                 transaction_type: type,
                 suggested_category: 'Unknown',
@@ -243,8 +329,14 @@ export default function SmartSegregation() {
             }
           }
           
+          console.log('Parsed transactions:', transactions.length);
+          if (transactions.length === 0 && jsonData.length > 1) {
+            console.log('Sample data rows:', jsonData.slice(headerRow + 1, headerRow + 4));
+          }
+          
           resolve(transactions);
         } catch (error) {
+          console.error('Excel parsing error:', error);
           reject(error);
         }
       };
