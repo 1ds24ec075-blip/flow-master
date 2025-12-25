@@ -487,6 +487,54 @@ export type Database = {
           },
         ]
       }
+      gmail_integrations: {
+        Row: {
+          access_token: string | null
+          created_at: string
+          email_address: string
+          error_message: string | null
+          history_id: string | null
+          id: string
+          is_active: boolean | null
+          last_sync_at: string | null
+          refresh_token: string | null
+          subject_filters: string[] | null
+          sync_status: string | null
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          created_at?: string
+          email_address: string
+          error_message?: string | null
+          history_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          subject_filters?: string[] | null
+          sync_status?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          created_at?: string
+          email_address?: string
+          error_message?: string | null
+          history_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          subject_filters?: string[] | null
+          sync_status?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           content: string
@@ -754,6 +802,62 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      processed_emails: {
+        Row: {
+          attachments_count: number | null
+          bills_created: number | null
+          created_at: string
+          email_id: string
+          error_message: string | null
+          id: string
+          integration_id: string
+          processed_at: string | null
+          received_at: string | null
+          sender: string | null
+          status: string | null
+          subject: string | null
+          thread_id: string | null
+        }
+        Insert: {
+          attachments_count?: number | null
+          bills_created?: number | null
+          created_at?: string
+          email_id: string
+          error_message?: string | null
+          id?: string
+          integration_id: string
+          processed_at?: string | null
+          received_at?: string | null
+          sender?: string | null
+          status?: string | null
+          subject?: string | null
+          thread_id?: string | null
+        }
+        Update: {
+          attachments_count?: number | null
+          bills_created?: number | null
+          created_at?: string
+          email_id?: string
+          error_message?: string | null
+          id?: string
+          integration_id?: string
+          processed_at?: string | null
+          received_at?: string | null
+          sender?: string | null
+          status?: string | null
+          subject?: string | null
+          thread_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "processed_emails_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "gmail_integrations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       purchase_orders: {
         Row: {
