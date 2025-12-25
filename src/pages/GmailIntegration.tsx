@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Mail, Loader2, RefreshCw, Trash2, CheckCircle, XCircle, Eye } from "lucide-react";
@@ -50,10 +49,28 @@ interface ProcessedEmail {
 }
 
 export default function GmailIntegration() {
-  const [setupDialogOpen, setSetupDialogOpen] = useState(false);
   const [emailsDialogOpen, setEmailsDialogOpen] = useState(false);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Handle OAuth callback parameters
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const error = searchParams.get("error");
+    const email = searchParams.get("email");
+
+    if (success === "true") {
+      toast.success(`Gmail account ${email ? `(${email}) ` : ""}connected successfully!`);
+      queryClient.invalidateQueries({ queryKey: ["gmail_integrations"] });
+      // Clear the URL params
+      setSearchParams({});
+    } else if (error) {
+      toast.error(`Failed to connect Gmail: ${error}`);
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, queryClient]);
 
   const { data: integrations, isLoading } = useQuery({
     queryKey: ["gmail_integrations"],
@@ -138,6 +155,13 @@ export default function GmailIntegration() {
     },
   });
 
+  const handleConnectGmail = () => {
+    setIsConnecting(true);
+    // Redirect to the OAuth start edge function
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    window.location.href = `${supabaseUrl}/functions/v1/gmail-auth-start`;
+  };
+
   const handleViewEmails = (integrationId: string) => {
     setSelectedIntegrationId(integrationId);
     setEmailsDialogOpen(true);
@@ -178,8 +202,12 @@ export default function GmailIntegration() {
             Connect your Gmail to automatically import invoices and bills
           </p>
         </div>
-        <Button onClick={() => setSetupDialogOpen(true)}>
-          <Mail className="mr-2 h-4 w-4" />
+        <Button onClick={handleConnectGmail} disabled={isConnecting}>
+          {isConnecting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Mail className="mr-2 h-4 w-4" />
+          )}
           Connect Gmail
         </Button>
       </div>
@@ -222,7 +250,7 @@ export default function GmailIntegration() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1 flex-wrap">
-                          {integration.subject_filters.map((filter, idx) => (
+                          {integration.subject_filters?.map((filter, idx) => (
                             <Badge key={idx} variant="outline">
                               {filter}
                             </Badge>
@@ -269,45 +297,6 @@ export default function GmailIntegration() {
         </CardContent>
       </Card>
 
-      <Dialog open={setupDialogOpen} onOpenChange={setSetupDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Connect Gmail Account</DialogTitle>
-            <DialogDescription>
-              To connect your Gmail account, you'll need to set up Google OAuth credentials.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-semibold mb-2">Setup Instructions:</h3>
-              <ol className="list-decimal list-inside space-y-2 text-sm">
-                <li>Go to Google Cloud Console</li>
-                <li>Create a new project or select existing one</li>
-                <li>Enable Gmail API</li>
-                <li>Create OAuth 2.0 credentials</li>
-                <li>Add authorized redirect URI</li>
-                <li>Copy Client ID and Client Secret</li>
-              </ol>
-            </div>
-            <div className="space-y-2">
-              <Label>Google Client ID</Label>
-              <Input placeholder="Enter your Google Client ID" />
-            </div>
-            <div className="space-y-2">
-              <Label>Google Client Secret</Label>
-              <Input type="password" placeholder="Enter your Google Client Secret" />
-            </div>
-            <Button className="w-full" disabled>
-              <Mail className="mr-2 h-4 w-4" />
-              Connect Gmail (OAuth Flow Required)
-            </Button>
-            <p className="text-xs text-muted-foreground text-center">
-              Note: Full OAuth implementation requires additional setup with Google Cloud Platform
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={emailsDialogOpen} onOpenChange={setEmailsDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -341,7 +330,7 @@ export default function GmailIntegration() {
                       </TableCell>
                       <TableCell className="max-w-xs truncate">{email.sender}</TableCell>
                       <TableCell>
-                        {format(new Date(email.received_at), "dd MMM yyyy HH:mm")}
+                        {email.received_at && format(new Date(email.received_at), "dd MMM yyyy HH:mm")}
                       </TableCell>
                       <TableCell>{email.attachments_count}</TableCell>
                       <TableCell>
