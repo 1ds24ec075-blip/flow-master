@@ -48,3 +48,9 @@ verify_jwt = false
 
 [functions.parse-pdf-statement]
 verify_jwt = false
+
+[functions.gmail-auth-start]
+verify_jwt = false
+
+[functions.gmail-auth-callback]
+verify_jwt = false
