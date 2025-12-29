@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Mail, Loader2, RefreshCw, Trash2, CheckCircle, XCircle, Eye } from "lucide-react";
+import { Mail, Loader2, RefreshCw, Trash2, CheckCircle, XCircle, Eye, Bug, Copy, ExternalLink } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -22,6 +22,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { format } from "date-fns";
 
 interface GmailIntegration {
@@ -52,8 +57,20 @@ export default function GmailIntegration() {
   const [emailsDialogOpen, setEmailsDialogOpen] = useState(false);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Get debug info from URL
+  const urlError = searchParams.get("error");
+  const urlErrorDesc = searchParams.get("error_description");
+  const urlSuccess = searchParams.get("success");
+  const urlEmail = searchParams.get("email");
+
+  // Build the OAuth URL for display
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const oauthStartUrl = `${supabaseUrl}/functions/v1/gmail-auth-start`;
+  const oauthCallbackUrl = `${supabaseUrl}/functions/v1/gmail-auth-callback`;
 
   // Handle OAuth callback parameters
   useEffect(() => {
@@ -64,11 +81,12 @@ export default function GmailIntegration() {
     if (success === "true") {
       toast.success(`Gmail account ${email ? `(${email}) ` : ""}connected successfully!`);
       queryClient.invalidateQueries({ queryKey: ["gmail_integrations"] });
-      // Clear the URL params
-      setSearchParams({});
+      // Clear the URL params after a delay so debug panel can show them
+      setTimeout(() => setSearchParams({}), 5000);
     } else if (error) {
       toast.error(`Failed to connect Gmail: ${error}`);
-      setSearchParams({});
+      // Keep error in URL for debug panel
+      setDebugOpen(true);
     }
   }, [searchParams, setSearchParams, queryClient]);
 
@@ -105,7 +123,6 @@ export default function GmailIntegration() {
 
   const syncMutation = useMutation({
     mutationFn: async (integrationId: string) => {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
       const response = await fetch(
@@ -157,9 +174,12 @@ export default function GmailIntegration() {
 
   const handleConnectGmail = () => {
     setIsConnecting(true);
-    // Redirect to the OAuth start edge function
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    window.location.href = `${supabaseUrl}/functions/v1/gmail-auth-start`;
+    window.location.href = oauthStartUrl;
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard");
   };
 
   const handleViewEmails = (integrationId: string) => {
@@ -211,6 +231,103 @@ export default function GmailIntegration() {
           Connect Gmail
         </Button>
       </div>
+
+      {/* OAuth Debug Panel */}
+      <Collapsible open={debugOpen} onOpenChange={setDebugOpen}>
+        <Card className="border-dashed border-amber-500/50 bg-amber-500/5">
+          <CardHeader className="pb-2">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <Bug className="h-4 w-4 text-amber-500" />
+                  <CardTitle className="text-sm font-medium">OAuth Debug Panel</CardTitle>
+                </div>
+                <Badge variant="outline" className="text-amber-600">
+                  {debugOpen ? "Click to collapse" : "Click to expand"}
+                </Badge>
+              </div>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-4 text-sm">
+              {/* OAuth URLs */}
+              <div className="space-y-2">
+                <p className="font-medium text-muted-foreground">OAuth Start URL:</p>
+                <div className="flex items-center gap-2 p-2 bg-muted rounded-md font-mono text-xs break-all">
+                  <span className="flex-1">{oauthStartUrl}</span>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(oauthStartUrl)}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-medium text-muted-foreground">OAuth Callback URL (for Google Console):</p>
+                <div className="flex items-center gap-2 p-2 bg-muted rounded-md font-mono text-xs break-all">
+                  <span className="flex-1">{oauthCallbackUrl}</span>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(oauthCallbackUrl)}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Current URL Params */}
+              <div className="space-y-2">
+                <p className="font-medium text-muted-foreground">Current URL Parameters:</p>
+                <div className="p-2 bg-muted rounded-md font-mono text-xs space-y-1">
+                  {urlError && (
+                    <p className="text-destructive">
+                      <span className="font-semibold">error:</span> {urlError}
+                    </p>
+                  )}
+                  {urlErrorDesc && (
+                    <p className="text-destructive">
+                      <span className="font-semibold">error_description:</span> {urlErrorDesc}
+                    </p>
+                  )}
+                  {urlSuccess && (
+                    <p className="text-green-600">
+                      <span className="font-semibold">success:</span> {urlSuccess}
+                    </p>
+                  )}
+                  {urlEmail && (
+                    <p className="text-green-600">
+                      <span className="font-semibold">email:</span> {urlEmail}
+                    </p>
+                  )}
+                  {!urlError && !urlErrorDesc && !urlSuccess && !urlEmail && (
+                    <p className="text-muted-foreground italic">No OAuth parameters in URL</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Troubleshooting Checklist */}
+              <div className="space-y-2">
+                <p className="font-medium text-muted-foreground">Google Cloud Console Checklist:</p>
+                <ul className="space-y-1 text-xs list-disc pl-4">
+                  <li>Gmail API is <span className="font-semibold">enabled</span></li>
+                  <li>OAuth consent screen → User type = <span className="font-semibold">External</span></li>
+                  <li>OAuth consent screen → Publishing status = <span className="font-semibold">In production</span> (or add your email to Test users)</li>
+                  <li>OAuth Client → Authorized redirect URI includes: <code className="bg-muted px-1 rounded">{oauthCallbackUrl}</code></li>
+                  <li>Scopes include: gmail.readonly, userinfo.email, userinfo.profile</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    Open Google Cloud Console
+                  </a>
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setSearchParams({})}>
+                  Clear URL Params
+                </Button>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <Card>
         <CardHeader>
