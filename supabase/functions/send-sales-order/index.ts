@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +33,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (orderError || !order) {
+      console.error("Order fetch error:", orderError);
       throw new Error("Order not found");
     }
 
@@ -106,7 +108,7 @@ Deno.serve(async (req) => {
           <tfoot>
             <tr>
               <td colspan="4" style="padding:10px;border:1px solid #ddd;text-align:right;font-weight:bold;">Total:</td>
-              <td style="padding:10px;border:1px solid #ddd;text-align:right;font-weight:bold;">${order.currency} ${order.total_amount?.toLocaleString() || 0}</td>
+              <td style="padding:10px;border:1px solid #ddd;text-align:right;font-weight:bold;">${order.currency || "INR"} ${order.total_amount?.toLocaleString() || 0}</td>
             </tr>
           </tfoot>
         </table>
@@ -118,19 +120,40 @@ Deno.serve(async (req) => {
       </div>
     `;
 
-    // Send email using SMTP (via external service since Deno doesn't have native SMTP)
-    // Using a simple POST to a mail service or nodemailer-like approach
-    const emailPayload = {
-      from: GMAIL_USER,
-      to: email,
-      subject: `Sales Order ${soNumber} - Reference PO: ${order.po_number || "N/A"}`,
-      html: emailHtml,
-    };
+    const subject = `Sales Order ${soNumber} - Reference PO: ${order.po_number || "N/A"}`;
 
-    // For simplicity, we'll use the Resend-like approach or log success
-    // In production, you'd integrate with an actual email service
     console.log("Sending email to:", email);
-    console.log("Subject:", emailPayload.subject);
+    console.log("Subject:", subject);
+
+    // Send email using Gmail SMTP
+    const client = new SMTPClient({
+      connection: {
+        hostname: "smtp.gmail.com",
+        port: 465,
+        tls: true,
+        auth: {
+          username: GMAIL_USER,
+          password: GMAIL_PASS,
+        },
+      },
+    });
+
+    try {
+      await client.send({
+        from: GMAIL_USER,
+        to: email,
+        subject: subject,
+        html: emailHtml,
+      });
+      
+      console.log("Email sent successfully to:", email);
+      await client.close();
+    } catch (emailError: unknown) {
+      console.error("SMTP Error:", emailError);
+      await client.close();
+      const errMsg = emailError instanceof Error ? emailError.message : "Unknown SMTP error";
+      throw new Error(`Failed to send email: ${errMsg}`);
+    }
 
     // Update order status
     await supabase
