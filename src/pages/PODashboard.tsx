@@ -108,9 +108,6 @@ export default function PODashboard() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [sendEmailAfterSave, setSendEmailAfterSave] = useState(false);
-
-  const [showSendEmailDialog, setShowSendEmailDialog] = useState(false);
-  const [recipientEmail, setRecipientEmail] = useState("");
   
   const [formData, setFormData] = useState({
     poNumber: "",
@@ -1027,76 +1024,24 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                     Download PDF
                                   </Button>
                                   <Button
-                                    onClick={() => {
-                                      setRecipientEmail("");
-                                      setShowSendEmailDialog(true);
-                                    }}
+                                    onClick={() =>
+                                      sendEmailMutation.mutate({ orderId: selectedPO.id })
+                                    }
                                     disabled={sendEmailMutation.isPending}
                                   >
-                                    <Mail className="h-4 w-4 mr-2" />
-                                    Send Email
+                                    {sendEmailMutation.isPending ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Sending...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Mail className="h-4 w-4 mr-2" />
+                                        Send Email
+                                      </>
+                                    )}
                                   </Button>
                                 </div>
-
-                                <Dialog
-                                  open={showSendEmailDialog}
-                                  onOpenChange={setShowSendEmailDialog}
-                                >
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Send Sales Order Email</DialogTitle>
-                                    </DialogHeader>
-
-                                    <div className="grid gap-4">
-                                      <div className="grid gap-2">
-                                        <Label htmlFor="recipientEmail">Recipient email</Label>
-                                        <Input
-                                          id="recipientEmail"
-                                          type="email"
-                                          placeholder="customer@example.com"
-                                          value={recipientEmail}
-                                          onChange={(e) => setRecipientEmail(e.target.value)}
-                                        />
-                                      </div>
-
-                                      <div className="flex justify-end gap-2">
-                                        <Button
-                                          variant="outline"
-                                          onClick={() => setShowSendEmailDialog(false)}
-                                        >
-                                          Cancel
-                                        </Button>
-                                        <Button
-                                          onClick={() => {
-                                            const email = recipientEmail.trim();
-                                            if (!email) {
-                                              toast.error("Please enter a recipient email");
-                                              return;
-                                            }
-                                            if (!selectedPO) return;
-
-                                            sendEmailMutation.mutate(
-                                              { orderId: selectedPO.id, email },
-                                              {
-                                                onSuccess: () => setShowSendEmailDialog(false),
-                                              }
-                                            );
-                                          }}
-                                          disabled={sendEmailMutation.isPending}
-                                        >
-                                          {sendEmailMutation.isPending ? (
-                                            <>
-                                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                              Sending...
-                                            </>
-                                          ) : (
-                                            "Send"
-                                          )}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </DialogContent>
-                                </Dialog>
                               </div>
                             )}
                           </DialogContent>

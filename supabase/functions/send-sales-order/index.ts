@@ -43,8 +43,10 @@ Deno.serve(async (req) => {
       .eq("po_order_id", orderId)
       .order("item_number");
 
-    // Get customer email
+    // Get customer email - priority: passed param > customer_master > email_from field
     let email = recipientEmail;
+    
+    // Try customer_master if no email passed
     if (!email && order.customer_master_id) {
       const { data: customer } = await supabase
         .from("customer_master")
@@ -54,12 +56,25 @@ Deno.serve(async (req) => {
       email = customer?.email;
     }
 
+    // Try to extract email from email_from field (format: "Name <email@example.com>")
+    if (!email && order.email_from) {
+      const emailMatch = order.email_from.match(/<([^>]+)>/);
+      if (emailMatch && emailMatch[1]) {
+        email = emailMatch[1];
+      } else if (order.email_from.includes("@")) {
+        // If no angle brackets, the whole field might be just an email
+        email = order.email_from.trim();
+      }
+    }
+
     if (!email) {
-      return new Response(JSON.stringify({ error: "No recipient email found" }), {
+      return new Response(JSON.stringify({ error: "No recipient email found. Order has no linked customer or email source." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    console.log("Resolved recipient email:", email);
 
     const GMAIL_USER = Deno.env.get("GMAIL_SMTP_USER");
     const GMAIL_PASS = Deno.env.get("GMAIL_SMTP_PASSWORD");
