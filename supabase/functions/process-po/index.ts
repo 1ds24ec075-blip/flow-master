@@ -37,7 +37,15 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a PO extraction expert. Extract data from Purchase Order PDFs into structured JSON. Handle Indian formats (₹, GST, dates like DD-MM-YYYY). Return ONLY valid JSON with this structure:
+            content: `You are a PO extraction expert. Extract data from Purchase Order PDFs into structured JSON. Handle Indian formats (₹, GST, dates like DD-MM-YYYY). 
+
+IMPORTANT: 
+- subtotal = sum of line items BEFORE tax
+- tax_amount = the actual tax value (e.g., 19.00)
+- tax_rate = the tax percentage if shown (e.g., 10 for 10%)
+- total_amount = the FINAL TOTAL including tax (subtotal + tax_amount)
+
+Return ONLY valid JSON with this structure:
 {
   "po_number": "string",
   "vendor_name": "string",
@@ -48,6 +56,9 @@ Deno.serve(async (req) => {
   "order_date": "YYYY-MM-DD or null",
   "delivery_date": "YYYY-MM-DD or null",
   "payment_terms": "string or null",
+  "subtotal": number,
+  "tax_rate": number or null,
+  "tax_amount": number or null,
   "total_amount": number,
   "currency": "INR or USD or EUR",
   "items": [{"description": "string", "quantity": number, "unit": "string", "unit_price": number}]
