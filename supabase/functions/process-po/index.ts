@@ -118,28 +118,66 @@ Return ONLY valid JSON with this structure:
 
     // Check prices against price_list (2% tolerance)
     const mismatches: any[] = [];
+    const unmatchedItems: any[] = [];
     if (extracted.items && status !== "duplicate") {
       const { data: priceList } = await supabase.from("price_list").select("*");
       
       for (const item of extracted.items) {
-        const priceItem = priceList?.find(p => 
-          item.description?.toLowerCase().includes(p.product_name?.toLowerCase() || p.sku.toLowerCase())
+        // Normalize item description for matching
+        const itemDesc = (item.description || "").toLowerCase().trim();
+        
+        // Try multiple matching strategies
+        let priceItem = null;
+        
+        // Strategy 1: Exact SKU match
+        priceItem = priceList?.find(p => 
+          p.sku && itemDesc.includes(p.sku.toLowerCase())
         );
         
+        // Strategy 2: Product name contains or is contained
+        if (!priceItem) {
+          priceItem = priceList?.find(p => {
+            const productName = (p.product_name || "").toLowerCase().trim();
+            const sku = (p.sku || "").toLowerCase().trim();
+            return (productName && (itemDesc.includes(productName) || productName.includes(itemDesc))) ||
+                   (sku && (itemDesc.includes(sku) || sku.includes(itemDesc)));
+          });
+        }
+        
+        // Strategy 3: Word-based fuzzy match (at least 2 common words)
+        if (!priceItem) {
+          const itemWords = itemDesc.split(/\s+/).filter((w: string) => w.length > 2);
+          priceItem = priceList?.find(p => {
+            const productWords = ((p.product_name || "") + " " + (p.sku || "")).toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+            const commonWords = itemWords.filter((w: string) => productWords.some((pw: string) => pw.includes(w) || w.includes(pw)));
+            return commonWords.length >= 2;
+          });
+        }
+        
         if (priceItem && item.unit_price) {
+          // Item matched - check price tolerance
           const diff = Math.abs(item.unit_price - priceItem.unit_price) / priceItem.unit_price * 100;
           if (diff > 2) {
             mismatches.push({
               description: item.description,
+              matched_product: priceItem.product_name || priceItem.sku,
               expected_price: priceItem.unit_price,
               actual_price: item.unit_price,
-              difference_percent: diff,
+              difference_percent: Math.round(diff * 100) / 100,
             });
           }
+        } else if (item.unit_price) {
+          // Item NOT matched in price list
+          unmatchedItems.push({
+            description: item.description,
+            unit_price: item.unit_price,
+            reason: "Item not found in price list"
+          });
         }
       }
       
-      if (mismatches.length > 0) {
+      // Set status based on issues found
+      if (mismatches.length > 0 || unmatchedItems.length > 0) {
         status = "price_mismatch";
       }
     }
@@ -178,7 +216,7 @@ Return ONLY valid JSON with this structure:
         email_from: emailFrom,
         email_date: emailDate,
         customer_master_id: customerMasterId,
-        price_mismatch_details: mismatches.length > 0 ? { mismatches } : null,
+        price_mismatch_details: (mismatches.length > 0 || unmatchedItems.length > 0) ? { mismatches, unmatchedItems } : null,
       })
       .select()
       .single();
