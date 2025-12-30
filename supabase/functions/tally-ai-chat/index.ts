@@ -162,14 +162,14 @@ const toolDefinitions = [
     type: 'function',
     function: {
       name: 'get_po_stats',
-      description: 'Get statistics about purchase orders including counts by status, time-filtered data, and recent POs.',
+      description: 'Get statistics about purchase orders from the PO Dashboard including counts by status, time-filtered data, and recent POs. Use this for questions about POs added today, pending POs, converted POs, etc.',
       parameters: {
         type: 'object',
         properties: {
           status: {
             type: 'string',
-            enum: ['draft', 'sent', 'processing', 'materials_received', 'completed', 'all'],
-            description: 'Filter by PO status'
+            enum: ['pending', 'processed', 'converted', 'duplicate', 'price_mismatch', 'all'],
+            description: 'Filter by PO status. pending=new POs, processed=extracted, converted=sent as SO, price_mismatch=needs review'
           },
           time_range: {
             type: 'string',
@@ -629,9 +629,10 @@ async function executeFunction(functionName: string, args: any, supabase: any) {
       const { status, time_range = 'all_time', limit = 5 } = args;
       const { start, end } = getDateRange(time_range);
 
+      // Query po_orders table (PO Dashboard) - this is the main PO table
       let query = supabase
-        .from('purchase_orders')
-        .select('*, clients(name), suppliers(name)')
+        .from('po_orders')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (status && status !== 'all') {
@@ -645,29 +646,34 @@ async function executeFunction(functionName: string, args: any, supabase: any) {
       if (error) console.error('Error fetching POs:', error);
 
       const { count: totalCount } = await supabase
-        .from('purchase_orders')
+        .from('po_orders')
         .select('*', { count: 'exact', head: true });
 
-      const { count: draftCount } = await supabase
-        .from('purchase_orders')
+      const { count: pendingCount } = await supabase
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'draft');
+        .eq('status', 'pending');
 
-      const { count: sentCount } = await supabase
-        .from('purchase_orders')
+      const { count: processedCount } = await supabase
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'sent');
+        .eq('status', 'processed');
 
-      const { count: completedCount } = await supabase
-        .from('purchase_orders')
+      const { count: convertedCount } = await supabase
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'completed');
+        .eq('status', 'converted');
+
+      const { count: priceMismatchCount } = await supabase
+        .from('po_orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'price_mismatch');
 
       // Get today's count
       const today = new Date();
       const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
       const { count: todayCount } = await supabase
-        .from('purchase_orders')
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
         .gte('created_at', todayStart);
 
@@ -675,23 +681,24 @@ async function executeFunction(functionName: string, args: any, supabase: any) {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - weekStart.getDay());
       const { count: weekCount } = await supabase
-        .from('purchase_orders')
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
         .gte('created_at', weekStart.toISOString());
 
       // Get this month's count
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       const { count: monthCount } = await supabase
-        .from('purchase_orders')
+        .from('po_orders')
         .select('*', { count: 'exact', head: true })
         .gte('created_at', monthStart.toISOString());
 
       return {
         purchase_orders: pos || [],
         total_count: totalCount || 0,
-        draft_count: draftCount || 0,
-        sent_count: sentCount || 0,
-        completed_count: completedCount || 0,
+        pending_count: pendingCount || 0,
+        processed_count: processedCount || 0,
+        converted_count: convertedCount || 0,
+        price_mismatch_count: priceMismatchCount || 0,
         uploaded_today: todayCount || 0,
         uploaded_this_week: weekCount || 0,
         uploaded_this_month: monthCount || 0,
