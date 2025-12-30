@@ -8,12 +8,10 @@ import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
 import Suppliers from "./pages/Suppliers";
 import Quotations from "./pages/Quotations";
-import PurchaseOrders from "./pages/PurchaseOrders";
 import RawMaterialInvoices from "./pages/RawMaterialInvoices";
 import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
-import POIntake from "./pages/POIntake";
 import TallyAI from "./pages/TallyAI";
 import BankStatementParser from "./pages/BankStatementParser";
 import Bills from "./pages/Bills";
@@ -39,12 +37,10 @@ const App = () => (
           <Route path="/clients" element={<Layout><Clients /></Layout>} />
           <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
           <Route path="/quotations" element={<Layout><Quotations /></Layout>} />
-          <Route path="/purchase-orders" element={<Layout><PurchaseOrders /></Layout>} />
           <Route path="/raw-material-invoices" element={<Layout><RawMaterialInvoices /></Layout>} />
           <Route path="/client-invoices" element={<Layout><ClientInvoices /></Layout>} />
           <Route path="/approvals" element={<Layout><Approvals /></Layout>} />
           <Route path="/tally-upload" element={<Layout><TallyUpload /></Layout>} />
-          <Route path="/po-intake" element={<Layout><POIntake /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
           <Route path="/bank-statement-parser" element={<Layout><BankStatementParser /></Layout>} />
           <Route path="/bills" element={<Layout><Bills /></Layout>} />
