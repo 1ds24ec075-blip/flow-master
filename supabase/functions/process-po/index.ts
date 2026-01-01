@@ -5,6 +5,164 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Normalize PO number for comparison - strips all non-alphanumeric characters
+function normalizePONumber(poNumber: string): string {
+  return (poNumber || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
+
+// Normalize vendor/customer name for comparison
+function normalizeName(name: string): string {
+  return (name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Generate fingerprint from order details
+function generateFingerprint(customerName: string, items: any[]): string {
+  const normalizedCustomer = normalizeName(customerName);
+  const itemCount = items?.length || 0;
+  const totalQty = items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+  return `${normalizedCustomer}|${itemCount}|${totalQty}`;
+}
+
+// Check if two amounts are within tolerance (default 1%)
+function amountsMatch(amount1: number, amount2: number, tolerancePercent: number = 1): boolean {
+  if (!amount1 || !amount2) return false;
+  const diff = Math.abs(amount1 - amount2) / Math.max(amount1, amount2) * 100;
+  return diff <= tolerancePercent;
+}
+
+// Check if two dates are within range (default 3 days)
+function datesMatch(date1: string | null, date2: string | null, dayRange: number = 3): boolean {
+  if (!date1 || !date2) return false;
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  const diffDays = Math.abs(d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays <= dayRange;
+}
+
+interface DuplicateMatch {
+  matched_order_id: string;
+  matched_po_number: string;
+  match_type: "exact_po_number" | "normalized_po_number" | "vendor_amount_date" | "fingerprint" | "email_filename";
+  confidence: "high" | "medium" | "low";
+  match_details: string;
+}
+
+async function checkForDuplicates(
+  supabase: any,
+  extracted: any,
+  emailFrom: string | null,
+  emailSubject: string | null,
+  filename: string | null
+): Promise<DuplicateMatch | null> {
+  
+  // Fetch recent orders (last 90 days) for comparison
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const { data: recentOrders } = await supabase
+    .from("po_orders")
+    .select("id, po_number, vendor_name, customer_name, total_amount, order_date, email_from, email_subject, original_filename")
+    .neq("status", "duplicate")
+    .gte("created_at", ninetyDaysAgo.toISOString());
+  
+  if (!recentOrders || recentOrders.length === 0) return null;
+
+  const extractedPONormalized = normalizePONumber(extracted.po_number);
+  const extractedVendorNormalized = normalizeName(extracted.vendor_name);
+  const extractedFingerprint = generateFingerprint(extracted.customer_name, extracted.items);
+
+  for (const order of recentOrders) {
+    // Layer 1: Exact PO number + same sender (HIGH confidence)
+    if (extracted.po_number && order.po_number === extracted.po_number && emailFrom && order.email_from === emailFrom) {
+      return {
+        matched_order_id: order.id,
+        matched_po_number: order.po_number,
+        match_type: "exact_po_number",
+        confidence: "high",
+        match_details: `Exact PO number "${order.po_number}" from same sender "${emailFrom}"`
+      };
+    }
+
+    // Layer 2: Normalized PO number match (HIGH confidence)
+    if (extractedPONormalized && extractedPONormalized.length >= 3) {
+      const orderPONormalized = normalizePONumber(order.po_number);
+      if (orderPONormalized && orderPONormalized === extractedPONormalized) {
+        return {
+          matched_order_id: order.id,
+          matched_po_number: order.po_number,
+          match_type: "normalized_po_number",
+          confidence: "high",
+          match_details: `Normalized PO numbers match: "${extracted.po_number}" ≈ "${order.po_number}"`
+        };
+      }
+    }
+
+    // Layer 3: Vendor + Amount + Date match (MEDIUM confidence)
+    const vendorNormalized = normalizeName(order.vendor_name);
+    const vendorMatches = extractedVendorNormalized && vendorNormalized && 
+      (extractedVendorNormalized.includes(vendorNormalized) || vendorNormalized.includes(extractedVendorNormalized));
+    
+    if (vendorMatches && 
+        amountsMatch(extracted.total_amount, order.total_amount) && 
+        datesMatch(extracted.order_date, order.order_date)) {
+      return {
+        matched_order_id: order.id,
+        matched_po_number: order.po_number || "N/A",
+        match_type: "vendor_amount_date",
+        confidence: "medium",
+        match_details: `Same vendor "${order.vendor_name}", amount ₹${order.total_amount}, and date within 3 days`
+      };
+    }
+
+    // Layer 4: Email subject or filename match (MEDIUM confidence)
+    if (emailSubject && order.email_subject && emailSubject === order.email_subject) {
+      return {
+        matched_order_id: order.id,
+        matched_po_number: order.po_number || "N/A",
+        match_type: "email_filename",
+        confidence: "medium",
+        match_details: `Same email subject: "${emailSubject}"`
+      };
+    }
+    
+    if (filename && order.original_filename && filename === order.original_filename) {
+      return {
+        matched_order_id: order.id,
+        matched_po_number: order.po_number || "N/A",
+        match_type: "email_filename",
+        confidence: "medium",
+        match_details: `Same filename: "${filename}"`
+      };
+    }
+
+    // Layer 5: Fingerprint match (LOW confidence - within 30 days only)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const orderDate = new Date(order.order_date || order.created_at);
+    
+    if (orderDate >= thirtyDaysAgo) {
+      const orderFingerprint = generateFingerprint(order.customer_name, []);
+      // Simplified fingerprint check - just customer name and if amounts are very close
+      if (extractedFingerprint.split("|")[0] === orderFingerprint.split("|")[0] &&
+          amountsMatch(extracted.total_amount, order.total_amount, 0.5)) {
+        return {
+          matched_order_id: order.id,
+          matched_po_number: order.po_number || "N/A",
+          match_type: "fingerprint",
+          confidence: "low",
+          match_details: `Similar order: same customer "${order.customer_name}" with nearly identical amount`
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -100,20 +258,15 @@ Return ONLY valid JSON with this structure:
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check for duplicates
+    // Enhanced multi-layer duplicate detection
     let status = "pending";
-    if (extracted.po_number && emailFrom) {
-      const { data: existing } = await supabase
-        .from("po_orders")
-        .select("id")
-        .eq("po_number", extracted.po_number)
-        .eq("email_from", emailFrom)
-        .neq("status", "duplicate")
-        .maybeSingle();
-      
-      if (existing) {
-        status = "duplicate";
-      }
+    let duplicateMatchDetails: DuplicateMatch | null = null;
+    
+    duplicateMatchDetails = await checkForDuplicates(supabase, extracted, emailFrom, emailSubject, filename);
+    
+    if (duplicateMatchDetails) {
+      status = "duplicate";
+      console.log(`Duplicate detected: ${duplicateMatchDetails.match_type} (${duplicateMatchDetails.confidence}) - ${duplicateMatchDetails.match_details}`);
     }
 
     // Check prices against price_list (2% tolerance)
