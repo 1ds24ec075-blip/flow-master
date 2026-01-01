@@ -6,6 +6,173 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
+// ============= Duplicate Detection Helpers =============
+
+function normalizeName(name: string | null): string {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function normalizeBillNumber(billNumber: string | null): string {
+  if (!billNumber) return "";
+  return billNumber
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/^0+/, "")
+    .trim();
+}
+
+function amountsMatch(amount1: number | null, amount2: number | null, tolerance = 1): boolean {
+  if (amount1 === null || amount2 === null) return false;
+  return Math.abs(amount1 - amount2) <= tolerance;
+}
+
+function datesMatch(date1: string | null, date2: string | null, daysTolerance = 5): boolean {
+  if (!date1 || !date2) return false;
+  try {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    const diffMs = Math.abs(d1.getTime() - d2.getTime());
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    return diffDays <= daysTolerance;
+  } catch {
+    return false;
+  }
+}
+
+interface DuplicateMatchResult {
+  isDuplicate: boolean;
+  matchedBillId: string | null;
+  matchedBillNumber: string | null;
+  matchType: "exact_vendor_bill" | "normalized_vendor_bill" | "vendor_amount_date" | "gst_bill_number" | null;
+  confidence: "high" | "medium" | "low" | null;
+  matchDetails: string | null;
+}
+
+async function checkForDuplicateBill(
+  supabase: any,
+  currentBillId: string,
+  vendorName: string | null,
+  billNumber: string | null,
+  billDate: string | null,
+  totalAmount: number | null,
+  vendorGst: string | null
+): Promise<DuplicateMatchResult> {
+  const noMatch: DuplicateMatchResult = {
+    isDuplicate: false,
+    matchedBillId: null,
+    matchedBillNumber: null,
+    matchType: null,
+    confidence: null,
+    matchDetails: null,
+  };
+
+  if (!vendorName && !billNumber && !vendorGst) {
+    return noMatch;
+  }
+
+  // Fetch existing bills (excluding current one)
+  const { data: existingBills, error } = await supabase
+    .from("bills")
+    .select("id, bill_number, vendor_name, vendor_gst, bill_date, total_amount")
+    .neq("id", currentBillId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error || !existingBills || existingBills.length === 0) {
+    return noMatch;
+  }
+
+  const normalizedVendor = normalizeName(vendorName);
+  const normalizedBillNum = normalizeBillNumber(billNumber);
+
+  for (const bill of existingBills) {
+    // Layer 1: Exact vendor name + bill number match (HIGH confidence)
+    if (vendorName && billNumber && bill.vendor_name && bill.bill_number) {
+      if (
+        bill.vendor_name.toLowerCase() === vendorName.toLowerCase() &&
+        bill.bill_number.toLowerCase() === billNumber.toLowerCase()
+      ) {
+        console.log(`Duplicate found: Exact vendor+bill match with ${bill.id}`);
+        return {
+          isDuplicate: true,
+          matchedBillId: bill.id,
+          matchedBillNumber: bill.bill_number,
+          matchType: "exact_vendor_bill",
+          confidence: "high",
+          matchDetails: `Exact match: Vendor "${vendorName}" with Bill# "${billNumber}"`,
+        };
+      }
+    }
+
+    // Layer 2: Normalized vendor + bill number match (HIGH confidence)
+    if (normalizedVendor && normalizedBillNum) {
+      const existingNormalizedVendor = normalizeName(bill.vendor_name);
+      const existingNormalizedBillNum = normalizeBillNumber(bill.bill_number);
+      if (
+        existingNormalizedVendor === normalizedVendor &&
+        existingNormalizedBillNum === normalizedBillNum
+      ) {
+        console.log(`Duplicate found: Normalized vendor+bill match with ${bill.id}`);
+        return {
+          isDuplicate: true,
+          matchedBillId: bill.id,
+          matchedBillNumber: bill.bill_number,
+          matchType: "normalized_vendor_bill",
+          confidence: "high",
+          matchDetails: `Normalized match: Vendor "${vendorName}" → "${normalizedVendor}", Bill# "${billNumber}" → "${normalizedBillNum}"`,
+        };
+      }
+    }
+
+    // Layer 3: GST + Bill Number match (HIGH confidence)
+    if (vendorGst && billNumber && bill.vendor_gst && bill.bill_number) {
+      if (
+        bill.vendor_gst === vendorGst &&
+        normalizeBillNumber(bill.bill_number) === normalizedBillNum
+      ) {
+        console.log(`Duplicate found: GST+Bill# match with ${bill.id}`);
+        return {
+          isDuplicate: true,
+          matchedBillId: bill.id,
+          matchedBillNumber: bill.bill_number,
+          matchType: "gst_bill_number",
+          confidence: "high",
+          matchDetails: `GST+Bill# match: GST "${vendorGst}" with Bill# "${billNumber}"`,
+        };
+      }
+    }
+
+    // Layer 4: Vendor + Amount + Date match (MEDIUM confidence)
+    if (normalizedVendor && totalAmount && billDate) {
+      const existingNormalizedVendor = normalizeName(bill.vendor_name);
+      if (
+        existingNormalizedVendor === normalizedVendor &&
+        amountsMatch(bill.total_amount, totalAmount) &&
+        datesMatch(bill.bill_date, billDate)
+      ) {
+        console.log(`Duplicate found: Vendor+Amount+Date match with ${bill.id}`);
+        return {
+          isDuplicate: true,
+          matchedBillId: bill.id,
+          matchedBillNumber: bill.bill_number,
+          matchType: "vendor_amount_date",
+          confidence: "medium",
+          matchDetails: `Vendor+Amount+Date match: "${vendorName}" with ₹${totalAmount} on ${billDate}`,
+        };
+      }
+    }
+  }
+
+  return noMatch;
+}
+
+// ============= Main Handler =============
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -221,6 +388,22 @@ QUALITY ASSESSMENT:
       console.log('GST validation failed:', extracted.vendor_gst, '- does not match GSTIN format');
     }
 
+    // ============= Duplicate Detection =============
+    console.log('Checking for duplicate bills...');
+    const duplicateCheck = await checkForDuplicateBill(
+      supabase,
+      billId,
+      extracted.vendor_name,
+      extracted.bill_number,
+      extracted.bill_date,
+      extracted.total_amount,
+      validatedGst
+    );
+
+    if (duplicateCheck.isDuplicate) {
+      console.log('Duplicate bill detected:', duplicateCheck);
+    }
+
     const { data: updatedBill, error: updateError } = await supabase
       .from('bills')
       .update({
@@ -231,6 +414,15 @@ QUALITY ASSESSMENT:
         bill_date: extracted.bill_date || bill.bill_date,
         total_amount: extracted.total_amount || 0,
         extraction_confidence: extracted.confidence || 0,
+        is_duplicate: duplicateCheck.isDuplicate,
+        duplicate_bill_id: duplicateCheck.matchedBillId,
+        duplicate_match_details: duplicateCheck.isDuplicate ? {
+          matched_bill_id: duplicateCheck.matchedBillId,
+          matched_bill_number: duplicateCheck.matchedBillNumber,
+          match_type: duplicateCheck.matchType,
+          confidence: duplicateCheck.confidence,
+          match_details: duplicateCheck.matchDetails,
+        } : null,
       })
       .eq('id', billId)
       .select()
@@ -262,9 +454,19 @@ QUALITY ASSESSMENT:
       }
     }
 
-    console.log('Bill extraction completed successfully');
+    console.log('Bill extraction completed successfully', duplicateCheck.isDuplicate ? '(DUPLICATE DETECTED)' : '');
 
-    return new Response(JSON.stringify(updatedBill), {
+    return new Response(JSON.stringify({
+      ...updatedBill,
+      duplicate_detected: duplicateCheck.isDuplicate,
+      duplicate_match_details: duplicateCheck.isDuplicate ? {
+        matched_bill_id: duplicateCheck.matchedBillId,
+        matched_bill_number: duplicateCheck.matchedBillNumber,
+        match_type: duplicateCheck.matchType,
+        confidence: duplicateCheck.confidence,
+        match_details: duplicateCheck.matchDetails,
+      } : null,
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
