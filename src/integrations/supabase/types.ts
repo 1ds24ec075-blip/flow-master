@@ -156,9 +156,12 @@ export type Database = {
           bill_number: string | null
           category_id: string | null
           created_at: string
+          duplicate_bill_id: string | null
+          duplicate_match_details: Json | null
           extraction_confidence: number | null
           id: string
           image_url: string | null
+          is_duplicate: boolean | null
           is_verified: boolean | null
           payment_status: string
           total_amount: number
@@ -176,9 +179,12 @@ export type Database = {
           bill_number?: string | null
           category_id?: string | null
           created_at?: string
+          duplicate_bill_id?: string | null
+          duplicate_match_details?: Json | null
           extraction_confidence?: number | null
           id?: string
           image_url?: string | null
+          is_duplicate?: boolean | null
           is_verified?: boolean | null
           payment_status?: string
           total_amount?: number
@@ -196,9 +202,12 @@ export type Database = {
           bill_number?: string | null
           category_id?: string | null
           created_at?: string
+          duplicate_bill_id?: string | null
+          duplicate_match_details?: Json | null
           extraction_confidence?: number | null
           id?: string
           image_url?: string | null
+          is_duplicate?: boolean | null
           is_verified?: boolean | null
           payment_status?: string
           total_amount?: number

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X } from "lucide-react";
+import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X, AlertTriangle, Copy } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -31,6 +31,14 @@ import {
 } from "@/components/ui/select";
 import { format } from "date-fns";
 
+interface DuplicateMatchDetails {
+  matched_bill_id: string;
+  matched_bill_number: string | null;
+  match_type: "exact_vendor_bill" | "normalized_vendor_bill" | "vendor_amount_date" | "gst_bill_number";
+  confidence: "high" | "medium" | "low";
+  match_details: string;
+}
+
 interface Bill {
   id: string;
   bill_number: string;
@@ -43,6 +51,9 @@ interface Bill {
   image_url: string;
   extraction_confidence: number;
   is_verified: boolean;
+  is_duplicate: boolean;
+  duplicate_bill_id: string | null;
+  duplicate_match_details: DuplicateMatchDetails | null;
   created_at: string;
 }
 
@@ -378,9 +389,16 @@ export default function Bills() {
                 </TableHeader>
                 <TableBody>
                   {bills.map((bill) => (
-                    <TableRow key={bill.id}>
+                    <TableRow key={bill.id} className={bill.is_duplicate ? "bg-red-50" : ""}>
                       <TableCell className="font-medium">
-                        {bill.bill_number || "N/A"}
+                        <div className="flex items-center gap-2">
+                          {bill.is_duplicate && (
+                            <span title="Duplicate">
+                              <Copy className="h-4 w-4 text-red-500" />
+                            </span>
+                          )}
+                          {bill.bill_number || "N/A"}
+                        </div>
                       </TableCell>
                       <TableCell>{bill.vendor_name}</TableCell>
                       <TableCell>
@@ -392,17 +410,24 @@ export default function Bills() {
                         ₹{bill.total_amount.toFixed(2)}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            bill.payment_status === "paid"
-                              ? "default"
-                              : bill.payment_status === "pending"
-                              ? "secondary"
-                              : "destructive"
-                          }
-                        >
-                          {bill.payment_status}
-                        </Badge>
+                        <div className="flex gap-1">
+                          {bill.is_duplicate && (
+                            <Badge variant="destructive">
+                              Duplicate
+                            </Badge>
+                          )}
+                          <Badge
+                            variant={
+                              bill.payment_status === "paid"
+                                ? "default"
+                                : bill.payment_status === "pending"
+                                ? "secondary"
+                                : "destructive"
+                            }
+                          >
+                            {bill.payment_status}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -494,6 +519,26 @@ export default function Bills() {
           </DialogHeader>
           {selectedBill && (
             <div className="space-y-4">
+              {/* Duplicate Detection Alert */}
+              {selectedBill.is_duplicate && selectedBill.duplicate_match_details && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700 font-medium mb-2">
+                    <AlertTriangle className="h-5 w-5" />
+                    Duplicate Bill Detected
+                  </div>
+                  <div className="text-sm text-red-600 space-y-1">
+                    <p><strong>Match Type:</strong> {selectedBill.duplicate_match_details.match_type.replace(/_/g, " ")}</p>
+                    <p><strong>Confidence:</strong> <span className={`font-medium ${
+                      selectedBill.duplicate_match_details.confidence === "high" ? "text-red-700" : 
+                      selectedBill.duplicate_match_details.confidence === "medium" ? "text-orange-600" : "text-yellow-600"
+                    }`}>{selectedBill.duplicate_match_details.confidence.toUpperCase()}</span></p>
+                    {selectedBill.duplicate_match_details.matched_bill_number && (
+                      <p><strong>Matched Bill #:</strong> {selectedBill.duplicate_match_details.matched_bill_number}</p>
+                    )}
+                    <p><strong>Reason:</strong> {selectedBill.duplicate_match_details.match_details}</p>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Bill Number</Label>
