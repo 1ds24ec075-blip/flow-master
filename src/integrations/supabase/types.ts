@@ -672,6 +672,7 @@ export type Database = {
           customer_match_log: Json | null
           customer_name: string | null
           delivery_date: string | null
+          duplicate_match_details: Json | null
           email_date: string | null
           email_from: string | null
           email_subject: string | null
@@ -703,6 +704,7 @@ export type Database = {
           customer_match_log?: Json | null
           customer_name?: string | null
           delivery_date?: string | null
+          duplicate_match_details?: Json | null
           email_date?: string | null
           email_from?: string | null
           email_subject?: string | null
@@ -734,6 +736,7 @@ export type Database = {
           customer_match_log?: Json | null
           customer_name?: string | null
           delivery_date?: string | null
+          duplicate_match_details?: Json | null
           email_date?: string | null
           email_from?: string | null
           email_subject?: string | null

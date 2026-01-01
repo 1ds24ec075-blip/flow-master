@@ -62,6 +62,14 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
+interface DuplicateMatchDetails {
+  matched_order_id: string;
+  matched_po_number: string;
+  match_type: "exact_po_number" | "normalized_po_number" | "vendor_amount_date" | "fingerprint" | "email_filename";
+  confidence: "high" | "medium" | "low";
+  match_details: string;
+}
+
 interface POOrder {
   id: string;
   po_number: string | null;
@@ -81,6 +89,15 @@ interface POOrder {
   email_date: string | null;
   customer_address: string | null;
   vendor_address: string | null;
+  duplicate_match_details: DuplicateMatchDetails | null;
+}
+
+// Map database row to POOrder with proper type handling
+function mapToPOOrder(row: any): POOrder {
+  return {
+    ...row,
+    duplicate_match_details: row.duplicate_match_details as DuplicateMatchDetails | null,
+  };
 }
 
 interface POOrderItem {
@@ -134,7 +151,7 @@ export default function PODashboard() {
         .neq("status", "price_mismatch")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as POOrder[];
+      return (data || []).map(mapToPOOrder);
     },
     refetchInterval: 30000,
   });
@@ -1001,6 +1018,24 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                         ))}
                                       </TableBody>
                                     </Table>
+                                  </div>
+                                )}
+
+                                {selectedPO.status === "duplicate" && selectedPO.duplicate_match_details && (
+                                  <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm">
+                                    <Label className="text-red-700 font-medium flex items-center gap-2">
+                                      <AlertTriangle className="h-4 w-4" />
+                                      Duplicate Detection Details
+                                    </Label>
+                                    <div className="mt-2 space-y-1 text-red-600">
+                                      <p><strong>Match Type:</strong> {selectedPO.duplicate_match_details.match_type.replace(/_/g, " ")}</p>
+                                      <p><strong>Confidence:</strong> <span className={`font-medium ${
+                                        selectedPO.duplicate_match_details.confidence === "high" ? "text-red-700" : 
+                                        selectedPO.duplicate_match_details.confidence === "medium" ? "text-orange-600" : "text-yellow-600"
+                                      }`}>{selectedPO.duplicate_match_details.confidence.toUpperCase()}</span></p>
+                                      <p><strong>Matched PO:</strong> {selectedPO.duplicate_match_details.matched_po_number}</p>
+                                      <p><strong>Reason:</strong> {selectedPO.duplicate_match_details.match_details}</p>
+                                    </div>
                                   </div>
                                 )}
 

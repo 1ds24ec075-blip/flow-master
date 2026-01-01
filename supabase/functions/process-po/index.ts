@@ -370,6 +370,7 @@ Return ONLY valid JSON with this structure:
         email_date: emailDate,
         customer_master_id: customerMasterId,
         price_mismatch_details: (mismatches.length > 0 || unmatchedItems.length > 0) ? { mismatches, unmatchedItems } : null,
+        duplicate_match_details: duplicateMatchDetails,
       })
       .select()
       .single();
