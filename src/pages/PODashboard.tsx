@@ -122,6 +122,9 @@ export default function PODashboard() {
   const [selectedPO, setSelectedPO] = useState<POOrder | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showAppsScriptDialog, setShowAppsScriptDialog] = useState(false);
+  const [showEmailPromptDialog, setShowEmailPromptDialog] = useState(false);
+  const [emailPromptOrderId, setEmailPromptOrderId] = useState<string | null>(null);
+  const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [sendEmailAfterSave, setSendEmailAfterSave] = useState(false);
@@ -272,16 +275,34 @@ export default function PODashboard() {
         body: { orderId, recipientEmail: email },
       });
       if (error) throw error;
+      // Check for error in the response body
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       return data;
     },
     onSuccess: () => {
       toast.success("Sales order email sent successfully!");
       queryClient.invalidateQueries({ queryKey: ["po-orders"] });
+      setShowEmailPromptDialog(false);
+      setManualRecipientEmail("");
+      setEmailPromptOrderId(null);
     },
-    onError: (error: Error) => {
-      toast.error(`Failed to send email: ${error.message}`);
+    onError: (error: Error, variables) => {
+      // Check if it's a "no recipient email" error
+      if (error.message.includes("No recipient email found")) {
+        setEmailPromptOrderId(variables.orderId);
+        setShowEmailPromptDialog(true);
+      } else {
+        toast.error(`Failed to send email: ${error.message}`);
+      }
     },
   });
+
+  const handleSendWithManualEmail = () => {
+    if (!emailPromptOrderId || !manualRecipientEmail) return;
+    sendEmailMutation.mutate({ orderId: emailPromptOrderId, email: manualRecipientEmail });
+  };
 
   const resetForm = () => {
     setFormData({
@@ -821,6 +842,68 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
               </div>
             </DialogContent>
           </Dialog>
+
+          {/* Email Prompt Dialog */}
+          <Dialog open={showEmailPromptDialog} onOpenChange={(open) => {
+            setShowEmailPromptDialog(open);
+            if (!open) {
+              setManualRecipientEmail("");
+              setEmailPromptOrderId(null);
+            }
+          }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  Enter Recipient Email
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  This order doesn't have a linked customer email or email source. Please enter the recipient email address to send the Sales Order.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="recipient-email">Recipient Email</Label>
+                  <Input
+                    id="recipient-email"
+                    type="email"
+                    placeholder="customer@example.com"
+                    value={manualRecipientEmail}
+                    onChange={(e) => setManualRecipientEmail(e.target.value)}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowEmailPromptDialog(false);
+                      setManualRecipientEmail("");
+                      setEmailPromptOrderId(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSendWithManualEmail}
+                    disabled={!manualRecipientEmail || sendEmailMutation.isPending}
+                  >
+                    {sendEmailMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Email
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Button variant="outline" onClick={() => refetch()} className="bg-background">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
