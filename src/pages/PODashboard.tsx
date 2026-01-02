@@ -1125,14 +1125,14 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                 {selectedPO.email_from && (
                                   <div className="bg-muted p-3 rounded-lg text-sm">
                                     <Label className="text-muted-foreground">Email Source</Label>
-                                    <p>From: {selectedPO.email_from}</p>
-                                    <p>Subject: {selectedPO.email_subject}</p>
-                                    <p>
-                                      Date:{" "}
-                                      {selectedPO.email_date
-                                        ? new Date(selectedPO.email_date).toLocaleString()
-                                        : "-"}
-                                    </p>
+                                    <p className="text-primary font-medium">From: {selectedPO.email_from}</p>
+                                    {selectedPO.email_subject && <p>Subject: {selectedPO.email_subject}</p>}
+                                    {selectedPO.email_date && (
+                                      <p>
+                                        Date:{" "}
+                                        {new Date(selectedPO.email_date).toLocaleString()}
+                                      </p>
+                                    )}
                                   </div>
                                 )}
 
@@ -1142,9 +1142,19 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                     Download PDF
                                   </Button>
                                   <Button
-                                    onClick={() =>
-                                      sendEmailMutation.mutate({ orderId: selectedPO.id })
-                                    }
+                                    onClick={() => {
+                                      // Extract email from email_from field (format: "Name <email@example.com>" or just "email@example.com")
+                                      let recipientEmail: string | undefined;
+                                      if (selectedPO.email_from) {
+                                        const emailMatch = selectedPO.email_from.match(/<([^>]+)>/);
+                                        if (emailMatch && emailMatch[1]) {
+                                          recipientEmail = emailMatch[1];
+                                        } else if (selectedPO.email_from.includes("@")) {
+                                          recipientEmail = selectedPO.email_from.trim();
+                                        }
+                                      }
+                                      sendEmailMutation.mutate({ orderId: selectedPO.id, email: recipientEmail });
+                                    }}
                                     disabled={sendEmailMutation.isPending}
                                   >
                                     {sendEmailMutation.isPending ? (
@@ -1155,7 +1165,10 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                     ) : (
                                       <>
                                         <Mail className="h-4 w-4 mr-2" />
-                                        Send Email
+                                        {selectedPO.email_from ? 
+                                          `Send to ${selectedPO.email_from.match(/<([^>]+)>/)?.[1] || selectedPO.email_from.split('@')[0]}` : 
+                                          "Send Email"
+                                        }
                                       </>
                                     )}
                                   </Button>
