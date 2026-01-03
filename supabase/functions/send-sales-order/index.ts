@@ -117,8 +117,9 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   
   // Items table
   const tableTop = y;
-  const colWidths = [12, 70, 20, 20, 30, 30];
-  const headers = ["#", "Description", "Qty", "Unit", "Price", "Total"];
+  const tableWidth = rightMargin - leftMargin;
+  const colWidths = [10, 55, 18, 18, 35, 40]; // Adjusted for better proportions
+  const headers = ["#", "Description", "Qty", "Unit", "Unit Price", "Total"];
   
   // Table header
   doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
@@ -159,13 +160,15 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     
     xPos = leftMargin + 2;
+    const unitPrice = item.unit_price || 0;
+    const totalPrice = item.total_price || 0;
     const rowData = [
       String(idx + 1),
       item.description || "-",
       String(item.quantity || 0),
       item.unit || "nos",
-      `Rs.${(item.unit_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-      `Rs.${(item.total_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+      `₹${unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `₹${totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     ];
     
     rowData.forEach((data, colIdx) => {
@@ -198,22 +201,22 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
-  doc.text("Subtotal:", rightMargin - 50, y);
+  doc.text("Subtotal:", rightMargin - 55, y);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
-  doc.text(`Rs.${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, rightMargin, y, { align: "right" });
+  doc.text(`₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin, y, { align: "right" });
   
   y += 10;
   
   // Total line
   doc.setDrawColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.setLineWidth(0.5);
-  doc.line(rightMargin - 80, y - 3, rightMargin, y - 3);
+  doc.line(rightMargin - 85, y - 3, rightMargin, y - 3);
   
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-  doc.text("TOTAL:", rightMargin - 50, y + 3);
-  doc.text(`Rs.${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, rightMargin, y + 3, { align: "right" });
+  doc.text("TOTAL:", rightMargin - 55, y + 3);
+  doc.text(`₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin, y + 3, { align: "right" });
   
   y += 25;
   
