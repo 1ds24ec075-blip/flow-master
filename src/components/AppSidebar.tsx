@@ -56,14 +56,14 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-sidebar-border" collapsible="icon">
       <SidebarContent className="bg-sidebar">
-        <div className="p-4 border-b border-sidebar-border">
-          <h1 className={`font-bold text-sidebar-foreground ${open ? "text-xl" : "text-sm"}`}>
+        <div className="p-2 border-b border-sidebar-border">
+          <h1 className={`font-bold text-sidebar-foreground ${open ? "text-base" : "text-xs"}`}>
             {open ? "Workflow System" : "WS"}
           </h1>
         </div>
         
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/60">
+          <SidebarGroupLabel className="text-sidebar-foreground/60 text-xs py-1">
             {open ? "Navigation" : ""}
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -75,10 +75,10 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild isActive={isActive}>
                       <NavLink
                         to={item.url}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-sidebar-accent"
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors hover:bg-sidebar-accent text-sm"
                         activeClassName="bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                       >
-                        <item.icon className="h-5 w-5 flex-shrink-0" />
+                        <item.icon className="h-4 w-4 flex-shrink-0" />
                         {open && <span>{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
