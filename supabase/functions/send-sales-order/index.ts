@@ -33,7 +33,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   const rightMargin = pageWidth - 15;
   
   // Company Name (left side)
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
   doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.text(companyName, leftMargin, y);
@@ -45,7 +45,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   y += 8;
   
   // Company details
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
   doc.text(companyAddress, leftMargin, y);
@@ -68,23 +68,23 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   y += 15;
   
   // Order Information
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
   doc.text("Order Information", leftMargin, y);
   
   y += 8;
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   
   const infoLabels = ["PO Number:", "Order Date:", "Delivery Date:"];
   const infoValues = [order.po_number || "-", orderDate, deliveryDate];
   
   infoLabels.forEach((label, idx) => {
-    doc.setFont("times", "bold");
+    doc.setFont("helvetica", "bold");
     doc.setTextColor(85, 85, 85);
     doc.text(label, leftMargin, y);
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     doc.text(infoValues[idx], leftMargin + 35, y);
     y += 6;
@@ -96,7 +96,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.setFillColor(247, 250, 252);
   doc.rect(leftMargin, y - 3, rightMargin - leftMargin, 25, "F");
   
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
   doc.text("Bill To:", leftMargin + 3, y + 3);
@@ -106,7 +106,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.text(order.customer_name || "-", leftMargin + 3, y);
   
   y += 6;
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(85, 85, 85);
   const address = order.customer_address || order.billing_address || order.shipping_address || "-";
@@ -124,7 +124,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.rect(leftMargin, tableTop, rightMargin - leftMargin, 10, "F");
   
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(255, 255, 255);
   
@@ -158,7 +158,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
       doc.rect(leftMargin, y, rightMargin - leftMargin, rowHeight, "F");
     }
     
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     
@@ -205,7 +205,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   const total = order.total_amount || subtotal;
   const totalsX = rightMargin - 70;
   
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
   doc.text("Subtotal:", totalsX, y);
@@ -219,7 +219,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.setLineWidth(0.5);
   doc.line(totalsX - 5, y - 3, rightMargin, y - 3);
   
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.text("TOTAL:", totalsX, y + 3);
@@ -233,11 +233,11 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.line(leftMargin, y, rightMargin, y);
   
   y += 8;
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
   doc.text("Payment Terms:", leftMargin, y);
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.text(order.payment_terms || "As per agreement", leftMargin + 30, y);
   
   y += 8;
