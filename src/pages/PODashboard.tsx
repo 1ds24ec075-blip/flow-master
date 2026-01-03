@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -1024,88 +1025,115 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                               <Eye className="h-4 w-4 text-muted-foreground" />
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                              <DialogTitle>
-                                Order Details - {selectedPO?.po_number}
+                          <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+                            <DialogHeader className="flex-shrink-0">
+                              <DialogTitle className="flex items-center gap-3">
+                                Purchase Order Details
+                                {selectedPO?.status && (
+                                  <Badge variant={selectedPO.status === "converted" ? "default" : "secondary"} className={selectedPO.status === "converted" ? "bg-green-500" : ""}>
+                                    {selectedPO.status === "converted" ? "✓ Converted" : selectedPO.status}
+                                  </Badge>
+                                )}
                               </DialogTitle>
                             </DialogHeader>
                             {selectedPO && (
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+                                {/* Header Info */}
+                                <div className="grid grid-cols-2 gap-6">
                                   <div>
-                                    <Label className="text-muted-foreground">Vendor</Label>
-                                    <p>{selectedPO.vendor_name || "-"}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {selectedPO.vendor_address}
-                                    </p>
+                                    <p className="text-sm text-muted-foreground">PO Number</p>
+                                    <p className="text-xl font-bold">{selectedPO.po_number || "-"}</p>
                                   </div>
                                   <div>
-                                    <Label className="text-muted-foreground">Customer</Label>
-                                    <p>{selectedPO.customer_name || "-"}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {selectedPO.customer_address}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <Label className="text-muted-foreground">Order Date</Label>
-                                    <p>
-                                      {selectedPO.order_date
-                                        ? new Date(selectedPO.order_date).toLocaleDateString()
-                                        : "-"}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <Label className="text-muted-foreground">Delivery Date</Label>
-                                    <p>
-                                      {selectedPO.delivery_date
-                                        ? new Date(selectedPO.delivery_date).toLocaleDateString()
-                                        : "-"}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <Label className="text-muted-foreground">Payment Terms</Label>
-                                    <p>{selectedPO.payment_terms || "-"}</p>
-                                  </div>
-                                  <div>
-                                    <Label className="text-muted-foreground">Total</Label>
-                                    <p className="font-semibold">
-                                      {selectedPO.currency}{" "}
-                                      {selectedPO.total_amount?.toLocaleString()}
+                                    <p className="text-sm text-muted-foreground">Total Amount</p>
+                                    <p className="text-xl font-bold text-primary">
+                                      ₹{selectedPO.total_amount?.toLocaleString() || "0.00"}
                                     </p>
                                   </div>
                                 </div>
 
+                                {/* Vendor & Customer */}
+                                <div className="grid grid-cols-2 gap-6">
+                                  <div>
+                                    <p className="text-sm text-muted-foreground">Vendor</p>
+                                    <p className="font-semibold">{selectedPO.vendor_name || "-"}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {selectedPO.vendor_address || ""}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-muted-foreground">Customer</p>
+                                    <p className="font-semibold">{selectedPO.customer_name || "-"}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {selectedPO.customer_address || ""}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Dates */}
+                                <div className="grid grid-cols-2 gap-6">
+                                  <div>
+                                    <p className="text-sm text-muted-foreground">Order Date</p>
+                                    <p className="font-medium">
+                                      {selectedPO.order_date
+                                        ? new Date(selectedPO.order_date).toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          })
+                                        : "-"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-muted-foreground">Delivery Date</p>
+                                    <p className="font-medium">
+                                      {selectedPO.delivery_date
+                                        ? new Date(selectedPO.delivery_date).toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          })
+                                        : "—"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Line Items */}
                                 {orderItems && orderItems.length > 0 && (
                                   <div>
-                                    <Label className="text-muted-foreground">Line Items</Label>
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Description</TableHead>
-                                          <TableHead>Qty</TableHead>
-                                          <TableHead>Unit</TableHead>
-                                          <TableHead>Unit Price</TableHead>
-                                          <TableHead>Total</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {orderItems.map((item) => (
-                                          <TableRow key={item.id}>
-                                            <TableCell>{item.description}</TableCell>
-                                            <TableCell>{item.quantity}</TableCell>
-                                            <TableCell>{item.unit}</TableCell>
-                                            <TableCell>{item.unit_price}</TableCell>
-                                            <TableCell>{item.total_price}</TableCell>
+                                    <p className="font-semibold mb-3">Line Items</p>
+                                    <div className="border rounded-lg overflow-hidden">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow className="bg-muted/50">
+                                            <TableHead className="w-12">#</TableHead>
+                                            <TableHead>Description</TableHead>
+                                            <TableHead className="text-center w-20">Qty</TableHead>
+                                            <TableHead className="text-center w-20">Unit</TableHead>
+                                            <TableHead className="text-right w-28">Unit Price</TableHead>
+                                            <TableHead className="text-right w-28">Total</TableHead>
                                           </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {orderItems.map((item, index) => (
+                                            <TableRow key={item.id}>
+                                              <TableCell className="text-primary font-medium">{index + 1}</TableCell>
+                                              <TableCell className="text-primary">{item.description}</TableCell>
+                                              <TableCell className="text-center">{item.quantity}</TableCell>
+                                              <TableCell className="text-center">{item.unit || "nos"}</TableCell>
+                                              <TableCell className="text-right">₹{item.unit_price?.toLocaleString() || "0.00"}</TableCell>
+                                              <TableCell className="text-right font-semibold">₹{item.total_price?.toLocaleString() || "0.00"}</TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </div>
                                   </div>
                                 )}
 
+                                {/* Duplicate Detection */}
                                 {selectedPO.status === "duplicate" && selectedPO.duplicate_match_details && (
-                                  <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm">
+                                  <div className="bg-red-50 border border-red-200 p-4 rounded-lg text-sm">
                                     <Label className="text-red-700 font-medium flex items-center gap-2">
                                       <AlertTriangle className="h-4 w-4" />
                                       Duplicate Detection Details
@@ -1122,57 +1150,60 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                   </div>
                                 )}
 
+                                {/* Email Source */}
                                 {selectedPO.email_from && (
-                                  <div className="bg-muted p-3 rounded-lg text-sm">
-                                    <Label className="text-muted-foreground">Email Source</Label>
-                                    <p className="text-primary font-medium">From: {selectedPO.email_from}</p>
-                                    {selectedPO.email_subject && <p>Subject: {selectedPO.email_subject}</p>}
-                                    {selectedPO.email_date && (
-                                      <p>
-                                        Date:{" "}
-                                        {new Date(selectedPO.email_date).toLocaleString()}
-                                      </p>
+                                  <div className="bg-muted/50 border p-4 rounded-lg">
+                                    <p className="font-semibold mb-2">Email Source</p>
+                                    {selectedPO.email_subject && (
+                                      <p className="text-sm text-muted-foreground">Subject: {selectedPO.email_subject}</p>
                                     )}
+                                    <p className="text-sm">From: <span className="text-primary font-medium">{selectedPO.email_from}</span></p>
                                   </div>
                                 )}
-
-                                <div className="flex justify-end gap-2">
-                                  <Button variant="outline">
-                                    <Download className="h-4 w-4 mr-2" />
-                                    Download PDF
-                                  </Button>
-                                  <Button
-                                    onClick={() => {
-                                      // Extract email from email_from field (format: "Name <email@example.com>" or just "email@example.com")
-                                      let recipientEmail: string | undefined;
-                                      if (selectedPO.email_from) {
-                                        const emailMatch = selectedPO.email_from.match(/<([^>]+)>/);
-                                        if (emailMatch && emailMatch[1]) {
-                                          recipientEmail = emailMatch[1];
-                                        } else if (selectedPO.email_from.includes("@")) {
-                                          recipientEmail = selectedPO.email_from.trim();
-                                        }
+                              </div>
+                            )}
+                            
+                            {/* Footer Actions */}
+                            {selectedPO && (
+                              <div className="flex-shrink-0 flex justify-end gap-3 pt-4 border-t mt-4">
+                                <DialogClose asChild>
+                                  <Button variant="outline">Close</Button>
+                                </DialogClose>
+                                <Button variant="outline">
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download PDF
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    // Extract email from email_from field (format: "Name <email@example.com>" or just "email@example.com")
+                                    let recipientEmail: string | undefined;
+                                    if (selectedPO.email_from) {
+                                      const emailMatch = selectedPO.email_from.match(/<([^>]+)>/);
+                                      if (emailMatch && emailMatch[1]) {
+                                        recipientEmail = emailMatch[1];
+                                      } else if (selectedPO.email_from.includes("@")) {
+                                        recipientEmail = selectedPO.email_from.trim();
                                       }
-                                      sendEmailMutation.mutate({ orderId: selectedPO.id, email: recipientEmail });
-                                    }}
-                                    disabled={sendEmailMutation.isPending}
-                                  >
-                                    {sendEmailMutation.isPending ? (
-                                      <>
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                        Sending...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Mail className="h-4 w-4 mr-2" />
-                                        {selectedPO.email_from ? 
-                                          `Send to ${selectedPO.email_from.match(/<([^>]+)>/)?.[1] || selectedPO.email_from.split('@')[0]}` : 
-                                          "Send Email"
-                                        }
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
+                                    }
+                                    sendEmailMutation.mutate({ orderId: selectedPO.id, email: recipientEmail });
+                                  }}
+                                  disabled={sendEmailMutation.isPending}
+                                >
+                                  {sendEmailMutation.isPending ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Sending...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Mail className="h-4 w-4 mr-2" />
+                                      {selectedPO.email_from ? 
+                                        `Send to ${selectedPO.email_from.match(/<([^>]+)>/)?.[1] || selectedPO.email_from.split('@')[0]}` : 
+                                        "Send Email"
+                                      }
+                                    </>
+                                  )}
+                                </Button>
                               </div>
                             )}
                           </DialogContent>
