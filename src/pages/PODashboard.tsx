@@ -961,7 +961,7 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Value</p>
-                <p className="text-2xl font-bold">₹{stats.totalValue.toLocaleString()}</p>
+                <p className="text-2xl font-bold whitespace-nowrap">₹{stats.totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
             </div>
           </CardContent>
@@ -1007,8 +1007,8 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                           })
                         : "-"}
                     </TableCell>
-                    <TableCell>
-                      ₹{order.total_amount?.toLocaleString() || "0"}
+                    <TableCell className="whitespace-nowrap">
+                      ₹{order.total_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "0.00"}
                     </TableCell>
                     <TableCell>
                       {getStatusBadge(order.status)}
@@ -1046,8 +1046,8 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                   </div>
                                   <div>
                                     <p className="text-sm text-muted-foreground">Total Amount</p>
-                                    <p className="text-xl font-bold text-primary">
-                                      ₹{selectedPO.total_amount?.toLocaleString() || "0.00"}
+                                    <p className="text-xl font-bold text-primary whitespace-nowrap">
+                                      ₹{selectedPO.total_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "0.00"}
                                     </p>
                                   </div>
                                 </div>
@@ -1121,8 +1121,8 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
                                               <TableCell className="text-primary">{item.description}</TableCell>
                                               <TableCell className="text-center">{item.quantity}</TableCell>
                                               <TableCell className="text-center">{item.unit || "nos"}</TableCell>
-                                              <TableCell className="text-right">₹{item.unit_price?.toLocaleString() || "0.00"}</TableCell>
-                                              <TableCell className="text-right font-semibold">₹{item.total_price?.toLocaleString() || "0.00"}</TableCell>
+                                              <TableCell className="text-right whitespace-nowrap">₹{item.unit_price?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "0.00"}</TableCell>
+                                              <TableCell className="text-right font-semibold whitespace-nowrap">₹{item.total_price?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "0.00"}</TableCell>
                                             </TableRow>
                                           ))}
                                         </TableBody>
