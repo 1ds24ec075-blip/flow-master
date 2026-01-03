@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -38,9 +38,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Plus, Edit, Trash2, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, RefreshCw, Loader2, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 
 interface PriceItem {
   id: string;
@@ -54,8 +55,12 @@ interface PriceItem {
 export default function PriceList() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showDialog, setShowDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<PriceItem | null>(null);
+  const [importData, setImportData] = useState<any[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
 
   const [formData, setFormData] = useState({
     sku: "",
@@ -123,6 +128,22 @@ export default function PriceList() {
     },
   });
 
+  const bulkImportMutation = useMutation({
+    mutationFn: async (data: any[]) => {
+      const { error } = await supabase.from("price_list").insert(data);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-list"] });
+      toast.success(`${importData.length} products imported successfully`);
+      setShowImportDialog(false);
+      setImportData([]);
+    },
+    onError: () => {
+      toast.error("Failed to import products");
+    },
+  });
+
   const resetForm = () => {
     setFormData({
       sku: "",
@@ -151,6 +172,58 @@ export default function PriceList() {
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      try {
+        const workbook = XLSX.read(event.target?.result, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+        const mappedData = jsonData.map((row: any) => ({
+          sku: row["SKU"] || row["sku"] || "",
+          product_name: row["Product Name"] || row["product_name"] || null,
+          unit_price: Number(row["Unit Price"] || row["unit_price"] || 0),
+          currency: row["Currency"] || row["currency"] || "INR",
+        })).filter((row: any) => row.sku && row.unit_price > 0);
+
+        setImportData(mappedData);
+        setShowImportDialog(true);
+      } catch (error) {
+        toast.error("Failed to parse file");
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  const downloadTemplate = () => {
+    const template = [
+      {
+        "SKU": "SKU-001",
+        "Product Name": "Example Product",
+        "Unit Price": 100,
+        "Currency": "INR",
+      },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(template);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Price List");
+    XLSX.writeFile(workbook, "price_list_template.xlsx");
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -163,8 +236,31 @@ export default function PriceList() {
           <p className="text-muted-foreground">Manage product pricing for validation</p>
         </div>
         <div className="flex gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+          />
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={downloadTemplate}>
+            <Download className="h-4 w-4 mr-2" />
+            Template
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          >
+            {isImporting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            Import
           </Button>
           <Dialog
             open={showDialog}
@@ -329,6 +425,56 @@ export default function PriceList() {
           )}
         </CardContent>
       </Card>
+
+      {/* Import Preview Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Import Preview - {importData.length} Products</DialogTitle>
+          </DialogHeader>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>SKU</TableHead>
+                <TableHead>Product Name</TableHead>
+                <TableHead>Unit Price</TableHead>
+                <TableHead>Currency</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {importData.slice(0, 10).map((item, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{item.sku}</TableCell>
+                  <TableCell>{item.product_name || "-"}</TableCell>
+                  <TableCell>₹{item.unit_price?.toLocaleString()}</TableCell>
+                  <TableCell>{item.currency}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {importData.length > 10 && (
+            <p className="text-sm text-muted-foreground text-center">
+              ... and {importData.length - 10} more products
+            </p>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowImportDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => bulkImportMutation.mutate(importData)}
+              disabled={bulkImportMutation.isPending}
+            >
+              {bulkImportMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
+              Import {importData.length} Products
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
