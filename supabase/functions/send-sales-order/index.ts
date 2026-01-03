@@ -33,7 +33,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   const rightMargin = pageWidth - 15;
   
   // Company Name (left side)
-  doc.setFont("helvetica", "bold");
+  doc.setFont("times", "bold");
   doc.setFontSize(20);
   doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.text(companyName, leftMargin, y);
@@ -45,7 +45,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   y += 8;
   
   // Company details
-  doc.setFont("helvetica", "normal");
+  doc.setFont("times", "normal");
   doc.setFontSize(10);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
   doc.text(companyAddress, leftMargin, y);
@@ -68,23 +68,23 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   y += 15;
   
   // Order Information
-  doc.setFont("helvetica", "bold");
+  doc.setFont("times", "bold");
   doc.setFontSize(12);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
   doc.text("Order Information", leftMargin, y);
   
   y += 8;
-  doc.setFont("helvetica", "normal");
+  doc.setFont("times", "normal");
   doc.setFontSize(10);
   
   const infoLabels = ["PO Number:", "Order Date:", "Delivery Date:"];
   const infoValues = [order.po_number || "-", orderDate, deliveryDate];
   
   infoLabels.forEach((label, idx) => {
-    doc.setFont("helvetica", "bold");
+    doc.setFont("times", "bold");
     doc.setTextColor(85, 85, 85);
     doc.text(label, leftMargin, y);
-    doc.setFont("helvetica", "normal");
+    doc.setFont("times", "normal");
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     doc.text(infoValues[idx], leftMargin + 35, y);
     y += 6;
@@ -96,7 +96,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.setFillColor(247, 250, 252);
   doc.rect(leftMargin, y - 3, rightMargin - leftMargin, 25, "F");
   
-  doc.setFont("helvetica", "bold");
+  doc.setFont("times", "bold");
   doc.setFontSize(11);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
   doc.text("Bill To:", leftMargin + 3, y + 3);
@@ -106,7 +106,7 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.text(order.customer_name || "-", leftMargin + 3, y);
   
   y += 6;
-  doc.setFont("helvetica", "normal");
+  doc.setFont("times", "normal");
   doc.setFontSize(9);
   doc.setTextColor(85, 85, 85);
   const address = order.customer_address || order.billing_address || order.shipping_address || "-";
@@ -117,26 +117,29 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   
   // Items table
   const tableTop = y;
-  const tableWidth = rightMargin - leftMargin;
-  const colWidths = [10, 55, 18, 18, 35, 40]; // Adjusted for better proportions
+  const colWidths = [12, 65, 18, 18, 32, 35]; // Better balanced widths
   const headers = ["#", "Description", "Qty", "Unit", "Unit Price", "Total"];
   
   // Table header
   doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.rect(leftMargin, tableTop, rightMargin - leftMargin, 10, "F");
   
-  doc.setFont("helvetica", "bold");
+  doc.setFont("times", "bold");
   doc.setFontSize(9);
   doc.setTextColor(255, 255, 255);
   
-  let xPos = leftMargin + 2;
+  let xPos = leftMargin;
   headers.forEach((header, idx) => {
-    if (idx === 0 || idx === 2 || idx === 3) {
-      doc.text(header, xPos + colWidths[idx] / 2, tableTop + 7, { align: "center" });
-    } else if (idx === 4 || idx === 5) {
-      doc.text(header, xPos + colWidths[idx] - 2, tableTop + 7, { align: "right" });
+    const colCenter = xPos + colWidths[idx] / 2;
+    if (idx === 4 || idx === 5) {
+      // Right align price columns
+      doc.text(header, xPos + colWidths[idx] - 3, tableTop + 7, { align: "right" });
+    } else if (idx === 0 || idx === 2 || idx === 3) {
+      // Center align #, Qty, Unit
+      doc.text(header, colCenter, tableTop + 7, { align: "center" });
     } else {
-      doc.text(header, xPos + 2, tableTop + 7);
+      // Left align description
+      doc.text(header, xPos + 3, tableTop + 7);
     }
     xPos += colWidths[idx];
   });
@@ -155,11 +158,11 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
       doc.rect(leftMargin, y, rightMargin - leftMargin, rowHeight, "F");
     }
     
-    doc.setFont("helvetica", "normal");
+    doc.setFont("times", "normal");
     doc.setFontSize(9);
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     
-    xPos = leftMargin + 2;
+    xPos = leftMargin;
     const unitPrice = item.unit_price || 0;
     const totalPrice = item.total_price || 0;
     const rowData = [
@@ -167,20 +170,23 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
       item.description || "-",
       String(item.quantity || 0),
       item.unit || "nos",
-      `₹${unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      `₹${totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      `Rs.${unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `Rs.${totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     ];
     
     rowData.forEach((data, colIdx) => {
-      if (colIdx === 0 || colIdx === 2 || colIdx === 3) {
-        doc.text(data, xPos + colWidths[colIdx] / 2, y + 5.5, { align: "center" });
-      } else if (colIdx === 4 || colIdx === 5) {
-        doc.text(data, xPos + colWidths[colIdx] - 2, y + 5.5, { align: "right" });
+      const colCenter = xPos + colWidths[colIdx] / 2;
+      if (colIdx === 4 || colIdx === 5) {
+        // Right align price columns
+        doc.text(data, xPos + colWidths[colIdx] - 3, y + 5.5, { align: "right" });
+      } else if (colIdx === 0 || colIdx === 2 || colIdx === 3) {
+        // Center align #, Qty, Unit
+        doc.text(data, colCenter, y + 5.5, { align: "center" });
       } else {
-        // Truncate long descriptions
+        // Left align description - truncate if needed
         const maxWidth = colWidths[colIdx] - 4;
         const truncated = doc.splitTextToSize(data, maxWidth)[0];
-        doc.text(truncated, xPos + 2, y + 5.5);
+        doc.text(truncated, xPos + 3, y + 5.5);
       }
       xPos += colWidths[colIdx];
     });
@@ -195,28 +201,29 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   
   y += 15;
   
-  // Totals
+  // Totals section - right aligned
   const total = order.total_amount || subtotal;
+  const totalsX = rightMargin - 70;
   
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
+  doc.setFont("times", "normal");
+  doc.setFontSize(10);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
-  doc.text("Subtotal:", rightMargin - 55, y);
+  doc.text("Subtotal:", totalsX, y);
   doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
-  doc.text(`₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin, y, { align: "right" });
+  doc.text(`Rs.${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin - 3, y, { align: "right" });
   
   y += 10;
   
   // Total line
   doc.setDrawColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
   doc.setLineWidth(0.5);
-  doc.line(rightMargin - 85, y - 3, rightMargin, y - 3);
+  doc.line(totalsX - 5, y - 3, rightMargin, y - 3);
   
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
+  doc.setFont("times", "bold");
+  doc.setFontSize(11);
   doc.setTextColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
-  doc.text("TOTAL:", rightMargin - 55, y + 3);
-  doc.text(`₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin, y + 3, { align: "right" });
+  doc.text("TOTAL:", totalsX, y + 3);
+  doc.text(`Rs.${total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, rightMargin - 3, y + 3, { align: "right" });
   
   y += 25;
   
@@ -226,11 +233,11 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string): stri
   doc.line(leftMargin, y, rightMargin, y);
   
   y += 8;
-  doc.setFont("helvetica", "bold");
+  doc.setFont("times", "bold");
   doc.setFontSize(9);
   doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
   doc.text("Payment Terms:", leftMargin, y);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("times", "normal");
   doc.text(order.payment_terms || "As per agreement", leftMargin + 30, y);
   
   y += 8;
