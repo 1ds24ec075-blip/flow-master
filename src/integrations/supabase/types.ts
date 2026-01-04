@@ -393,6 +393,57 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_product_mapping: {
+        Row: {
+          created_at: string | null
+          customer_id: string
+          customer_product_code: string
+          customer_product_name: string | null
+          id: string
+          internal_product_id: string
+          is_active: boolean | null
+          notes: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          customer_id: string
+          customer_product_code: string
+          customer_product_name?: string | null
+          id?: string
+          internal_product_id: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          customer_id?: string
+          customer_product_code?: string
+          customer_product_name?: string | null
+          id?: string
+          internal_product_id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_product_mapping_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customer_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_product_mapping_internal_product_id_fkey"
+            columns: ["internal_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_categories: {
         Row: {
           color: string
@@ -633,8 +684,13 @@ export type Database = {
           description: string | null
           id: string
           item_number: number | null
+          original_product_code: string | null
           po_order_id: string
           quantity: number | null
+          resolution_confidence: number | null
+          resolution_method: string | null
+          resolution_status: string | null
+          resolved_internal_product_id: string | null
           total_price: number | null
           unit: string | null
           unit_price: number | null
@@ -644,8 +700,13 @@ export type Database = {
           description?: string | null
           id?: string
           item_number?: number | null
+          original_product_code?: string | null
           po_order_id: string
           quantity?: number | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolution_status?: string | null
+          resolved_internal_product_id?: string | null
           total_price?: number | null
           unit?: string | null
           unit_price?: number | null
@@ -655,8 +716,13 @@ export type Database = {
           description?: string | null
           id?: string
           item_number?: number | null
+          original_product_code?: string | null
           po_order_id?: string
           quantity?: number | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolution_status?: string | null
+          resolved_internal_product_id?: string | null
           total_price?: number | null
           unit?: string | null
           unit_price?: number | null
@@ -667,6 +733,13 @@ export type Database = {
             columns: ["po_order_id"]
             isOneToOne: false
             referencedRelation: "po_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "po_order_items_resolved_internal_product_id_fkey"
+            columns: ["resolved_internal_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
             referencedColumns: ["id"]
           },
         ]
@@ -867,6 +940,98 @@ export type Database = {
             columns: ["integration_id"]
             isOneToOne: false
             referencedRelation: "gmail_integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_master: {
+        Row: {
+          created_at: string | null
+          default_unit: string | null
+          default_unit_price: number | null
+          description: string | null
+          gst_rate: number | null
+          hsn_code: string | null
+          id: string
+          internal_code: string
+          is_active: boolean | null
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          default_unit?: string | null
+          default_unit_price?: number | null
+          description?: string | null
+          gst_rate?: number | null
+          hsn_code?: string | null
+          id?: string
+          internal_code: string
+          is_active?: boolean | null
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          default_unit?: string | null
+          default_unit_price?: number | null
+          description?: string | null
+          gst_rate?: number | null
+          hsn_code?: string | null
+          id?: string
+          internal_code?: string
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      product_resolution_log: {
+        Row: {
+          confidence_score: number
+          created_at: string | null
+          document_id: string
+          document_type: string
+          id: string
+          line_item_id: string | null
+          original_product_code: string
+          resolution_method: string
+          resolved_internal_product_id: string | null
+          sender_id: string | null
+          sender_type: string | null
+        }
+        Insert: {
+          confidence_score?: number
+          created_at?: string | null
+          document_id: string
+          document_type: string
+          id?: string
+          line_item_id?: string | null
+          original_product_code: string
+          resolution_method: string
+          resolved_internal_product_id?: string | null
+          sender_id?: string | null
+          sender_type?: string | null
+        }
+        Update: {
+          confidence_score?: number
+          created_at?: string | null
+          document_id?: string
+          document_type?: string
+          id?: string
+          line_item_id?: string | null
+          original_product_code?: string
+          resolution_method?: string
+          resolved_internal_product_id?: string | null
+          sender_id?: string | null
+          sender_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_resolution_log_resolved_internal_product_id_fkey"
+            columns: ["resolved_internal_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
             referencedColumns: ["id"]
           },
         ]
@@ -1188,6 +1353,81 @@ export type Database = {
         }
         Relationships: []
       }
+      unmapped_product_codes: {
+        Row: {
+          created_at: string | null
+          document_id: string
+          document_type: string
+          id: string
+          original_description: string | null
+          original_product_code: string
+          original_quantity: number | null
+          original_unit_price: number | null
+          resolved_at: string | null
+          resolved_by: string | null
+          resolved_product_id: string | null
+          sender_id: string | null
+          sender_type: string
+          status: string | null
+          suggested_product_id: string | null
+          suggestion_confidence: number | null
+          suggestion_reason: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          document_id: string
+          document_type: string
+          id?: string
+          original_description?: string | null
+          original_product_code: string
+          original_quantity?: number | null
+          original_unit_price?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_product_id?: string | null
+          sender_id?: string | null
+          sender_type: string
+          status?: string | null
+          suggested_product_id?: string | null
+          suggestion_confidence?: number | null
+          suggestion_reason?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          document_id?: string
+          document_type?: string
+          id?: string
+          original_description?: string | null
+          original_product_code?: string
+          original_quantity?: number | null
+          original_unit_price?: number | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_product_id?: string | null
+          sender_id?: string | null
+          sender_type?: string
+          status?: string | null
+          suggested_product_id?: string | null
+          suggestion_confidence?: number | null
+          suggestion_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unmapped_product_codes_resolved_product_id_fkey"
+            columns: ["resolved_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unmapped_product_codes_suggested_product_id_fkey"
+            columns: ["suggested_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -1208,6 +1448,57 @@ export type Database = {
           user_email?: string
         }
         Relationships: []
+      }
+      vendor_product_mapping: {
+        Row: {
+          created_at: string | null
+          id: string
+          internal_product_id: string
+          is_active: boolean | null
+          notes: string | null
+          updated_at: string | null
+          vendor_id: string
+          vendor_product_code: string
+          vendor_product_name: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          internal_product_id: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+          vendor_id: string
+          vendor_product_code: string
+          vendor_product_name?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          internal_product_id?: string
+          is_active?: boolean | null
+          notes?: string | null
+          updated_at?: string | null
+          vendor_id?: string
+          vendor_product_code?: string
+          vendor_product_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_product_mapping_internal_product_id_fkey"
+            columns: ["internal_product_id"]
+            isOneToOne: false
+            referencedRelation: "product_master"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_product_mapping_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

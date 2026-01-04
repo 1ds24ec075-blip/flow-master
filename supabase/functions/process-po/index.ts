@@ -269,65 +269,182 @@ Return ONLY valid JSON with this structure:
       console.log(`Duplicate detected: ${duplicateMatchDetails.match_type} (${duplicateMatchDetails.confidence}) - ${duplicateMatchDetails.match_details}`);
     }
 
-    // Check prices against price_list (2% tolerance)
+    // ========================================
+    // MULTI-PARTY PRODUCT CODE RESOLUTION
+    // ========================================
     const mismatches: any[] = [];
     const unmatchedItems: any[] = [];
+    let productResolutionResults: any = null;
+    
     if (extracted.items && status !== "duplicate") {
-      const { data: priceList } = await supabase.from("price_list").select("*");
-      
-      for (const item of extracted.items) {
-        // Normalize item description for matching
-        const itemDesc = (item.description || "").toLowerCase().trim();
-        
-        // Try multiple matching strategies
-        let priceItem = null;
-        
-        // Strategy 1: Exact SKU match
-        priceItem = priceList?.find(p => 
-          p.sku && itemDesc.includes(p.sku.toLowerCase())
-        );
-        
-        // Strategy 2: Product name contains or is contained
-        if (!priceItem) {
-          priceItem = priceList?.find(p => {
-            const productName = (p.product_name || "").toLowerCase().trim();
-            const sku = (p.sku || "").toLowerCase().trim();
-            return (productName && (itemDesc.includes(productName) || productName.includes(itemDesc))) ||
-                   (sku && (itemDesc.includes(sku) || sku.includes(itemDesc)));
-          });
-        }
-        
-        // Strategy 3: Word-based fuzzy match (at least 2 common words)
-        if (!priceItem) {
-          const itemWords = itemDesc.split(/\s+/).filter((w: string) => w.length > 2);
-          priceItem = priceList?.find(p => {
-            const productWords = ((p.product_name || "") + " " + (p.sku || "")).toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
-            const commonWords = itemWords.filter((w: string) => productWords.some((pw: string) => pw.includes(w) || w.includes(pw)));
-            return commonWords.length >= 2;
-          });
-        }
-        
-        if (priceItem && item.unit_price) {
-          // Item matched - check price tolerance
-          const diff = Math.abs(item.unit_price - priceItem.unit_price) / priceItem.unit_price * 100;
-          if (diff > 2) {
-            mismatches.push({
-              description: item.description,
-              matched_product: priceItem.product_name || priceItem.sku,
-              expected_price: priceItem.unit_price,
-              actual_price: item.unit_price,
-              difference_percent: Math.round(diff * 100) / 100,
-            });
+      // Load all reference data for resolution
+      const [
+        { data: allProducts },
+        { data: customerMappings },
+        { data: vendorMappings },
+        { data: priceList },
+      ] = await Promise.all([
+        supabase.from("product_master").select("*").eq("is_active", true),
+        supabase.from("customer_product_mapping").select("*").eq("is_active", true),
+        supabase.from("vendor_product_mapping").select("*").eq("is_active", true),
+        supabase.from("price_list").select("*"),
+      ]);
+
+      // Identify sender (customer or vendor)
+      let senderType: 'customer' | 'vendor' | 'unknown' = 'unknown';
+      let senderId: string | null = null;
+
+      // Try to identify by email domain or customer name
+      if (emailFrom) {
+        const emailDomain = emailFrom.split("@")[1]?.toLowerCase();
+        if (emailDomain) {
+          const { data: customers } = await supabase
+            .from("customer_master")
+            .select("id, email")
+            .not("email", "is", null);
+          const matchedCustomer = customers?.find((c: any) => 
+            c.email?.toLowerCase().includes(emailDomain)
+          );
+          if (matchedCustomer) {
+            senderType = 'customer';
+            senderId = matchedCustomer.id;
           }
-        } else if (item.unit_price) {
-          // Item NOT matched in price list
-          unmatchedItems.push({
-            description: item.description,
-            unit_price: item.unit_price,
-            reason: "Item not found in price list"
-          });
         }
       }
+      
+      if (senderType === 'unknown' && extracted.customer_name) {
+        const { data: customer } = await supabase
+          .from("customer_master")
+          .select("id")
+          .ilike("customer_name", `%${extracted.customer_name}%`)
+          .maybeSingle();
+        if (customer) {
+          senderType = 'customer';
+          senderId = customer.id;
+        }
+      }
+
+      // Resolve each line item
+      const resolvedItems: any[] = [];
+      for (const item of extracted.items) {
+        const productCode = item.product_code || item.description || "";
+        const normalizedCode = productCode.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+        
+        let resolution = {
+          original_product_code: productCode,
+          resolved_internal_product_id: null as string | null,
+          resolution_method: 'unresolved',
+          confidence_score: 0,
+          status: 'unmapped',
+          matched_product: null as any,
+        };
+
+        // Priority 1: Customer mapping (if sender is customer)
+        if (senderType === 'customer' && senderId) {
+          const customerMapping = customerMappings?.find((m: any) => 
+            m.customer_id === senderId && 
+            (m.customer_product_code || "").toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedCode &&
+            m.is_active
+          );
+          if (customerMapping) {
+            const product = allProducts?.find((p: any) => p.id === customerMapping.internal_product_id);
+            if (product) {
+              resolution = {
+                original_product_code: productCode,
+                resolved_internal_product_id: product.id,
+                resolution_method: 'customer_mapping',
+                confidence_score: 1.0,
+                status: 'resolved',
+                matched_product: product,
+              };
+            }
+          }
+        }
+
+        // Priority 2: Internal product code match
+        if (resolution.status !== 'resolved') {
+          const internalMatch = allProducts?.find((p: any) => 
+            (p.internal_code || "").toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedCode && p.is_active
+          );
+          if (internalMatch) {
+            resolution = {
+              original_product_code: productCode,
+              resolved_internal_product_id: internalMatch.id,
+              resolution_method: 'internal_code_match',
+              confidence_score: 0.85,
+              status: 'resolved',
+              matched_product: internalMatch,
+            };
+          }
+        }
+
+        // Priority 3: Price list matching (existing logic as fallback)
+        if (resolution.status !== 'resolved') {
+          const itemDesc = (item.description || "").toLowerCase().trim();
+          let priceItem = priceList?.find((p: any) => 
+            p.sku && itemDesc.includes(p.sku.toLowerCase())
+          );
+          if (!priceItem) {
+            priceItem = priceList?.find((p: any) => {
+              const productName = (p.product_name || "").toLowerCase().trim();
+              const sku = (p.sku || "").toLowerCase().trim();
+              return (productName && (itemDesc.includes(productName) || productName.includes(itemDesc))) ||
+                     (sku && (itemDesc.includes(sku) || sku.includes(itemDesc)));
+            });
+          }
+          if (priceItem) {
+            resolution = {
+              original_product_code: productCode,
+              resolved_internal_product_id: null, // Price list items aren't in product_master yet
+              resolution_method: 'price_list_match',
+              confidence_score: 0.70,
+              status: 'resolved',
+              matched_product: priceItem,
+            };
+          }
+        }
+
+        // Check price if resolved
+        if (resolution.matched_product && item.unit_price) {
+          const expectedPrice = resolution.matched_product.default_unit_price || resolution.matched_product.unit_price;
+          if (expectedPrice) {
+            const diff = Math.abs(item.unit_price - expectedPrice) / expectedPrice * 100;
+            if (diff > 2) {
+              mismatches.push({
+                description: item.description,
+                matched_product: resolution.matched_product.name || resolution.matched_product.product_name || resolution.matched_product.sku,
+                expected_price: expectedPrice,
+                actual_price: item.unit_price,
+                difference_percent: Math.round(diff * 100) / 100,
+                resolution_method: resolution.resolution_method,
+                confidence_score: resolution.confidence_score,
+              });
+            }
+          }
+        } else if (item.unit_price && resolution.status !== 'resolved') {
+          // Item NOT matched anywhere
+          unmatchedItems.push({
+            description: item.description,
+            product_code: productCode,
+            unit_price: item.unit_price,
+            reason: "Product code not found in mappings or price list",
+            sender_type: senderType,
+            sender_id: senderId,
+          });
+        }
+
+        resolvedItems.push({
+          ...item,
+          ...resolution,
+        });
+      }
+
+      productResolutionResults = {
+        sender_type: senderType,
+        sender_id: senderId,
+        items: resolvedItems,
+        unmapped_count: resolvedItems.filter((i: any) => i.status !== 'resolved').length,
+      };
       
       // Set status based on issues found
       if (mismatches.length > 0 || unmatchedItems.length > 0) {
@@ -377,19 +494,48 @@ Return ONLY valid JSON with this structure:
 
     if (orderError) throw orderError;
 
-    // Insert line items
+    // Insert line items with resolution metadata
     if (extracted.items?.length > 0) {
-      const items = extracted.items.map((item: any, index: number) => ({
-        po_order_id: order.id,
-        item_number: index + 1,
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit,
-        unit_price: item.unit_price,
-        total_price: (item.quantity || 1) * (item.unit_price || 0),
-      }));
+      const resolvedItemsMap = productResolutionResults?.items || [];
+      const items = extracted.items.map((item: any, index: number) => {
+        const resolved = resolvedItemsMap[index] || {};
+        return {
+          po_order_id: order.id,
+          item_number: index + 1,
+          description: item.description,
+          quantity: item.quantity,
+          unit: item.unit,
+          unit_price: item.unit_price,
+          total_price: (item.quantity || 1) * (item.unit_price || 0),
+          original_product_code: resolved.original_product_code || item.product_code || null,
+          resolved_internal_product_id: resolved.resolved_internal_product_id || null,
+          resolution_method: resolved.resolution_method || null,
+          resolution_confidence: resolved.confidence_score || null,
+          resolution_status: resolved.status === 'resolved' ? 'resolved' : 'pending',
+        };
+      });
       
       await supabase.from("po_order_items").insert(items);
+
+      // Create unmapped_product_codes entries for unresolved items
+      const senderType = productResolutionResults?.sender_type || 'unknown';
+      const senderId = productResolutionResults?.sender_id || null;
+      
+      for (const resolved of resolvedItemsMap) {
+        if (resolved.status !== 'resolved') {
+          await supabase.from("unmapped_product_codes").insert({
+            document_id: order.id,
+            document_type: 'PO',
+            sender_type: senderType,
+            sender_id: senderId,
+            original_product_code: resolved.original_product_code || resolved.description,
+            original_description: resolved.description,
+            original_unit_price: resolved.unit_price,
+            original_quantity: resolved.quantity,
+            status: 'pending',
+          });
+        }
+      }
     }
 
     // Auto-send email if no issues

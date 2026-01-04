@@ -54,3 +54,9 @@ verify_jwt = false
 
 [functions.gmail-auth-callback]
 verify_jwt = false
+
+[functions.resolve-product-codes]
+verify_jwt = false
+
+[functions.approve-product-mapping]
+verify_jwt = false
