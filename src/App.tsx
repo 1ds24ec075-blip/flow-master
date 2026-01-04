@@ -22,6 +22,8 @@ import CustomerMaster from "./pages/CustomerMaster";
 import PriceList from "./pages/PriceList";
 import Review from "./pages/Review";
 import SmartSegregation from "./pages/SmartSegregation";
+import ProductMaster from "./pages/ProductMaster";
+import UnmappedCodes from "./pages/UnmappedCodes";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +53,8 @@ const App = () => (
           <Route path="/price-list" element={<Layout><PriceList /></Layout>} />
           <Route path="/review" element={<Layout><Review /></Layout>} />
           <Route path="/smart-segregation" element={<SmartSegregation />} />
+          <Route path="/product-master" element={<Layout><ProductMaster /></Layout>} />
+          <Route path="/unmapped-codes" element={<Layout><UnmappedCodes /></Layout>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

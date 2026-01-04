@@ -59,6 +59,8 @@ import {
   Clock,
   CheckCircle2,
   DollarSign,
+  Package,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -167,6 +169,19 @@ export default function PODashboard() {
         .from("po_orders")
         .select("*", { count: "exact", head: true })
         .eq("status", "price_mismatch");
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
+  // Count unmapped product codes
+  const { data: unmappedCount } = useQuery({
+    queryKey: ["unmapped-codes-count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("unmapped_product_codes")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending");
       if (error) throw error;
       return count || 0;
     },
@@ -788,6 +803,21 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
           <Button variant="outline" onClick={() => navigate("/price-list")} className="bg-background">
             <List className="h-4 w-4 mr-2" />
             Price List
+          </Button>
+          <Button variant="outline" onClick={() => navigate("/product-master")} className="bg-background">
+            <Package className="h-4 w-4 mr-2" />
+            Products
+          </Button>
+          <Button
+            variant="outline"
+            className="relative bg-background"
+            onClick={() => navigate("/unmapped-codes")}
+          >
+            <Link2 className="h-4 w-4 mr-2" />
+            Unmapped
+            {unmappedCount ? (
+              <Badge className="ml-2 bg-yellow-500 text-white">{unmappedCount}</Badge>
+            ) : null}
           </Button>
           <Button
             variant="outline"
