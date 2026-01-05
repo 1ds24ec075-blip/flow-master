@@ -125,7 +125,18 @@ export default function Review() {
         typeof order.price_mismatch_details === "string"
           ? JSON.parse(order.price_mismatch_details)
           : order.price_mismatch_details;
-      return details.mismatches || [];
+      
+      // Handle both formats: mismatches array and unmatchedItems array
+      const mismatches = details.mismatches || [];
+      const unmatchedItems = (details.unmatchedItems || []).map((item: any) => ({
+        description: item.description || item.original_product_code || 'Unknown',
+        expected_price: item.expected_price || 0,
+        actual_price: item.unit_price || item.actual_price || 0,
+        difference_percent: item.difference_percent || 100,
+        reason: item.reason || 'Price mismatch'
+      }));
+      
+      return [...mismatches, ...unmatchedItems];
     } catch {
       return [];
     }
