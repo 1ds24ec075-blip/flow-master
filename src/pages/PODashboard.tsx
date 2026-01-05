@@ -800,9 +800,9 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
             <Users className="h-4 w-4 mr-2" />
             Customers
           </Button>
-          <Button variant="outline" onClick={() => navigate("/price-list")} className="bg-background">
-            <List className="h-4 w-4 mr-2" />
-            Price List
+          <Button variant="outline" onClick={() => navigate("/customer-mapping")} className="bg-background">
+            <Link2 className="h-4 w-4 mr-2" />
+            Mappings
           </Button>
           <Button variant="outline" onClick={() => navigate("/product-master")} className="bg-background">
             <Package className="h-4 w-4 mr-2" />
