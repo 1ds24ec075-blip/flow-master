@@ -417,7 +417,7 @@ Deno.serve(async (req) => {
       .eq("po_order_id", orderId)
       .order("item_number");
 
-    // Fetch customer details from customer_master
+    // Fetch customer details from customer_master - first try by ID, then by name match
     let customer = null;
     if (order.customer_master_id) {
       const { data: customerData } = await supabase
@@ -426,6 +426,59 @@ Deno.serve(async (req) => {
         .eq("id", order.customer_master_id)
         .single();
       customer = customerData;
+    }
+    
+    // If no customer found by ID, try matching by customer name
+    if (!customer && order.customer_name) {
+      const normalizedName = order.customer_name.toLowerCase().trim();
+      const { data: customers } = await supabase
+        .from("customer_master")
+        .select("*")
+        .eq("is_active", true);
+      
+      if (customers && customers.length > 0) {
+        // Try exact match first
+        customer = customers.find(c => 
+          c.customer_name.toLowerCase().trim() === normalizedName
+        );
+        
+        // If no exact match, try partial match
+        if (!customer) {
+          customer = customers.find(c => 
+            c.customer_name.toLowerCase().includes(normalizedName) ||
+            normalizedName.includes(c.customer_name.toLowerCase())
+          );
+        }
+      }
+      
+      if (customer) {
+        console.log("Found customer by name match:", customer.customer_name);
+      }
+    }
+    
+    // Merge customer_master data into order for any missing fields
+    if (customer) {
+      console.log("Filling missing order details from customer_master:", customer.id);
+      
+      // Fill missing fields from customer_master
+      if (!order.gst_number && customer.gst_number) {
+        order.gst_number = customer.gst_number;
+      }
+      if (!order.billing_address && customer.billing_address) {
+        order.billing_address = customer.billing_address;
+      }
+      if (!order.shipping_address && customer.shipping_address) {
+        order.shipping_address = customer.shipping_address;
+      }
+      if (!order.payment_terms && customer.payment_terms) {
+        order.payment_terms = customer.payment_terms;
+      }
+      if (!order.tally_ledger_name && customer.tally_ledger_name) {
+        order.tally_ledger_name = customer.tally_ledger_name;
+      }
+      if (!order.customer_address && customer.billing_address) {
+        order.customer_address = customer.billing_address;
+      }
     }
 
     // Get customer email - priority: passed param > customer_master > email_from field
