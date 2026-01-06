@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,15 @@ import {
   Link2,
   Users,
   Package,
+  Upload,
+  Download,
+  FileSpreadsheet,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 
 interface CustomerMapping {
   id: string;
@@ -66,13 +72,30 @@ interface Product {
   name: string;
 }
 
+interface ImportRow {
+  customerName?: string;
+  customerProductCode?: string;
+  customerProductName?: string;
+  internalProductCode?: string;
+  notes?: string;
+  // Resolved IDs
+  customerId?: string;
+  internalProductId?: string;
+  status: "valid" | "error" | "warning";
+  message?: string;
+}
+
 export default function CustomerProductMapping() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [editingMapping, setEditingMapping] = useState<CustomerMapping | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [importData, setImportData] = useState<ImportRow[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
   const [formData, setFormData] = useState({
     customerId: "",
     customerProductCode: "",
@@ -260,6 +283,196 @@ export default function CustomerProductMapping() {
     customersWithMappings: new Set(mappings?.map((m) => m.customer_id)).size,
   };
 
+  // ========== IMPORT LOGIC ==========
+  
+  const downloadTemplate = () => {
+    const template = [
+      {
+        "Customer Name": "Example Customer",
+        "Customer Product Code": "CUST-001",
+        "Customer Product Name": "Customer's Product Description",
+        "Internal Product Code": "INT-001",
+        "Notes": "Optional notes"
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Mappings");
+    XLSX.writeFile(wb, "customer_product_mapping_template.xlsx");
+    toast.success("Template downloaded");
+  };
+
+  const findColumnIndex = (headers: string[], keywords: string[]): number => {
+    return headers.findIndex(h => 
+      keywords.some(k => h.toLowerCase().includes(k.toLowerCase()))
+    );
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { header: 1 });
+
+        if (jsonData.length < 2) {
+          toast.error("File appears to be empty or has no data rows");
+          return;
+        }
+
+        const headers = (jsonData[0] as string[]).map(h => String(h || "").trim());
+        
+        // Auto-detect columns
+        const customerNameIdx = findColumnIndex(headers, ["customer name", "customer", "client"]);
+        const customerCodeIdx = findColumnIndex(headers, ["customer product code", "customer code", "cust code", "their code"]);
+        const customerProdNameIdx = findColumnIndex(headers, ["customer product name", "customer description", "their name"]);
+        const internalCodeIdx = findColumnIndex(headers, ["internal product code", "internal code", "your code", "our code", "product code"]);
+        const notesIdx = findColumnIndex(headers, ["notes", "note", "comments", "remark"]);
+
+        if (customerNameIdx === -1 || customerCodeIdx === -1 || internalCodeIdx === -1) {
+          toast.error("Could not find required columns: Customer Name, Customer Product Code, Internal Product Code");
+          return;
+        }
+
+        const rows: ImportRow[] = [];
+        for (let i = 1; i < jsonData.length; i++) {
+          const row = jsonData[i] as any[];
+          if (!row || row.every(cell => !cell)) continue; // Skip empty rows
+
+          const customerName = String(row[customerNameIdx] || "").trim();
+          const customerProductCode = String(row[customerCodeIdx] || "").trim();
+          const customerProductName = customerProdNameIdx >= 0 ? String(row[customerProdNameIdx] || "").trim() : "";
+          const internalProductCode = String(row[internalCodeIdx] || "").trim();
+          const notes = notesIdx >= 0 ? String(row[notesIdx] || "").trim() : "";
+
+          if (!customerName || !customerProductCode || !internalProductCode) {
+            rows.push({
+              customerName,
+              customerProductCode,
+              customerProductName,
+              internalProductCode,
+              notes,
+              status: "error",
+              message: "Missing required fields"
+            });
+            continue;
+          }
+
+          // Match customer
+          const matchedCustomer = customers?.find(c => 
+            c.customer_name.toLowerCase() === customerName.toLowerCase()
+          );
+
+          // Match product
+          const matchedProduct = products?.find(p => 
+            p.internal_code.toLowerCase() === internalProductCode.toLowerCase() ||
+            p.name.toLowerCase() === internalProductCode.toLowerCase()
+          );
+
+          if (!matchedCustomer && !matchedProduct) {
+            rows.push({
+              customerName,
+              customerProductCode,
+              customerProductName,
+              internalProductCode,
+              notes,
+              status: "error",
+              message: "Customer and product not found"
+            });
+          } else if (!matchedCustomer) {
+            rows.push({
+              customerName,
+              customerProductCode,
+              customerProductName,
+              internalProductCode,
+              notes,
+              internalProductId: matchedProduct?.id,
+              status: "error",
+              message: `Customer "${customerName}" not found`
+            });
+          } else if (!matchedProduct) {
+            rows.push({
+              customerName,
+              customerProductCode,
+              customerProductName,
+              internalProductCode,
+              notes,
+              customerId: matchedCustomer?.id,
+              status: "error",
+              message: `Product "${internalProductCode}" not found`
+            });
+          } else {
+            rows.push({
+              customerName,
+              customerProductCode,
+              customerProductName,
+              internalProductCode,
+              notes,
+              customerId: matchedCustomer.id,
+              internalProductId: matchedProduct.id,
+              status: "valid",
+              message: "Ready to import"
+            });
+          }
+        }
+
+        setImportData(rows);
+        if (rows.length === 0) {
+          toast.error("No valid data rows found");
+        } else {
+          const validCount = rows.filter(r => r.status === "valid").length;
+          toast.success(`Parsed ${rows.length} rows, ${validCount} valid`);
+        }
+      } catch (err) {
+        console.error("Parse error:", err);
+        toast.error("Failed to parse file");
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
+  const importValidRows = async () => {
+    const validRows = importData.filter(r => r.status === "valid" && r.customerId && r.internalProductId);
+    if (validRows.length === 0) {
+      toast.error("No valid rows to import");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const insertData = validRows.map(row => ({
+        customer_id: row.customerId!,
+        customer_product_code: row.customerProductCode!,
+        customer_product_name: row.customerProductName || null,
+        internal_product_id: row.internalProductId!,
+        notes: row.notes || null,
+        is_active: true,
+      }));
+
+      const { error } = await supabase
+        .from("customer_product_mapping")
+        .insert(insertData);
+
+      if (error) throw error;
+
+      toast.success(`Imported ${validRows.length} mappings`);
+      setShowImportDialog(false);
+      setImportData([]);
+      refetch();
+    } catch (err: any) {
+      toast.error(`Import failed: ${err.message}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 bg-slate-50 min-h-screen p-6">
       {/* Header */}
@@ -399,6 +612,124 @@ export default function CustomerProductMapping() {
                 >
                   {editingMapping ? "Update Mapping" : "Create Mapping"}
                 </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showImportDialog} onOpenChange={(open) => {
+            setShowImportDialog(open);
+            if (!open) setImportData([]);
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="bg-background">
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5" />
+                  Import Product Mappings
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                  <div className="flex-1">
+                    <h4 className="font-medium">1. Download Template</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Get the Excel template with required columns
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={downloadTemplate}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                  <div className="flex-1">
+                    <h4 className="font-medium">2. Upload Your File</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Excel (.xlsx) or CSV with: Customer Name, Customer Product Code, Internal Product Code
+                    </p>
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                  />
+                  <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload
+                  </Button>
+                </div>
+
+                {importData.length > 0 && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          {importData.filter(r => r.status === "valid").length} Valid
+                        </Badge>
+                        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          {importData.filter(r => r.status === "error").length} Errors
+                        </Badge>
+                      </div>
+                      <Button
+                        onClick={importValidRows}
+                        disabled={isImporting || importData.filter(r => r.status === "valid").length === 0}
+                        className="bg-purple-600 hover:bg-purple-700"
+                      >
+                        {isImporting ? "Importing..." : `Import ${importData.filter(r => r.status === "valid").length} Mappings`}
+                      </Button>
+                    </div>
+
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Customer Code</TableHead>
+                            <TableHead>Internal Code</TableHead>
+                            <TableHead>Message</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {importData.map((row, idx) => (
+                            <TableRow key={idx} className={row.status === "error" ? "bg-red-50" : ""}>
+                              <TableCell>
+                                {row.status === "valid" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                ) : (
+                                  <AlertCircle className="h-4 w-4 text-red-600" />
+                                )}
+                              </TableCell>
+                              <TableCell>{row.customerName}</TableCell>
+                              <TableCell><code className="bg-muted px-1 rounded">{row.customerProductCode}</code></TableCell>
+                              <TableCell><code className="bg-muted px-1 rounded">{row.internalProductCode}</code></TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{row.message}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
+                )}
+
+                <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
+                  <strong>Tips:</strong>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Customer names must match exactly with your Customer Master</li>
+                    <li>Internal Product Code must match your Product Master codes</li>
+                    <li>Only valid rows (green) will be imported</li>
+                  </ul>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
