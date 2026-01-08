@@ -303,9 +303,46 @@ export default function CustomerProductMapping() {
   };
 
   const findColumnIndex = (headers: string[], keywords: string[]): number => {
+    // First try exact match (case-insensitive)
+    const exactMatch = headers.findIndex(h => 
+      keywords.some(k => h.toLowerCase().trim() === k.toLowerCase().trim())
+    );
+    if (exactMatch !== -1) return exactMatch;
+    
+    // Then try contains match
     return headers.findIndex(h => 
       keywords.some(k => h.toLowerCase().includes(k.toLowerCase()))
     );
+  };
+
+  const normalizeHeader = (header: string): string => {
+    // Remove special characters, extra spaces, and normalize
+    return header.toLowerCase().replace(/[_\-\.]/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+
+  const findColumnIndexFlexible = (headers: string[], keywords: string[]): number => {
+    const normalizedHeaders = headers.map(normalizeHeader);
+    
+    // Try exact match first
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      for (const keyword of keywords) {
+        if (normalizedHeaders[i] === normalizeHeader(keyword)) {
+          return i;
+        }
+      }
+    }
+    
+    // Try contains match
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      for (const keyword of keywords) {
+        if (normalizedHeaders[i].includes(normalizeHeader(keyword)) || 
+            normalizeHeader(keyword).includes(normalizedHeaders[i])) {
+          return i;
+        }
+      }
+    }
+    
+    return -1;
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -327,16 +364,57 @@ export default function CustomerProductMapping() {
         }
 
         const headers = (jsonData[0] as string[]).map(h => String(h || "").trim());
+        console.log("Detected headers:", headers);
         
-        // Auto-detect columns
-        const customerNameIdx = findColumnIndex(headers, ["customer name", "customer", "client"]);
-        const customerCodeIdx = findColumnIndex(headers, ["customer product code", "customer code", "cust code", "their code"]);
-        const customerProdNameIdx = findColumnIndex(headers, ["customer product name", "customer description", "their name"]);
-        const internalCodeIdx = findColumnIndex(headers, ["internal product code", "internal code", "your code", "our code", "product code"]);
-        const notesIdx = findColumnIndex(headers, ["notes", "note", "comments", "remark"]);
+        // Auto-detect columns with expanded keywords
+        const customerNameIdx = findColumnIndexFlexible(headers, [
+          "customer name", "customer_name", "customername", 
+          "customer", "client", "client name", "client_name",
+          "party name", "party", "buyer", "buyer name"
+        ]);
+        const customerCodeIdx = findColumnIndexFlexible(headers, [
+          "customer product code", "customer_product_code", "customerproductcode",
+          "customer code", "customer_code", "customercode",
+          "cust code", "cust_code", "custcode",
+          "their code", "their_code", "theircode",
+          "customer item code", "customer_item_code",
+          "external code", "external_code", "externalcode",
+          "client code", "client_code", "clientcode",
+          "party code", "party_code"
+        ]);
+        const customerProdNameIdx = findColumnIndexFlexible(headers, [
+          "customer product name", "customer_product_name", "customerproductname",
+          "customer description", "customer_description",
+          "their name", "their_name", "theirname",
+          "customer item name", "customer_item_name",
+          "external name", "external_name",
+          "product description", "item description"
+        ]);
+        const internalCodeIdx = findColumnIndexFlexible(headers, [
+          "internal product code", "internal_product_code", "internalproductcode",
+          "internal code", "internal_code", "internalcode",
+          "your code", "your_code", "yourcode",
+          "our code", "our_code", "ourcode",
+          "product code", "product_code", "productcode",
+          "item code", "item_code", "itemcode",
+          "sku", "sku code", "sku_code",
+          "part number", "part_number", "partnumber",
+          "material code", "material_code"
+        ]);
+        const notesIdx = findColumnIndexFlexible(headers, [
+          "notes", "note", "comments", "comment", 
+          "remark", "remarks", "description"
+        ]);
 
-        if (customerNameIdx === -1 || customerCodeIdx === -1 || internalCodeIdx === -1) {
-          toast.error("Could not find required columns: Customer Name, Customer Product Code, Internal Product Code");
+        console.log("Column indices:", { customerNameIdx, customerCodeIdx, customerProdNameIdx, internalCodeIdx, notesIdx });
+
+        const missingColumns = [];
+        if (customerNameIdx === -1) missingColumns.push("Customer Name");
+        if (customerCodeIdx === -1) missingColumns.push("Customer Product Code");
+        if (internalCodeIdx === -1) missingColumns.push("Internal Product Code");
+        
+        if (missingColumns.length > 0) {
+          toast.error(`Could not find columns: ${missingColumns.join(", ")}. Found headers: ${headers.join(", ")}`);
           return;
         }
 
