@@ -276,8 +276,7 @@ Return ONLY valid JSON with this structure:
     const unmatchedItems: any[] = [];
     let productResolutionResults: any = null;
     
-    if (extracted.items && status !== "duplicate") {
-      // Load all reference data for resolution
+    if (extracted.items) {
       const [
         { data: allProducts },
         { data: customerMappings },
