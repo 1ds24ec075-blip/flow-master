@@ -378,7 +378,51 @@ Return ONLY valid JSON with this structure:
           }
         }
 
-        // Priority 3: Price list matching (existing logic as fallback)
+        // Priority 3: Product name matching from product_master
+        if (resolution.status !== 'resolved') {
+          const itemDesc = (item.description || "").toLowerCase().trim();
+          const itemDescNormalized = itemDesc.replace(/[^a-z0-9\s]/g, "");
+          
+          // Exact name match
+          let productMatch = allProducts?.find((p: any) => 
+            p.name && p.name.toLowerCase().trim() === itemDesc && p.is_active
+          );
+          
+          // Fuzzy name match - check if description contains product name or vice versa
+          if (!productMatch) {
+            productMatch = allProducts?.find((p: any) => {
+              if (!p.name || !p.is_active) return false;
+              const productName = p.name.toLowerCase().trim();
+              const productNameNormalized = productName.replace(/[^a-z0-9\s]/g, "");
+              return (itemDesc.includes(productName) || productName.includes(itemDesc)) ||
+                     (itemDescNormalized.includes(productNameNormalized) || productNameNormalized.includes(itemDescNormalized));
+            });
+          }
+          
+          // Word-based matching (at least 2 significant words match)
+          if (!productMatch) {
+            const itemWords = itemDescNormalized.split(/\s+/).filter((w: string) => w.length > 2);
+            productMatch = allProducts?.find((p: any) => {
+              if (!p.name || !p.is_active) return false;
+              const productWords = p.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w: string) => w.length > 2);
+              const commonWords = itemWords.filter((w: string) => productWords.includes(w));
+              return commonWords.length >= 2 || (commonWords.length >= 1 && itemWords.length <= 2);
+            });
+          }
+          
+          if (productMatch) {
+            resolution = {
+              original_product_code: productCode,
+              resolved_internal_product_id: productMatch.id,
+              resolution_method: 'product_name_match',
+              confidence_score: 0.80,
+              status: 'resolved',
+              matched_product: productMatch,
+            };
+          }
+        }
+
+        // Priority 4: Price list matching (legacy fallback)
         if (resolution.status !== 'resolved') {
           const itemDesc = (item.description || "").toLowerCase().trim();
           let priceItem = priceList?.find((p: any) => 
@@ -395,7 +439,7 @@ Return ONLY valid JSON with this structure:
           if (priceItem) {
             resolution = {
               original_product_code: productCode,
-              resolved_internal_product_id: null, // Price list items aren't in product_master yet
+              resolved_internal_product_id: null,
               resolution_method: 'price_list_match',
               confidence_score: 0.70,
               status: 'resolved',
