@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -29,7 +30,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, AlertTriangle, Eye, Check, X, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, AlertTriangle, Eye, Check, X, Loader2, Calendar, Send } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -39,10 +42,18 @@ interface POOrder {
   vendor_name: string | null;
   customer_name: string | null;
   order_date: string | null;
+  delivery_date: string | null;
   total_amount: number | null;
   currency: string;
   status: string;
   price_mismatch_details: any;
+}
+
+interface DeliveryDateIssue {
+  delivery_date: string;
+  order_date: string;
+  days_difference: number;
+  reason: string;
 }
 
 interface PriceMismatch {
@@ -57,14 +68,16 @@ export default function Review() {
   const navigate = useNavigate();
   const [selectedOrder, setSelectedOrder] = useState<POOrder | null>(null);
   const [showMismatchDialog, setShowMismatchDialog] = useState(false);
+  const [showSendDialog, setShowSendDialog] = useState(false);
+  const [editedDeliveryDate, setEditedDeliveryDate] = useState("");
 
   const { data: orders, isLoading } = useQuery({
-    queryKey: ["price-mismatch-orders"],
+    queryKey: ["review-orders"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("po_orders")
         .select("*")
-        .eq("status", "price_mismatch")
+        .in("status", ["price_mismatch", "delivery_date_issue"])
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as POOrder[];
@@ -94,7 +107,7 @@ export default function Review() {
         .eq("id", orderId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["price-mismatch-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["review-orders"] });
       queryClient.invalidateQueries({ queryKey: ["price-mismatch-count"] });
       toast.success("Order approved and SO email sent!");
     },
@@ -109,12 +122,46 @@ export default function Review() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["price-mismatch-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["review-orders"] });
       queryClient.invalidateQueries({ queryKey: ["price-mismatch-count"] });
       toast.success("Order rejected and deleted");
     },
     onError: () => {
       toast.error("Failed to reject order");
+    },
+  });
+
+  const sendWithDateMutation = useMutation({
+    mutationFn: async ({ orderId, deliveryDate }: { orderId: string; deliveryDate: string }) => {
+      // Update delivery date first
+      const { error: updateError } = await supabase
+        .from("po_orders")
+        .update({ delivery_date: deliveryDate, status: "processed" })
+        .eq("id", orderId);
+      if (updateError) throw updateError;
+
+      // Send SO email
+      const { error: emailError } = await supabase.functions.invoke(
+        "send-sales-order",
+        { body: { orderId } }
+      );
+      if (emailError) throw emailError;
+
+      // Update status to converted
+      await supabase
+        .from("po_orders")
+        .update({ status: "converted" })
+        .eq("id", orderId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["review-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["price-mismatch-count"] });
+      toast.success("Delivery date updated and SO email sent!");
+      setShowSendDialog(false);
+      setSelectedOrder(null);
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to send: ${error.message}`);
     },
   });
 
@@ -142,6 +189,34 @@ export default function Review() {
     }
   };
 
+  const getDeliveryDateIssue = (order: POOrder): DeliveryDateIssue | null => {
+    if (!order.price_mismatch_details) return null;
+    try {
+      const details =
+        typeof order.price_mismatch_details === "string"
+          ? JSON.parse(order.price_mismatch_details)
+          : order.price_mismatch_details;
+      return details.deliveryDateIssue || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getIssueTypes = (order: POOrder): string[] => {
+    const issues: string[] = [];
+    const mismatches = getMismatches(order);
+    const deliveryIssue = getDeliveryDateIssue(order);
+    if (mismatches.length > 0) issues.push("price");
+    if (deliveryIssue) issues.push("delivery");
+    return issues;
+  };
+
+  const openSendDialog = (order: POOrder) => {
+    setSelectedOrder(order);
+    setEditedDeliveryDate(order.delivery_date || "");
+    setShowSendDialog(true);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -152,9 +227,9 @@ export default function Review() {
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-6 w-6 text-orange-500" />
           <div>
-            <h1 className="text-3xl font-bold">Price Review Dashboard</h1>
+            <h1 className="text-3xl font-bold">Order Review Dashboard</h1>
             <p className="text-muted-foreground">
-              Review orders with price mismatches
+              Review orders with price mismatches or delivery date issues
             </p>
           </div>
         </div>
@@ -184,15 +259,18 @@ export default function Review() {
                   <TableHead>PO Number</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Customer</TableHead>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Order Date</TableHead>
+                  <TableHead>Delivery Date</TableHead>
                   <TableHead>Amount</TableHead>
-                  <TableHead>Mismatches</TableHead>
+                  <TableHead>Issues</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orders.map((order) => {
                   const mismatches = getMismatches(order);
+                  const deliveryIssue = getDeliveryDateIssue(order);
+                  const issueTypes = getIssueTypes(order);
                   return (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">
@@ -206,12 +284,34 @@ export default function Review() {
                           : "-"}
                       </TableCell>
                       <TableCell>
+                        <div className="flex items-center gap-2">
+                          {order.delivery_date
+                            ? new Date(order.delivery_date).toLocaleDateString()
+                            : "-"}
+                          {deliveryIssue && (
+                            <Badge variant="outline" className="text-red-600 text-xs">
+                              {deliveryIssue.days_difference} days
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         {order.currency} {order.total_amount?.toLocaleString() || "0"}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-orange-600">
-                          {mismatches.length} items
-                        </Badge>
+                        <div className="flex gap-1 flex-wrap">
+                          {issueTypes.includes("price") && (
+                            <Badge variant="outline" className="text-orange-600">
+                              {mismatches.length} price
+                            </Badge>
+                          )}
+                          {issueTypes.includes("delivery") && (
+                            <Badge variant="outline" className="text-red-600">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              &gt;30 days
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button
@@ -226,53 +326,16 @@ export default function Review() {
                           View
                         </Button>
 
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="text-green-600">
-                              <Check className="h-4 w-4 mr-1" />
-                              Approve
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Approve Order</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This order has price mismatches:
-                                <div className="mt-4 space-y-2">
-                                  {mismatches.map((m, i) => (
-                                    <div
-                                      key={i}
-                                      className="text-sm bg-orange-50 p-2 rounded"
-                                    >
-                                      <p className="font-medium">{m.description}</p>
-                                      <p>
-                                        Expected: ₹{m.expected_price} | Actual: ₹
-                                        {m.actual_price} (
-                                        {m.difference_percent.toFixed(1)}% diff)
-                                      </p>
-                                    </div>
-                                  ))}
-                                </div>
-                                <p className="mt-4">
-                                  Are you sure you want to approve and send the SO email?
-                                </p>
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => approveMutation.mutate(order.id)}
-                                disabled={approveMutation.isPending}
-                              >
-                                {approveMutation.isPending ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  "Approve & Send"
-                                )}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        {/* Send SO button - opens dialog to edit date */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-blue-600"
+                          onClick={() => openSendDialog(order)}
+                        >
+                          <Send className="h-4 w-4 mr-1" />
+                          Send SO
+                        </Button>
 
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
@@ -308,7 +371,7 @@ export default function Review() {
             </Table>
           ) : (
             <div className="p-8 text-center text-muted-foreground">
-              No orders pending review. All prices match!
+              No orders pending review. All checks passed!
             </div>
           )}
         </CardContent>
@@ -319,7 +382,7 @@ export default function Review() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              Price Mismatches - {selectedOrder?.po_number}
+              Order Issues - {selectedOrder?.po_number}
             </DialogTitle>
           </DialogHeader>
           {selectedOrder && (
@@ -335,40 +398,136 @@ export default function Review() {
                 </div>
               </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead>Expected Price</TableHead>
-                    <TableHead>Actual Price</TableHead>
-                    <TableHead>Difference</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {getMismatches(selectedOrder).map((mismatch, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{mismatch.description}</TableCell>
-                      <TableCell>₹{mismatch.expected_price.toLocaleString()}</TableCell>
-                      <TableCell>₹{mismatch.actual_price.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            mismatch.difference_percent > 0
-                              ? "text-red-600"
-                              : "text-green-600"
-                          }
-                        >
-                          {mismatch.difference_percent > 0 ? "+" : ""}
-                          {mismatch.difference_percent.toFixed(1)}%
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              {/* Delivery Date Issue */}
+              {getDeliveryDateIssue(selectedOrder) && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-red-700 font-medium mb-2">
+                    <Calendar className="h-4 w-4" />
+                    Delivery Date Issue
+                  </div>
+                  <p className="text-sm text-red-600">
+                    {getDeliveryDateIssue(selectedOrder)?.reason}
+                  </p>
+                  <div className="mt-2 text-sm text-red-600">
+                    <p>Order Date: {new Date(getDeliveryDateIssue(selectedOrder)?.order_date || "").toLocaleDateString()}</p>
+                    <p>Delivery Date: {new Date(getDeliveryDateIssue(selectedOrder)?.delivery_date || "").toLocaleDateString()}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Price Mismatches */}
+              {getMismatches(selectedOrder).length > 0 && (
+                <>
+                  <h3 className="font-medium text-orange-700">Price Mismatches</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead>Expected Price</TableHead>
+                        <TableHead>Actual Price</TableHead>
+                        <TableHead>Difference</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {getMismatches(selectedOrder).map((mismatch, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{mismatch.description}</TableCell>
+                          <TableCell>₹{mismatch.expected_price.toLocaleString()}</TableCell>
+                          <TableCell>₹{mismatch.actual_price.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                mismatch.difference_percent > 0
+                                  ? "text-red-600"
+                                  : "text-green-600"
+                              }
+                            >
+                              {mismatch.difference_percent > 0 ? "+" : ""}
+                              {mismatch.difference_percent.toFixed(1)}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Send SO Dialog with Date Edit */}
+      <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Send Sales Order - {selectedOrder?.po_number}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedOrder && (
+            <div className="space-y-4">
+              <div className="text-sm space-y-2">
+                <p><span className="text-muted-foreground">Customer:</span> {selectedOrder.customer_name || "-"}</p>
+                <p><span className="text-muted-foreground">Amount:</span> {selectedOrder.currency} {selectedOrder.total_amount?.toLocaleString()}</p>
+              </div>
+
+              {/* Show issues summary */}
+              {getDeliveryDateIssue(selectedOrder) && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
+                  <p className="text-red-700 font-medium">⚠️ Delivery date exceeds 30 days</p>
+                  <p className="text-red-600 text-xs mt-1">
+                    Original: {new Date(selectedOrder.delivery_date || "").toLocaleDateString()} 
+                    ({getDeliveryDateIssue(selectedOrder)?.days_difference} days from order)
+                  </p>
+                </div>
+              )}
+
+              {getMismatches(selectedOrder).length > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm">
+                  <p className="text-orange-700 font-medium">⚠️ {getMismatches(selectedOrder).length} price mismatch(es)</p>
+                </div>
+              )}
+
+              {/* Editable Delivery Date */}
+              <div className="space-y-2">
+                <Label htmlFor="deliveryDate">Delivery Date (editable before sending)</Label>
+                <Input
+                  id="deliveryDate"
+                  type="date"
+                  value={editedDeliveryDate}
+                  onChange={(e) => setEditedDeliveryDate(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Adjust the delivery date if needed before sending the SO.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSendDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedOrder) {
+                  sendWithDateMutation.mutate({
+                    orderId: selectedOrder.id,
+                    deliveryDate: editedDeliveryDate,
+                  });
+                }
+              }}
+              disabled={sendWithDateMutation.isPending}
+            >
+              {sendWithDateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Send SO
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
