@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Pencil, Trash2, Upload, Download, RefreshCw, Package } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +25,8 @@ interface Product {
   gst_rate: number | null;
   is_active: boolean;
   created_at: string;
+  sell_in_multiples: boolean | null;
+  multiple_quantity: number | null;
 }
 
 export default function ProductMaster() {
@@ -43,6 +46,8 @@ export default function ProductMaster() {
     default_unit_price: "",
     hsn_code: "",
     gst_rate: "18",
+    sell_in_multiples: false,
+    multiple_quantity: "",
   });
 
   // Fetch products
@@ -61,6 +66,10 @@ export default function ProductMaster() {
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      // Validate multiple quantity when sell_in_multiples is true
+      if (data.sell_in_multiples && (!data.multiple_quantity || Number(data.multiple_quantity) <= 0)) {
+        throw new Error("Multiple Quantity must be greater than 0 when 'Sell in Multiples' is enabled");
+      }
       const { error } = await supabase.from("product_master").insert({
         internal_code: data.internal_code,
         name: data.name,
@@ -70,6 +79,8 @@ export default function ProductMaster() {
         hsn_code: data.hsn_code || null,
         gst_rate: data.gst_rate ? Number(data.gst_rate) : 18,
         is_active: true,
+        sell_in_multiples: data.sell_in_multiples,
+        multiple_quantity: data.sell_in_multiples && data.multiple_quantity ? Number(data.multiple_quantity) : null,
       });
       if (error) throw error;
     },
@@ -87,6 +98,10 @@ export default function ProductMaster() {
   // Update mutation
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
+      // Validate multiple quantity when sell_in_multiples is true
+      if (data.sell_in_multiples && (!data.multiple_quantity || Number(data.multiple_quantity) <= 0)) {
+        throw new Error("Multiple Quantity must be greater than 0 when 'Sell in Multiples' is enabled");
+      }
       const { error } = await supabase
         .from("product_master")
         .update({
@@ -97,6 +112,8 @@ export default function ProductMaster() {
           default_unit_price: data.default_unit_price ? Number(data.default_unit_price) : null,
           hsn_code: data.hsn_code || null,
           gst_rate: data.gst_rate ? Number(data.gst_rate) : 18,
+          sell_in_multiples: data.sell_in_multiples,
+          multiple_quantity: data.sell_in_multiples && data.multiple_quantity ? Number(data.multiple_quantity) : null,
         })
         .eq("id", id);
       if (error) throw error;
@@ -157,6 +174,8 @@ export default function ProductMaster() {
       default_unit_price: "",
       hsn_code: "",
       gst_rate: "18",
+      sell_in_multiples: false,
+      multiple_quantity: "",
     });
   };
 
@@ -170,6 +189,8 @@ export default function ProductMaster() {
       default_unit_price: product.default_unit_price?.toString() || "",
       hsn_code: product.hsn_code || "",
       gst_rate: product.gst_rate?.toString() || "18",
+      sell_in_multiples: product.sell_in_multiples || false,
+      multiple_quantity: product.multiple_quantity?.toString() || "",
     });
     setShowDialog(true);
   };
@@ -437,6 +458,35 @@ export default function ProductMaster() {
                   placeholder="18"
                 />
               </div>
+            </div>
+            
+            {/* Quantity Multiple Rule Section */}
+            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium">Sell in Multiples</Label>
+                  <p className="text-xs text-muted-foreground">Round up PO quantity to nearest multiple in SO</p>
+                </div>
+                <Switch
+                  checked={formData.sell_in_multiples}
+                  onCheckedChange={(checked) => setFormData({ ...formData, sell_in_multiples: checked, multiple_quantity: checked ? formData.multiple_quantity : "" })}
+                />
+              </div>
+              {formData.sell_in_multiples && (
+                <div>
+                  <Label>Multiple Quantity *</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={formData.multiple_quantity}
+                    onChange={(e) => setFormData({ ...formData, multiple_quantity: e.target.value })}
+                    placeholder="e.g. 10, 12, 25"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PO qty will be rounded up to nearest multiple (e.g., PO=123, Multiple=10 → SO=130)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
