@@ -508,6 +508,27 @@ Return ONLY valid JSON with this structure:
       }
     }
 
+    // Check delivery date - flag if > 30 days from order date
+    let deliveryDateIssue = null;
+    if (extracted.delivery_date) {
+      const orderDate = extracted.order_date ? new Date(extracted.order_date) : new Date();
+      const deliveryDate = new Date(extracted.delivery_date);
+      const daysDiff = Math.ceil((deliveryDate.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysDiff > 30) {
+        deliveryDateIssue = {
+          delivery_date: extracted.delivery_date,
+          order_date: extracted.order_date || new Date().toISOString().split('T')[0],
+          days_difference: daysDiff,
+          reason: `Delivery date is ${daysDiff} days from order date (exceeds 30 day limit)`
+        };
+        // Set status to flag for review
+        if (status !== "price_mismatch") {
+          status = "delivery_date_issue";
+        }
+      }
+    }
+
     // Match customer
     let customerMasterId = null;
     if (extracted.customer_name) {
@@ -542,7 +563,9 @@ Return ONLY valid JSON with this structure:
         email_from: emailFrom,
         email_date: emailDate,
         customer_master_id: customerMasterId,
-        price_mismatch_details: (mismatches.length > 0 || unmatchedItems.length > 0) ? { mismatches, unmatchedItems } : null,
+        price_mismatch_details: (mismatches.length > 0 || unmatchedItems.length > 0 || deliveryDateIssue) 
+          ? { mismatches, unmatchedItems, deliveryDateIssue } 
+          : null,
         duplicate_match_details: duplicateMatchDetails,
       })
       .select()
