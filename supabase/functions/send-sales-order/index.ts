@@ -7,6 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Helper function to round up to nearest multiple
+function roundUpToMultiple(value: number, multiple: number): number {
+  if (multiple <= 0) return value;
+  return Math.ceil(value / multiple) * multiple;
+}
+
 // Generate PDF using jsPDF with enhanced details
 function generateSalesOrderPDF(order: any, items: any[], soNumber: string, customer: any): string {
   const doc = new jsPDF();
@@ -190,10 +196,10 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string, custo
   
   y += showShipTo ? 50 : 45;
   
-  // Items table
+  // Items table - added PO Qty column for when multiples apply
   const tableTop = y;
-  const colWidths = [12, 55, 18, 18, 28, 24, 25]; // Added GST column
-  const headers = ["#", "Description", "Qty", "Unit", "Unit Price", "GST %", "Total"];
+  const colWidths = [10, 45, 15, 15, 25, 20, 22]; // #, Desc, PO Qty, SO Qty, Unit Price, GST %, Total
+  const headers = ["#", "Description", "PO Qty", "SO Qty", "Unit Price", "GST %", "Total"];
   
   // Table header
   doc.setFillColor(primaryBlue[0], primaryBlue[1], primaryBlue[2]);
@@ -218,21 +224,46 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string, custo
   
   y = tableTop + 10;
   
-  // Calculate totals
+  // Calculate totals with quantity multiple rule applied
   let subtotal = 0;
   let totalGST = 0;
   const defaultGSTRate = 18; // Default GST rate
-  
-  items.forEach((item) => {
-    const itemTotal = item.total_price || (item.quantity || 0) * (item.unit_price || 0);
-    subtotal += itemTotal;
-    const gstRate = item.gst_rate || defaultGSTRate;
-    totalGST += itemTotal * (gstRate / 100);
+
+  // Pre-process items to apply quantity multiple rule
+  const processedItems = items.map((item) => {
+    const poQty = item.quantity || 0;
+    let soQty = poQty;
+    let multipleNote = "";
+    
+    // Check if product has sell_in_multiples enabled
+    const productMaster = item.product_master;
+    if (productMaster?.sell_in_multiples && productMaster?.multiple_quantity > 0) {
+      soQty = roundUpToMultiple(poQty, productMaster.multiple_quantity);
+      if (soQty !== poQty) {
+        multipleNote = `×${productMaster.multiple_quantity}`;
+      }
+    }
+    
+    const unitPrice = item.unit_price || 0;
+    const totalPrice = soQty * unitPrice; // Use SO quantity for pricing
+    const gstRate = productMaster?.gst_rate || item.gst_rate || defaultGSTRate;
+    
+    subtotal += totalPrice;
+    totalGST += totalPrice * (gstRate / 100);
+    
+    return {
+      ...item,
+      po_qty: poQty,
+      so_qty: soQty,
+      total_price: totalPrice,
+      gst_rate: gstRate,
+      multiple_note: multipleNote,
+    };
   });
   
   // Table rows
-  items.forEach((item, idx) => {
-    const rowHeight = 8;
+  processedItems.forEach((item, idx) => {
+    const rowHeight = item.multiple_note ? 12 : 8; // Taller row if showing multiple note
     
     if (idx % 2 === 0) {
       doc.setFillColor(247, 250, 252);
@@ -244,15 +275,19 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string, custo
     doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
     
     xPos = leftMargin;
+    
+    // Build row data
+    const poQtyStr = String(item.po_qty);
+    const soQtyStr = item.po_qty !== item.so_qty ? String(item.so_qty) : String(item.po_qty);
     const unitPrice = item.unit_price || 0;
-    const totalPrice = item.total_price || (item.quantity || 0) * unitPrice;
-    const gstRate = item.gst_rate || defaultGSTRate;
+    const totalPrice = item.total_price;
+    const gstRate = item.gst_rate;
     
     const rowData = [
       String(idx + 1),
       item.description || "-",
-      String(item.quantity || 0),
-      item.unit || "nos",
+      poQtyStr,
+      soQtyStr,
       `Rs.${unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       `${gstRate}%`,
       `Rs.${totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -271,6 +306,13 @@ function generateSalesOrderPDF(order: any, items: any[], soNumber: string, custo
       }
       xPos += colWidths[colIdx];
     });
+    
+    // Add multiple note badge if applicable
+    if (item.multiple_note) {
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`↑ Rounded up due to product multiple rule (${item.multiple_note})`, leftMargin + colWidths[0] + 3, y + 10);
+    }
     
     doc.setDrawColor(224, 224, 224);
     doc.setLineWidth(0.1);
@@ -413,7 +455,7 @@ Deno.serve(async (req) => {
 
     const { data: items } = await supabase
       .from("po_order_items")
-      .select("*")
+      .select("*, product_master:resolved_internal_product_id(id, name, sell_in_multiples, multiple_quantity, gst_rate)")
       .eq("po_order_id", orderId)
       .order("item_number");
 

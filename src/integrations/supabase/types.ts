@@ -955,7 +955,9 @@ export type Database = {
           id: string
           internal_code: string
           is_active: boolean | null
+          multiple_quantity: number | null
           name: string
+          sell_in_multiples: boolean | null
           updated_at: string | null
         }
         Insert: {
@@ -968,7 +970,9 @@ export type Database = {
           id?: string
           internal_code: string
           is_active?: boolean | null
+          multiple_quantity?: number | null
           name: string
+          sell_in_multiples?: boolean | null
           updated_at?: string | null
         }
         Update: {
@@ -981,7 +985,9 @@ export type Database = {
           id?: string
           internal_code?: string
           is_active?: boolean | null
+          multiple_quantity?: number | null
           name?: string
+          sell_in_multiples?: boolean | null
           updated_at?: string | null
         }
         Relationships: []
