@@ -15,6 +15,7 @@ import {
   Mail,
   ClipboardList,
   Sparkles,
+  FileSpreadsheet,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -46,6 +47,7 @@ const navigationItems = [
   { title: "Bills", url: "/bills", icon: Camera },
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
+  { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
 ];
 
 export function AppSidebar() {

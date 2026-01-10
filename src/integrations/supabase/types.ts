@@ -444,6 +444,60 @@ export type Database = {
           },
         ]
       }
+      excel_integrations: {
+        Row: {
+          access_token: string | null
+          created_at: string
+          display_name: string | null
+          email_address: string
+          error_message: string | null
+          id: string
+          is_active: boolean | null
+          last_sync_at: string | null
+          refresh_token: string | null
+          selected_file_id: string | null
+          selected_file_name: string | null
+          sync_interval_minutes: number | null
+          sync_status: string | null
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          created_at?: string
+          display_name?: string | null
+          email_address: string
+          error_message?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          selected_file_id?: string | null
+          selected_file_name?: string | null
+          sync_interval_minutes?: number | null
+          sync_status?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          created_at?: string
+          display_name?: string | null
+          email_address?: string
+          error_message?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          selected_file_id?: string | null
+          selected_file_name?: string | null
+          sync_interval_minutes?: number | null
+          sync_status?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       expense_categories: {
         Row: {
           color: string
