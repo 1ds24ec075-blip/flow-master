@@ -91,9 +91,9 @@ export default function ExcelIntegration() {
 
   const handleConnect = () => {
     setIsConnecting(true);
-    // Redirect to OAuth start endpoint
+    // Open OAuth in new tab (Microsoft blocks OAuth in iframes)
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    window.location.href = `${supabaseUrl}/functions/v1/excel-auth-start`;
+    window.open(`${supabaseUrl}/functions/v1/excel-auth-start`, "_blank");
   };
 
   const handleDisconnect = async () => {
