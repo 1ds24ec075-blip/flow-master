@@ -60,3 +60,12 @@ verify_jwt = false
 
 [functions.approve-product-mapping]
 verify_jwt = false
+
+[functions.excel-auth-start]
+verify_jwt = false
+
+[functions.excel-auth-callback]
+verify_jwt = false
+
+[functions.excel-sync]
+verify_jwt = false
