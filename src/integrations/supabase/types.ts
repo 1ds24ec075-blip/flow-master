@@ -658,6 +658,33 @@ export type Database = {
         }
         Relationships: []
       }
+      ledger_master: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          ledger_group: string
+          ledger_name: string
+          ledger_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          ledger_group: string
+          ledger_name: string
+          ledger_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          ledger_group?: string
+          ledger_name?: string
+          ledger_type?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           content: string
@@ -1421,6 +1448,81 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      tally_vouchers: {
+        Row: {
+          amount: number
+          bank_ledger: string
+          created_at: string
+          duplicate_reference: string | null
+          flag_reason: string | null
+          id: string
+          is_duplicate: boolean | null
+          narration: string | null
+          party_ledger: string | null
+          payment_mode: string | null
+          reference_number: string | null
+          status: string
+          transaction_id: string | null
+          updated_at: string
+          upload_id: string | null
+          voucher_date: string
+          voucher_type: string
+        }
+        Insert: {
+          amount: number
+          bank_ledger?: string
+          created_at?: string
+          duplicate_reference?: string | null
+          flag_reason?: string | null
+          id?: string
+          is_duplicate?: boolean | null
+          narration?: string | null
+          party_ledger?: string | null
+          payment_mode?: string | null
+          reference_number?: string | null
+          status?: string
+          transaction_id?: string | null
+          updated_at?: string
+          upload_id?: string | null
+          voucher_date: string
+          voucher_type: string
+        }
+        Update: {
+          amount?: number
+          bank_ledger?: string
+          created_at?: string
+          duplicate_reference?: string | null
+          flag_reason?: string | null
+          id?: string
+          is_duplicate?: boolean | null
+          narration?: string | null
+          party_ledger?: string | null
+          payment_mode?: string | null
+          reference_number?: string | null
+          status?: string
+          transaction_id?: string | null
+          updated_at?: string
+          upload_id?: string | null
+          voucher_date?: string
+          voucher_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tally_vouchers_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "segregated_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tally_vouchers_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "segregation_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       unmapped_product_codes: {
         Row: {
