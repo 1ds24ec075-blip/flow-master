@@ -347,6 +347,8 @@ export type Database = {
       }
       customer_master: {
         Row: {
+          bank_account: string | null
+          bank_name: string | null
           billing_address: string | null
           created_at: string | null
           currency: string | null
@@ -360,8 +362,11 @@ export type Database = {
           shipping_address: string | null
           tally_ledger_name: string | null
           updated_at: string | null
+          upi_payment_patterns: string | null
         }
         Insert: {
+          bank_account?: string | null
+          bank_name?: string | null
           billing_address?: string | null
           created_at?: string | null
           currency?: string | null
@@ -375,8 +380,11 @@ export type Database = {
           shipping_address?: string | null
           tally_ledger_name?: string | null
           updated_at?: string | null
+          upi_payment_patterns?: string | null
         }
         Update: {
+          bank_account?: string | null
+          bank_name?: string | null
           billing_address?: string | null
           created_at?: string | null
           currency?: string | null
@@ -390,6 +398,7 @@ export type Database = {
           shipping_address?: string | null
           tally_ledger_name?: string | null
           updated_at?: string | null
+          upi_payment_patterns?: string | null
         }
         Relationships: []
       }

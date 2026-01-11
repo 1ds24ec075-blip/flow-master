@@ -67,6 +67,9 @@ interface Customer {
   phone: string | null;
   is_active: boolean;
   created_at: string;
+  bank_account: string | null;
+  upi_payment_patterns: string | null;
+  bank_name: string | null;
 }
 
 export default function CustomerMaster() {
@@ -90,6 +93,9 @@ export default function CustomerMaster() {
     payment_terms: "",
     currency: "INR",
     is_active: true,
+    bank_account: "",
+    upi_payment_patterns: "",
+    bank_name: "",
   });
 
   const { data: customers, isLoading } = useQuery({
@@ -182,6 +188,9 @@ export default function CustomerMaster() {
       payment_terms: "",
       currency: "INR",
       is_active: true,
+      bank_account: "",
+      upi_payment_patterns: "",
+      bank_name: "",
     });
   };
 
@@ -198,6 +207,9 @@ export default function CustomerMaster() {
       payment_terms: customer.payment_terms || "",
       currency: customer.currency,
       is_active: customer.is_active,
+      bank_account: customer.bank_account || "",
+      upi_payment_patterns: customer.upi_payment_patterns || "",
+      bank_name: customer.bank_name || "",
     });
     setShowDialog(true);
   };
@@ -235,6 +247,9 @@ export default function CustomerMaster() {
           payment_terms: row["Payment Terms"] || row["payment_terms"] || null,
           currency: row["Currency"] || row["currency"] || "INR",
           is_active: true,
+          bank_account: row["Bank Account"] || row["bank_account"] || null,
+          upi_payment_patterns: row["UPI Patterns"] || row["upi_payment_patterns"] || null,
+          bank_name: row["Bank Name"] || row["bank_name"] || null,
         })).filter((row: any) => row.customer_name);
 
         setImportData(mappedData);
@@ -261,6 +276,9 @@ export default function CustomerMaster() {
         "Shipping Address": "456 Shipping Lane",
         "Payment Terms": "Net 30",
         "Currency": "INR",
+        "Bank Account": "1234567890",
+        "UPI Patterns": "company@upi",
+        "Bank Name": "HDFC Bank",
       },
     ];
 
@@ -431,6 +449,41 @@ export default function CustomerMaster() {
                     }
                   />
                   <Label>Active</Label>
+                </div>
+
+                {/* Banking Information Section */}
+                <div className="col-span-2 pt-4 border-t">
+                  <h3 className="font-semibold mb-3 text-sm text-muted-foreground">Banking Information</h3>
+                </div>
+                <div className="space-y-2">
+                  <Label>Bank Account Number</Label>
+                  <Input
+                    value={formData.bank_account}
+                    onChange={(e) =>
+                      setFormData({ ...formData, bank_account: e.target.value })
+                    }
+                    placeholder="Enter bank account number"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Bank Name (Optional)</Label>
+                  <Input
+                    value={formData.bank_name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, bank_name: e.target.value })
+                    }
+                    placeholder="e.g., HDFC Bank, SBI"
+                  />
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label>UPI / Payment Reference Patterns</Label>
+                  <Input
+                    value={formData.upi_payment_patterns}
+                    onChange={(e) =>
+                      setFormData({ ...formData, upi_payment_patterns: e.target.value })
+                    }
+                    placeholder="e.g., company@upi, NEFT patterns"
+                  />
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
