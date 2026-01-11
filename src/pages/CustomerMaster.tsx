@@ -53,6 +53,7 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Customer {
   id: string;
@@ -295,7 +296,8 @@ export default function CustomerMaster() {
   };
 
   return (
-    <div className="space-y-6">
+    <ScrollArea className="h-[calc(100vh-2rem)]">
+      <div className="space-y-6 pr-4">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate("/po-dashboard")}>
@@ -678,6 +680,7 @@ export default function CustomerMaster() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </ScrollArea>
   );
 }
