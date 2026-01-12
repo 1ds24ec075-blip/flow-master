@@ -318,6 +318,73 @@ export default function SmartSegregation() {
     return (data?.length || 0) > 0;
   };
 
+  // Match narration against customer/supplier patterns
+  const matchCustomerPattern = (
+    narration: string, 
+    customers: { customer_name: string; bank_account: string | null; upi_payment_patterns: string | null; tally_ledger_name: string | null }[]
+  ): { matched: boolean; customerName: string; ledgerName: string } => {
+    const narrationLower = narration.toLowerCase();
+    
+    for (const customer of customers) {
+      // Check UPI patterns
+      if (customer.upi_payment_patterns) {
+        const patterns = customer.upi_payment_patterns.split(',').map(p => p.trim().toLowerCase());
+        for (const pattern of patterns) {
+          if (pattern && narrationLower.includes(pattern)) {
+            return { 
+              matched: true, 
+              customerName: customer.customer_name,
+              ledgerName: customer.tally_ledger_name || customer.customer_name
+            };
+          }
+        }
+      }
+      
+      // Check bank account
+      if (customer.bank_account) {
+        const bankAcc = customer.bank_account.toLowerCase();
+        if (narrationLower.includes(bankAcc)) {
+          return { 
+            matched: true, 
+            customerName: customer.customer_name,
+            ledgerName: customer.tally_ledger_name || customer.customer_name
+          };
+        }
+      }
+    }
+    
+    return { matched: false, customerName: '', ledgerName: '' };
+  };
+
+  const matchSupplierPattern = (
+    narration: string, 
+    suppliers: { name: string; bank_account: string | null; upi_payment_patterns: string | null }[]
+  ): { matched: boolean; supplierName: string } => {
+    const narrationLower = narration.toLowerCase();
+    
+    for (const supplier of suppliers) {
+      // Check UPI patterns
+      if (supplier.upi_payment_patterns) {
+        const patterns = supplier.upi_payment_patterns.split(',').map(p => p.trim().toLowerCase());
+        for (const pattern of patterns) {
+          if (pattern && narrationLower.includes(pattern)) {
+            return { matched: true, supplierName: supplier.name };
+          }
+        }
+      }
+      
+      // Check bank account
+      if (supplier.bank_account) {
+        const bankAcc = supplier.bank_account.toLowerCase();
+        if (narrationLower.includes(bankAcc)) {
+          return { matched: true, supplierName: supplier.name };
+        }
+      }
+    }
+    
+    return { matched: false, supplierName: '' };
+  };
+
   // Generate vouchers from transactions (hybrid approach)
   const generateVouchers = async () => {
     if (!currentUploadId || transactions.length === 0) {
@@ -341,6 +408,17 @@ export default function SmartSegregation() {
         if (v.reference_number) existingRefs.add(v.reference_number);
       });
 
+      // Fetch customers for credit matching (Receipt Voucher)
+      const { data: customers } = await supabase
+        .from('customer_master')
+        .select('customer_name, bank_account, upi_payment_patterns, tally_ledger_name')
+        .eq('is_active', true);
+
+      // Fetch suppliers for debit matching (Payment Voucher)
+      const { data: suppliers } = await supabase
+        .from('suppliers')
+        .select('name, bank_account, upi_payment_patterns');
+
       for (const tx of transactions) {
         if (!tx.id) continue;
         
@@ -350,8 +428,30 @@ export default function SmartSegregation() {
         const category = tx.final_category || tx.suggested_category;
         const referenceNumber = extractReferenceNumber(tx.narration);
         const paymentMode = extractPaymentMode(tx.narration);
-        const voucherType = determineVoucherType(tx);
-        const partyLedger = selectLedger(tx.narration, category, tx.transaction_type);
+        
+        let voucherType = determineVoucherType(tx);
+        let partyLedger = selectLedger(tx.narration, category, tx.transaction_type);
+        let matchSource = '';
+        
+        // Try to match against Customer Master for credits (Receipt Voucher)
+        if (tx.transaction_type === 'credit' && customers && customers.length > 0) {
+          const customerMatch = matchCustomerPattern(tx.narration, customers);
+          if (customerMatch.matched) {
+            voucherType = 'Receipt';
+            partyLedger = customerMatch.ledgerName;
+            matchSource = `Matched Customer: ${customerMatch.customerName}`;
+          }
+        }
+        
+        // Try to match against Suppliers for debits (Payment Voucher)
+        if (tx.transaction_type === 'debit' && suppliers && suppliers.length > 0) {
+          const supplierMatch = matchSupplierPattern(tx.narration, suppliers);
+          if (supplierMatch.matched) {
+            voucherType = 'Payment';
+            partyLedger = supplierMatch.supplierName;
+            matchSource = `Matched Supplier: ${supplierMatch.supplierName}`;
+          }
+        }
         
         // Check for duplicate
         const isDuplicate = referenceNumber ? existingRefs.has(referenceNumber) : false;
@@ -369,6 +469,10 @@ export default function SmartSegregation() {
         } else if (tx.confidence_score < 70) {
           status = 'flagged';
           flagReason = 'Low confidence classification - requires manual review';
+        } else if (matchSource) {
+          // Customer/Supplier matched = auto-approve
+          status = 'approved';
+          flagReason = matchSource;
         } else if (tx.confidence_score >= 85 && partyLedger !== 'Suspense A/c') {
           // High confidence + clear ledger = auto-approve
           status = 'approved';

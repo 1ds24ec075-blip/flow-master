@@ -1415,6 +1415,8 @@ export type Database = {
       }
       suppliers: {
         Row: {
+          bank_account: string | null
+          bank_name: string | null
           created_at: string | null
           email: string | null
           gst_number: string | null
@@ -1424,8 +1426,11 @@ export type Database = {
           notes: string | null
           payment_terms: string | null
           updated_at: string | null
+          upi_payment_patterns: string | null
         }
         Insert: {
+          bank_account?: string | null
+          bank_name?: string | null
           created_at?: string | null
           email?: string | null
           gst_number?: string | null
@@ -1435,8 +1440,11 @@ export type Database = {
           notes?: string | null
           payment_terms?: string | null
           updated_at?: string | null
+          upi_payment_patterns?: string | null
         }
         Update: {
+          bank_account?: string | null
+          bank_name?: string | null
           created_at?: string | null
           email?: string | null
           gst_number?: string | null
@@ -1446,6 +1454,7 @@ export type Database = {
           notes?: string | null
           payment_terms?: string | null
           updated_at?: string | null
+          upi_payment_patterns?: string | null
         }
         Relationships: []
       }
