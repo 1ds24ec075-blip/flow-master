@@ -613,12 +613,30 @@ export default function SmartSegregation() {
             }
           }
           
+          // Keywords that indicate a header/metadata row (not a transaction)
+          const headerKeywords = [
+            'account no', 'account number', 'a/c no', 'acc no',
+            'statement from', 'statement period', 'statement date',
+            'nomination', 'joint holder', 'customer id', 'cust id',
+            'address', 'phone', 'email', 'ifsc', 'micr', 'branch',
+            'od limit', 'currency', 'account status', 'account type',
+            'opening balance', 'a/c open date', 'preferred customer'
+          ];
+          
           for (let i = headerRow + 1; i < jsonData.length; i++) {
             const row = jsonData[i];
             if (!row || row.length === 0) continue;
             
             const nonEmptyCells = row.filter((cell: any) => cell !== null && cell !== undefined && cell !== '');
             if (nonEmptyCells.length < 2) continue;
+            
+            // Check if this row is a header/metadata row (contains account info, not transaction)
+            const rowText = row.map((cell: any) => String(cell || '').toLowerCase()).join(' ');
+            const isMetadataRow = headerKeywords.some(keyword => rowText.includes(keyword));
+            if (isMetadataRow) {
+              console.log('Skipping metadata row:', row);
+              continue;
+            }
             
             // Use the correct date column (not value date)
             let date = effectiveDateIdx >= 0 ? row[effectiveDateIdx] : null;
