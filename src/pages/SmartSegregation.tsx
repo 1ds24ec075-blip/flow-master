@@ -544,19 +544,34 @@ export default function SmartSegregation() {
             h.includes('narration') || h.includes('description') || h.includes('particular') ||
             h.includes('remark') || h.includes('detail') || h.includes('memo') || h.includes('reference')
           );
+          
+          // Find debit column - exclude columns that contain 'balance'
           const debitIdx = headers.findIndex((h: string) => 
-            h.includes('debit') || h.includes('withdrawal') || h === 'dr' || h.includes('dr.')
+            (h.includes('debit') || h.includes('withdrawal') || h === 'dr' || h.includes('dr.')) &&
+            !h.includes('balance')
           );
+          
+          // Find credit column - exclude columns that contain 'balance'
           const creditIdx = headers.findIndex((h: string) => 
-            h.includes('credit') || h.includes('deposit') || h === 'cr' || h.includes('cr.')
+            (h.includes('credit') || h.includes('deposit') || h === 'cr' || h.includes('cr.')) &&
+            !h.includes('balance')
           );
+          
+          // Explicitly identify balance column to exclude from amount detection
+          const balanceIdx = headers.findIndex((h: string) => 
+            h.includes('balance') || h.includes('closing') || h.includes('running')
+          );
+          
           const amountIdx = headers.findIndex((h: string) => 
-            (h.includes('amount') || h === 'amt') && !h.includes('debit') && !h.includes('credit')
+            (h.includes('amount') || h === 'amt') && 
+            !h.includes('debit') && !h.includes('credit') && !h.includes('balance')
           );
+
+          console.log('Column detection:', { dateIdx, narrationIdx, debitIdx, creditIdx, balanceIdx, amountIdx, headers });
           
           let effectiveNarrationIdx = narrationIdx;
           if (effectiveNarrationIdx === -1) {
-            const skipCols = new Set([dateIdx, debitIdx, creditIdx, amountIdx].filter(i => i >= 0));
+            const skipCols = new Set([dateIdx, debitIdx, creditIdx, amountIdx, balanceIdx].filter(i => i >= 0));
             let maxAvgLength = 0;
             for (let col = 0; col < headers.length; col++) {
               if (skipCols.has(col)) continue;
@@ -606,8 +621,9 @@ export default function SmartSegregation() {
               amount = Math.abs(rawAmt);
               type = rawAmt < 0 ? 'debit' : 'credit';
             } else {
+              // Fallback: find first numeric column, excluding date, narration, and balance
               for (let col = 0; col < row.length; col++) {
-                if (col === dateIdx || col === effectiveNarrationIdx) continue;
+                if (col === dateIdx || col === effectiveNarrationIdx || col === balanceIdx) continue;
                 const val = parseFloat(String(row[col] || '0').replace(/[^0-9.-]/g, ''));
                 if (!isNaN(val) && val !== 0) {
                   amount = Math.abs(val);
