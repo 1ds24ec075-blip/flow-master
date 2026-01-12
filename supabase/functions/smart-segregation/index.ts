@@ -180,10 +180,54 @@ Respond with JSON array only, no explanation:
       }
     }
 
+    // Helper function to parse various date formats to YYYY-MM-DD
+    const parseDate = (dateStr: string | null | undefined): string | null => {
+      if (!dateStr) return null;
+      
+      const str = String(dateStr).trim();
+      if (!str) return null;
+      
+      // Already in YYYY-MM-DD format
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        return str;
+      }
+      
+      // DD/MM/YY or DD-MM-YY format
+      let match = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+      if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        const year = parseInt(match[3], 10);
+        const fullYear = year > 50 ? 1900 + year : 2000 + year;
+        return `${fullYear}-${month}-${day}`;
+      }
+      
+      // DD/MM/YYYY or DD-MM-YYYY format
+      match = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        const year = match[3];
+        return `${year}-${month}-${day}`;
+      }
+      
+      // Try native Date parsing as fallback
+      try {
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toISOString().split('T')[0];
+        }
+      } catch {
+        // ignore
+      }
+      
+      return null;
+    };
+
     // Store transactions in database
     const transactionsToInsert = classifiedTransactions.map(tx => ({
       upload_id: uploadId,
-      transaction_date: tx.transaction_date || null,
+      transaction_date: parseDate(tx.transaction_date),
       narration: tx.narration,
       amount: Math.abs(tx.amount),
       transaction_type: tx.transaction_type,
