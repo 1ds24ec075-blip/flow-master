@@ -501,40 +501,71 @@ export default function SmartSegregation() {
           
           const transactions: Transaction[] = [];
           let headerRow = -1;
-          
-          for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+
+          const normalize = (v: any) => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+          const rowHas = (row: any[], predicate: (cell: string) => boolean) =>
+            row.some((c) => {
+              const cell = normalize(c);
+              return cell.length > 0 && predicate(cell);
+            });
+
+          // Find the real transaction header row (often preceded by account metadata rows).
+          // Prefer the row that contains Date + Narration + (Withdrawal/Deposit or Debit/Credit).
+          const scanLimit = Math.min(60, jsonData.length);
+          for (let i = 0; i < scanLimit; i++) {
             const row = jsonData[i];
             if (!row || row.length < 2) continue;
-            const rowStr = row.join(' ').toLowerCase();
-            
-            const hasDate = rowStr.includes('date') || rowStr.includes('txn') || rowStr.includes('value');
-            const hasDesc = rowStr.includes('narration') || rowStr.includes('description') || 
-                           rowStr.includes('particular') || rowStr.includes('remark') || 
-                           rowStr.includes('detail') || rowStr.includes('memo');
-            const hasAmount = rowStr.includes('amount') || rowStr.includes('debit') || 
-                             rowStr.includes('credit') || rowStr.includes('withdrawal') || 
-                             rowStr.includes('deposit') || rowStr.includes('dr') || rowStr.includes('cr');
-            
-            if ((hasDate && hasDesc) || (hasDate && hasAmount) || (hasDesc && hasAmount)) {
+
+            const hasDate = rowHas(row, (c) => c === 'date' || c.includes('txn date') || c.includes('transaction date'));
+            const hasNarration = rowHas(row, (c) => c.includes('narration') || c.includes('description') || c.includes('particular'));
+            const hasRef = rowHas(row, (c) => c.includes('chq') || c.includes('ref') || c.includes('cheque') || c.includes('check'));
+            const hasWithdrawal = rowHas(row, (c) => c.includes('withdrawal') || c.includes('debit') || c === 'dr' || c.includes('dr.'));
+            const hasDeposit = rowHas(row, (c) => c.includes('deposit') || c.includes('credit') || c === 'cr' || c.includes('cr.'));
+
+            if (hasDate && hasNarration && (hasWithdrawal || hasDeposit)) {
+              headerRow = i;
+              break;
+            }
+
+            // fallback: Date + Narration + Ref + (Withdrawal/Deposit)
+            if (hasDate && hasNarration && hasRef && (hasWithdrawal || hasDeposit)) {
               headerRow = i;
               break;
             }
           }
-          
+
           if (headerRow === -1) {
-            for (let i = 0; i < Math.min(10, jsonData.length); i++) {
+            // Older heuristic fallback
+            for (let i = 0; i < Math.min(15, jsonData.length); i++) {
               const row = jsonData[i];
-              if (!row || row.length < 3) continue;
-              const textCells = row.filter((cell: any) => typeof cell === 'string' && cell.length > 0);
-              if (textCells.length >= 3) {
+              if (!row || row.length < 2) continue;
+              const rowStr = row.join(' ').toLowerCase();
+
+              const hasDate = rowStr.includes('date') || rowStr.includes('txn') || rowStr.includes('value');
+              const hasDesc =
+                rowStr.includes('narration') ||
+                rowStr.includes('description') ||
+                rowStr.includes('particular') ||
+                rowStr.includes('remark') ||
+                rowStr.includes('detail') ||
+                rowStr.includes('memo');
+              const hasAmount =
+                rowStr.includes('amount') ||
+                rowStr.includes('debit') ||
+                rowStr.includes('credit') ||
+                rowStr.includes('withdrawal') ||
+                rowStr.includes('deposit') ||
+                rowStr.includes('dr') ||
+                rowStr.includes('cr');
+
+              if ((hasDate && hasDesc) || (hasDate && hasAmount) || (hasDesc && hasAmount)) {
                 headerRow = i;
                 break;
               }
             }
           }
-          
+
           if (headerRow === -1) headerRow = 0;
-          
           const headers = jsonData[headerRow]?.map((h: any) => String(h || '').toLowerCase().trim()) || [];
           
           // Date column - but NOT "Value Dt" which is just effective date
@@ -645,10 +676,11 @@ export default function SmartSegregation() {
             let amount = 0;
             let type: 'debit' | 'credit' = 'debit';
             
-            if (debitIdx >= 0 && creditIdx >= 0) {
-              const debitAmt = parseFloat(String(row[debitIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
-              const creditAmt = parseFloat(String(row[creditIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
-              
+            // Prefer explicit Withdrawal/Deposit columns when present
+            if (debitIdx >= 0 || creditIdx >= 0) {
+              const debitAmt = debitIdx >= 0 ? (parseFloat(String(row[debitIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
+              const creditAmt = creditIdx >= 0 ? (parseFloat(String(row[creditIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
+
               if (debitAmt > 0) {
                 amount = debitAmt;
                 type = 'debit';
@@ -661,9 +693,16 @@ export default function SmartSegregation() {
               amount = Math.abs(rawAmt);
               type = rawAmt < 0 ? 'debit' : 'credit';
             } else {
-              // Fallback: find first numeric column, excluding date, narration, balance, value date, and ref
+              // Fallback: find first numeric column, excluding known non-amount columns
               for (let col = 0; col < row.length; col++) {
                 if (col === effectiveDateIdx || col === effectiveNarrationIdx || col === balanceIdx || col === valueDtIdx || col === refIdx) continue;
+
+                const h = headers[col] || '';
+                const looksLikeRefHeader = h.includes('ref') || h.includes('chq') || h.includes('cheque') || h.includes('check');
+                const looksLikeBalanceHeader = h.includes('balance') || h.includes('closing');
+                const looksLikeValueDateHeader = h.includes('value dt') || h.includes('value date');
+                if (looksLikeRefHeader || looksLikeBalanceHeader || looksLikeValueDateHeader) continue;
+
                 const val = parseFloat(String(row[col] || '0').replace(/[^0-9.-]/g, ''));
                 if (!isNaN(val) && val !== 0) {
                   amount = Math.abs(val);
