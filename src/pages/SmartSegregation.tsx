@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { 
   Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, 
   ArrowLeftRight, User, HelpCircle, FileText, Flag, Check, X, Receipt, 
-  CreditCard, ArrowUpDown, Banknote
+  CreditCard, ArrowUpDown, Banknote, Trash2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -180,6 +180,49 @@ export default function SmartSegregation() {
     
     if (data) {
       setUploadHistory(data);
+    }
+  };
+
+  const deleteUpload = async (uploadId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the parent onClick
+    
+    if (!confirm('Are you sure you want to delete this upload? This will also delete all associated transactions and vouchers.')) {
+      return;
+    }
+
+    try {
+      // Delete vouchers first (due to foreign key)
+      await supabase
+        .from('tally_vouchers')
+        .delete()
+        .eq('upload_id', uploadId);
+
+      // Delete transactions (due to foreign key)
+      await supabase
+        .from('segregated_transactions')
+        .delete()
+        .eq('upload_id', uploadId);
+
+      // Delete the upload record
+      const { error } = await supabase
+        .from('segregation_uploads')
+        .delete()
+        .eq('id', uploadId);
+
+      if (error) throw error;
+
+      toast.success('Upload deleted successfully');
+      fetchUploadHistory();
+      
+      // Clear current view if the deleted upload was being viewed
+      if (currentUploadId === uploadId) {
+        setTransactions([]);
+        setVouchers([]);
+        setCurrentUploadId(null);
+        setSummary(null);
+      }
+    } catch (error: any) {
+      toast.error('Failed to delete upload: ' + error.message);
     }
   };
 
@@ -1645,22 +1688,30 @@ export default function SmartSegregation() {
                       key={upload.id}
                       className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
                       onClick={() => {
-                        setBusinessName(upload.business_name);
-                        setAccountName(upload.account_name);
+                        setBusinessName(upload.business_name || '');
+                        setAccountName(upload.account_name || '');
                         fetchTransactions(upload.id);
                         setCurrentUploadId(upload.id);
                       }}
                     >
-                      <div>
-                        <div className="font-medium">{upload.business_name} - {upload.account_name}</div>
+                      <div className="flex-1">
+                        <div className="font-medium">{upload.business_name || 'Default Business'} - {upload.account_name || 'Primary Account'}</div>
                         <div className="text-sm text-muted-foreground">{upload.file_name}</div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right mr-3">
                         <div className="text-sm">{upload.total_transactions} transactions</div>
                         <div className="text-xs text-muted-foreground">
                           {new Date(upload.created_at).toLocaleDateString()}
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => deleteUpload(upload.id, e)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   ))}
                 </div>
