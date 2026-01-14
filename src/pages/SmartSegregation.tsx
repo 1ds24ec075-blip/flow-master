@@ -318,71 +318,172 @@ export default function SmartSegregation() {
     return (data?.length || 0) > 0;
   };
 
-  // Match narration against customer/supplier patterns
-  const matchCustomerPattern = (
-    narration: string, 
-    customers: { customer_name: string; bank_account: string | null; upi_payment_patterns: string | null; tally_ledger_name: string | null }[]
-  ): { matched: boolean; customerName: string; ledgerName: string } => {
-    const narrationLower = narration.toLowerCase();
+  // Extract UPI ID from narration (strict extraction)
+  const extractUpiId = (narration: string): string | null => {
+    // Common UPI ID patterns: name@bank, number@upi, etc.
+    const upiPatterns = [
+      /([a-zA-Z0-9._-]+@[a-zA-Z0-9]+)/i,
+      /upi[:\s]*([a-zA-Z0-9._-]+@[a-zA-Z0-9]+)/i,
+    ];
     
-    for (const customer of customers) {
-      // Check UPI patterns
-      if (customer.upi_payment_patterns) {
-        const patterns = customer.upi_payment_patterns.split(',').map(p => p.trim().toLowerCase());
-        for (const pattern of patterns) {
-          if (pattern && narrationLower.includes(pattern)) {
-            return { 
-              matched: true, 
-              customerName: customer.customer_name,
-              ledgerName: customer.tally_ledger_name || customer.customer_name
-            };
-          }
-        }
-      }
-      
-      // Check bank account
-      if (customer.bank_account) {
-        const bankAcc = customer.bank_account.toLowerCase();
-        if (narrationLower.includes(bankAcc)) {
-          return { 
-            matched: true, 
-            customerName: customer.customer_name,
-            ledgerName: customer.tally_ledger_name || customer.customer_name
-          };
-        }
+    for (const pattern of upiPatterns) {
+      const match = narration.match(pattern);
+      if (match) {
+        return match[1].toLowerCase().trim();
       }
     }
-    
-    return { matched: false, customerName: '', ledgerName: '' };
+    return null;
   };
 
-  const matchSupplierPattern = (
-    narration: string, 
-    suppliers: { name: string; bank_account: string | null; upi_payment_patterns: string | null }[]
-  ): { matched: boolean; supplierName: string } => {
-    const narrationLower = narration.toLowerCase();
+  // Extract bank account number from narration (strict extraction)
+  const extractBankAccount = (narration: string): string | null => {
+    // Look for patterns like "A/c: 1234567890" or account numbers (9-18 digits)
+    const patterns = [
+      /a\/c[:\s]*(\d{9,18})/i,
+      /acc(?:ount)?[:\s]*(\d{9,18})/i,
+      /(\d{9,18})/,
+    ];
     
-    for (const supplier of suppliers) {
-      // Check UPI patterns
-      if (supplier.upi_payment_patterns) {
-        const patterns = supplier.upi_payment_patterns.split(',').map(p => p.trim().toLowerCase());
-        for (const pattern of patterns) {
-          if (pattern && narrationLower.includes(pattern)) {
-            return { matched: true, supplierName: supplier.name };
-          }
+    for (const pattern of patterns) {
+      const match = narration.match(pattern);
+      if (match) {
+        return match[1].trim();
+      }
+    }
+    return null;
+  };
+
+  // Normalize UPI ID for comparison
+  const normalizeUpiId = (upi: string | null): string | null => {
+    if (!upi) return null;
+    return upi.toLowerCase().trim().replace(/[^\w@.-]/g, '');
+  };
+
+  // STRICT Customer Matching - UPI ID or Bank Account ONLY (No narration/name matching)
+  const matchCustomerStrict = (
+    narration: string,
+    customers: { customer_name: string; bank_account: string | null; upi_payment_patterns: string | null; tally_ledger_name: string | null }[]
+  ): { status: 'matched' | 'multiple' | 'none'; customerName: string; ledgerName: string; matchType: 'upi' | 'bank' | 'none' } => {
+    const extractedUpi = extractUpiId(narration);
+    const extractedBank = extractBankAccount(narration);
+    
+    // If both are null, skip
+    if (!extractedUpi && !extractedBank) {
+      return { status: 'none', customerName: '', ledgerName: '', matchType: 'none' };
+    }
+    
+    const matches: { customer: typeof customers[0]; matchType: 'upi' | 'bank' }[] = [];
+    
+    for (const customer of customers) {
+      // Try exact UPI ID match first
+      if (extractedUpi && customer.upi_payment_patterns) {
+        const customerUpis = customer.upi_payment_patterns
+          .split(',')
+          .map(p => normalizeUpiId(p))
+          .filter(Boolean);
+        
+        const normalizedExtracted = normalizeUpiId(extractedUpi);
+        if (normalizedExtracted && customerUpis.includes(normalizedExtracted)) {
+          matches.push({ customer, matchType: 'upi' });
         }
       }
       
-      // Check bank account
-      if (supplier.bank_account) {
-        const bankAcc = supplier.bank_account.toLowerCase();
-        if (narrationLower.includes(bankAcc)) {
-          return { matched: true, supplierName: supplier.name };
+      // Try exact bank account match if no UPI match
+      if (extractedBank && customer.bank_account) {
+        const customerBank = customer.bank_account.trim();
+        if (extractedBank === customerBank) {
+          matches.push({ customer, matchType: 'bank' });
         }
       }
     }
     
-    return { matched: false, supplierName: '' };
+    // If more than one match, skip (ambiguous)
+    if (matches.length > 1) {
+      return { status: 'multiple', customerName: '', ledgerName: '', matchType: 'none' };
+    }
+    
+    if (matches.length === 1) {
+      const match = matches[0];
+      return {
+        status: 'matched',
+        customerName: match.customer.customer_name,
+        ledgerName: match.customer.tally_ledger_name || match.customer.customer_name,
+        matchType: match.matchType
+      };
+    }
+    
+    return { status: 'none', customerName: '', ledgerName: '', matchType: 'none' };
+  };
+
+  // STRICT Supplier Matching - UPI ID or Bank Account ONLY (No narration/name matching)
+  const matchSupplierStrict = (
+    narration: string,
+    suppliers: { name: string; bank_account: string | null; upi_payment_patterns: string | null }[]
+  ): { status: 'matched' | 'multiple' | 'none'; supplierName: string; matchType: 'upi' | 'bank' | 'none' } => {
+    const extractedUpi = extractUpiId(narration);
+    const extractedBank = extractBankAccount(narration);
+    
+    // If both are null, skip
+    if (!extractedUpi && !extractedBank) {
+      return { status: 'none', supplierName: '', matchType: 'none' };
+    }
+    
+    const matches: { supplier: typeof suppliers[0]; matchType: 'upi' | 'bank' }[] = [];
+    
+    for (const supplier of suppliers) {
+      // Try exact UPI ID match first
+      if (extractedUpi && supplier.upi_payment_patterns) {
+        const supplierUpis = supplier.upi_payment_patterns
+          .split(',')
+          .map(p => normalizeUpiId(p))
+          .filter(Boolean);
+        
+        const normalizedExtracted = normalizeUpiId(extractedUpi);
+        if (normalizedExtracted && supplierUpis.includes(normalizedExtracted)) {
+          matches.push({ supplier, matchType: 'upi' });
+        }
+      }
+      
+      // Try exact bank account match if no UPI match
+      if (extractedBank && supplier.bank_account) {
+        const supplierBank = supplier.bank_account.trim();
+        if (extractedBank === supplierBank) {
+          matches.push({ supplier, matchType: 'bank' });
+        }
+      }
+    }
+    
+    // If more than one match, skip (ambiguous)
+    if (matches.length > 1) {
+      return { status: 'multiple', supplierName: '', matchType: 'none' };
+    }
+    
+    if (matches.length === 1) {
+      const match = matches[0];
+      return {
+        status: 'matched',
+        supplierName: match.supplier.name,
+        matchType: match.matchType
+      };
+    }
+    
+    return { status: 'none', supplierName: '', matchType: 'none' };
+  };
+
+  // Check if transaction should be excluded (bank charges, interest, reversal, balance)
+  const shouldExcludeTransaction = (narration: string, amount: number): boolean => {
+    const lowerNarration = narration.toLowerCase();
+    const exclusionKeywords = ['bank charge', 'service charge', 'interest', 'reversal', 'balance', 'int.pd', 'int.cr'];
+    
+    // Exclude zero or negative amounts
+    if (amount <= 0) return true;
+    
+    // Check for exclusion keywords
+    for (const keyword of exclusionKeywords) {
+      if (lowerNarration.includes(keyword)) return true;
+    }
+    
+    return false;
   };
 
   // Generate vouchers from transactions (hybrid approach)
@@ -422,35 +523,60 @@ export default function SmartSegregation() {
       for (const tx of transactions) {
         if (!tx.id) continue;
         
-        // Skip zero or near-zero amounts
-        if (tx.amount < 1) continue;
+        // Skip excluded transactions (bank charges, interest, reversal, zero amounts)
+        if (shouldExcludeTransaction(tx.narration, tx.amount)) continue;
         
         const category = tx.final_category || tx.suggested_category;
         const referenceNumber = extractReferenceNumber(tx.narration);
         const paymentMode = extractPaymentMode(tx.narration);
+        const extractedUpi = extractUpiId(tx.narration);
+        const extractedBank = extractBankAccount(tx.narration);
+        
+        // If both UPI and bank account are null in transaction, skip voucher creation for party matching
+        const hasPartyIdentifier = extractedUpi || extractedBank;
         
         let voucherType = determineVoucherType(tx);
         let partyLedger = selectLedger(tx.narration, category, tx.transaction_type);
         let matchSource = '';
+        let matchType: 'customer' | 'supplier' | 'none' | 'multiple' = 'none';
+        let shouldSkip = false;
         
-        // Try to match against Customer Master for credits (Receipt Voucher)
-        if (tx.transaction_type === 'credit' && customers && customers.length > 0) {
-          const customerMatch = matchCustomerPattern(tx.narration, customers);
-          if (customerMatch.matched) {
+        // STRICT: Try to match against Customer Master for credits (Receipt Voucher) - UPI/Bank ONLY
+        if (tx.transaction_type === 'credit' && customers && customers.length > 0 && hasPartyIdentifier) {
+          const customerMatch = matchCustomerStrict(tx.narration, customers);
+          
+          if (customerMatch.status === 'multiple') {
+            // Multiple matches - skip this transaction
+            shouldSkip = true;
+            matchType = 'multiple';
+          } else if (customerMatch.status === 'matched') {
             voucherType = 'Receipt';
             partyLedger = customerMatch.ledgerName;
-            matchSource = `Matched Customer: ${customerMatch.customerName}`;
+            matchSource = `Matched Customer (${customerMatch.matchType.toUpperCase()}): ${customerMatch.customerName}`;
+            matchType = 'customer';
           }
         }
         
-        // Try to match against Suppliers for debits (Payment Voucher)
-        if (tx.transaction_type === 'debit' && suppliers && suppliers.length > 0) {
-          const supplierMatch = matchSupplierPattern(tx.narration, suppliers);
-          if (supplierMatch.matched) {
+        // STRICT: Try to match against Suppliers for debits (Payment Voucher) - UPI/Bank ONLY
+        if (!shouldSkip && tx.transaction_type === 'debit' && suppliers && suppliers.length > 0 && hasPartyIdentifier) {
+          const supplierMatch = matchSupplierStrict(tx.narration, suppliers);
+          
+          if (supplierMatch.status === 'multiple') {
+            // Multiple matches - skip this transaction
+            shouldSkip = true;
+            matchType = 'multiple';
+          } else if (supplierMatch.status === 'matched') {
             voucherType = 'Payment';
             partyLedger = supplierMatch.supplierName;
-            matchSource = `Matched Supplier: ${supplierMatch.supplierName}`;
+            matchSource = `Matched Supplier (${supplierMatch.matchType.toUpperCase()}): ${supplierMatch.supplierName}`;
+            matchType = 'supplier';
           }
+        }
+        
+        // Skip if multiple matches found (ambiguous)
+        if (shouldSkip) {
+          console.log(`Skipping transaction due to multiple matches: ${tx.narration.substring(0, 50)}...`);
+          continue;
         }
         
         // Check for duplicate
