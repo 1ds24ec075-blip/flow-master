@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -143,10 +144,11 @@ export default function Suppliers() {
               Add Supplier
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[85vh]">
             <DialogHeader>
               <DialogTitle>{editingSupplier ? "Edit Supplier" : "Add New Supplier"}</DialogTitle>
             </DialogHeader>
+            <ScrollArea className="max-h-[70vh] pr-4">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -244,6 +246,7 @@ export default function Suppliers() {
                 </Button>
               </div>
             </form>
+            </ScrollArea>
           </DialogContent>
         </Dialog>
       </div>
