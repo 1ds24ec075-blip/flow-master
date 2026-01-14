@@ -607,62 +607,38 @@ export default function SmartSegregation() {
           let headerRow = -1;
 
           const normalize = (v: any) => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
-          const rowHas = (row: any[], predicate: (cell: string) => boolean) =>
-            row.some((c) => {
-              const cell = normalize(c);
-              return cell.length > 0 && predicate(cell);
-            });
 
-          // Find the real transaction header row (often preceded by account metadata rows).
-          // Prefer the row that contains Date + Narration + (Withdrawal/Deposit or Debit/Credit).
+          // STRICT COLUMN MAPPING - Find header row with Date, Narration, Amount, Type
           const scanLimit = Math.min(60, jsonData.length);
           for (let i = 0; i < scanLimit; i++) {
             const row = jsonData[i];
-            if (!row || row.length < 2) continue;
+            if (!row || row.length < 3) continue;
 
-            const hasDate = rowHas(row, (c) => c === 'date' || c.includes('txn date') || c.includes('transaction date'));
-            const hasNarration = rowHas(row, (c) => c.includes('narration') || c.includes('description') || c.includes('particular'));
-            const hasRef = rowHas(row, (c) => c.includes('chq') || c.includes('ref') || c.includes('cheque') || c.includes('check'));
-            const hasWithdrawal = rowHas(row, (c) => c.includes('withdrawal') || c.includes('debit') || c === 'dr' || c.includes('dr.'));
-            const hasDeposit = rowHas(row, (c) => c.includes('deposit') || c.includes('credit') || c === 'cr' || c.includes('cr.'));
+            const rowCells = row.map((c: any) => normalize(c));
+            const hasDate = rowCells.some((c: string) => c === 'date' || c.includes('txn date') || c.includes('transaction date'));
+            const hasNarration = rowCells.some((c: string) => c.includes('narration') || c.includes('description') || c.includes('particular'));
+            const hasAmount = rowCells.some((c: string) => c === 'amount' || c.includes('amt'));
+            const hasType = rowCells.some((c: string) => c === 'type' || c === 'dr/cr' || c === 'cr/dr');
+            
+            // Also check for Withdrawal/Deposit columns as alternative to Amount+Type
+            const hasWithdrawal = rowCells.some((c: string) => c.includes('withdrawal') || c.includes('debit') || c === 'dr');
+            const hasDeposit = rowCells.some((c: string) => c.includes('deposit') || c.includes('credit') || c === 'cr');
 
-            if (hasDate && hasNarration && (hasWithdrawal || hasDeposit)) {
-              headerRow = i;
-              break;
-            }
-
-            // fallback: Date + Narration + Ref + (Withdrawal/Deposit)
-            if (hasDate && hasNarration && hasRef && (hasWithdrawal || hasDeposit)) {
+            if (hasDate && hasNarration && ((hasAmount && hasType) || (hasWithdrawal || hasDeposit))) {
               headerRow = i;
               break;
             }
           }
 
           if (headerRow === -1) {
-            // Older heuristic fallback
-            for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+            // Fallback: find first row with Date and Narration
+            for (let i = 0; i < scanLimit; i++) {
               const row = jsonData[i];
               if (!row || row.length < 2) continue;
-              const rowStr = row.join(' ').toLowerCase();
-
-              const hasDate = rowStr.includes('date') || rowStr.includes('txn') || rowStr.includes('value');
-              const hasDesc =
-                rowStr.includes('narration') ||
-                rowStr.includes('description') ||
-                rowStr.includes('particular') ||
-                rowStr.includes('remark') ||
-                rowStr.includes('detail') ||
-                rowStr.includes('memo');
-              const hasAmount =
-                rowStr.includes('amount') ||
-                rowStr.includes('debit') ||
-                rowStr.includes('credit') ||
-                rowStr.includes('withdrawal') ||
-                rowStr.includes('deposit') ||
-                rowStr.includes('dr') ||
-                rowStr.includes('cr');
-
-              if ((hasDate && hasDesc) || (hasDate && hasAmount) || (hasDesc && hasAmount)) {
+              const rowCells = row.map((c: any) => normalize(c));
+              const hasDate = rowCells.some((c: string) => c.includes('date'));
+              const hasNarration = rowCells.some((c: string) => c.includes('narration') || c.includes('description') || c.includes('particular'));
+              if (hasDate && hasNarration) {
                 headerRow = i;
                 break;
               }
@@ -670,86 +646,46 @@ export default function SmartSegregation() {
           }
 
           if (headerRow === -1) headerRow = 0;
-          const headers = jsonData[headerRow]?.map((h: any) => String(h || '').toLowerCase().trim()) || [];
+          const headers = jsonData[headerRow]?.map((h: any) => normalize(h)) || [];
           
-          // Date column - but NOT "Value Dt" which is just effective date
+          // FIXED COLUMN MAPPING - Only read from these specific columns
           const dateIdx = headers.findIndex((h: string) => 
-            (h === 'date' || h.includes('txn date') || h.includes('transaction date') || h.includes('posting date')) &&
-            !h.includes('value')
+            h === 'date' || h.includes('txn date') || h.includes('transaction date') || h.includes('posting date')
           );
-          // Fallback if no specific date column found
-          const effectiveDateIdx = dateIdx >= 0 ? dateIdx : headers.findIndex((h: string) => h.includes('date'));
           
           const narrationIdx = headers.findIndex((h: string) => 
-            h.includes('narration') || h.includes('description') || h.includes('particular') ||
-            h.includes('remark') || h.includes('detail') || h.includes('memo')
+            h.includes('narration') || h.includes('description') || h.includes('particular')
           );
           
-          // Reference number column (Chq./Ref.No.)
-          const refIdx = headers.findIndex((h: string) => 
-            h.includes('chq') || h.includes('ref') || h.includes('cheque') || h.includes('check')
-          );
-          
-          // Find debit/withdrawal column - "Withdrawal Amt." or similar
-          // Must NOT include 'balance' or 'closing'
-          const debitIdx = headers.findIndex((h: string) => 
-            (h.includes('debit') || h.includes('withdrawal') || h === 'dr' || h.includes('dr.')) &&
-            !h.includes('balance') && !h.includes('closing')
-          );
-          
-          // Find credit/deposit column - "Deposit Amt." or similar
-          // Must NOT include 'balance' or 'closing'
-          const creditIdx = headers.findIndex((h: string) => 
-            (h.includes('credit') || h.includes('deposit') || h === 'cr' || h.includes('cr.')) &&
-            !h.includes('balance') && !h.includes('closing')
-          );
-          
-          // Explicitly identify balance column to EXCLUDE from amount detection
-          const balanceIdx = headers.findIndex((h: string) => 
-            h.includes('balance') || h.includes('closing')
-          );
-          
-          // Value date column to exclude
-          const valueDtIdx = headers.findIndex((h: string) => 
-            h.includes('value dt') || h.includes('value date') || h === 'value'
-          );
-          
+          // Amount column - MUST be labeled "Amount" or "Amt", NOT balance/closing
           const amountIdx = headers.findIndex((h: string) => 
-            (h.includes('amount') || h === 'amt') && 
-            !h.includes('debit') && !h.includes('credit') && !h.includes('balance') && !h.includes('withdrawal') && !h.includes('deposit')
+            (h === 'amount' || h === 'amt' || h.includes('amount')) && 
+            !h.includes('balance') && !h.includes('closing') && !h.includes('withdrawal') && !h.includes('deposit')
+          );
+          
+          // Type column - "Type", "Dr/Cr", "Cr/Dr"
+          const typeIdx = headers.findIndex((h: string) => 
+            h === 'type' || h === 'dr/cr' || h === 'cr/dr' || h.includes('transaction type')
+          );
+          
+          // Alternative: Withdrawal/Deposit columns
+          const withdrawalIdx = headers.findIndex((h: string) => 
+            (h.includes('withdrawal') || (h.includes('debit') && !h.includes('balance'))) &&
+            !h.includes('balance') && !h.includes('closing')
+          );
+          
+          const depositIdx = headers.findIndex((h: string) => 
+            (h.includes('deposit') || (h.includes('credit') && !h.includes('balance'))) &&
+            !h.includes('balance') && !h.includes('closing')
           );
 
-          console.log('Column detection:', { 
-            dateIdx: effectiveDateIdx, narrationIdx, refIdx, debitIdx, creditIdx, balanceIdx, valueDtIdx, amountIdx, 
+          console.log('STRICT Column mapping:', { 
+            dateIdx, narrationIdx, amountIdx, typeIdx, withdrawalIdx, depositIdx,
             headers 
           });
           
-          let effectiveNarrationIdx = narrationIdx;
-          if (effectiveNarrationIdx === -1) {
-            // Skip all known columns when auto-detecting narration
-            const skipCols = new Set([effectiveDateIdx, debitIdx, creditIdx, amountIdx, balanceIdx, valueDtIdx, refIdx].filter(i => i >= 0));
-            let maxAvgLength = 0;
-            for (let col = 0; col < headers.length; col++) {
-              if (skipCols.has(col)) continue;
-              let totalLength = 0;
-              let count = 0;
-              for (let row = headerRow + 1; row < Math.min(headerRow + 20, jsonData.length); row++) {
-                const cell = jsonData[row]?.[col];
-                if (cell && typeof cell === 'string') {
-                  totalLength += cell.length;
-                  count++;
-                }
-              }
-              const avgLength = count > 0 ? totalLength / count : 0;
-              if (avgLength > maxAvgLength) {
-                maxAvgLength = avgLength;
-                effectiveNarrationIdx = col;
-              }
-            }
-          }
-          
-          // Keywords that indicate a header/metadata row (not a transaction)
-          const headerKeywords = [
+          // Skip metadata rows containing account info
+          const metadataKeywords = [
             'account no', 'account number', 'a/c no', 'acc no',
             'statement from', 'statement period', 'statement date',
             'nomination', 'joint holder', 'customer id', 'cust id',
@@ -758,6 +694,9 @@ export default function SmartSegregation() {
             'opening balance', 'a/c open date', 'preferred customer'
           ];
           
+          // Maximum reasonable transaction amount (10 crore = 10,00,00,000)
+          const MAX_TRANSACTION_AMOUNT = 100000000;
+          
           for (let i = headerRow + 1; i < jsonData.length; i++) {
             const row = jsonData[i];
             if (!row || row.length === 0) continue;
@@ -765,79 +704,102 @@ export default function SmartSegregation() {
             const nonEmptyCells = row.filter((cell: any) => cell !== null && cell !== undefined && cell !== '');
             if (nonEmptyCells.length < 2) continue;
             
-            // Check if this row is a header/metadata row (contains account info, not transaction)
+            // Skip metadata rows
             const rowText = row.map((cell: any) => String(cell || '').toLowerCase()).join(' ');
-            const isMetadataRow = headerKeywords.some(keyword => rowText.includes(keyword));
+            const isMetadataRow = metadataKeywords.some(keyword => rowText.includes(keyword));
             if (isMetadataRow) {
               console.log('Skipping metadata row:', row);
               continue;
             }
             
-            // Use the correct date column (not value date)
-            let date = effectiveDateIdx >= 0 ? row[effectiveDateIdx] : null;
-            const narration = effectiveNarrationIdx >= 0 ? String(row[effectiveNarrationIdx] || '') : '';
+            // STRICT: Read ONLY from specified columns
+            let date = dateIdx >= 0 ? row[dateIdx] : null;
+            const narration = narrationIdx >= 0 ? String(row[narrationIdx] || '') : '';
             
             let amount = 0;
             let type: 'debit' | 'credit' = 'debit';
             
-            // Prefer explicit Withdrawal/Deposit columns when present
-            if (debitIdx >= 0 || creditIdx >= 0) {
-              const debitAmt = debitIdx >= 0 ? (parseFloat(String(row[debitIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
-              const creditAmt = creditIdx >= 0 ? (parseFloat(String(row[creditIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
-
-              if (debitAmt > 0) {
-                amount = debitAmt;
+            // Method 1: Amount + Type columns (preferred)
+            if (amountIdx >= 0 && typeIdx >= 0) {
+              const rawAmount = parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
+              const typeValue = normalize(row[typeIdx]);
+              
+              amount = Math.abs(rawAmount);
+              
+              // Cr = Credit = Receipt, Dr = Debit = Payment
+              if (typeValue === 'cr' || typeValue === 'credit' || typeValue.includes('cr')) {
+                type = 'credit';
+              } else {
                 type = 'debit';
-              } else if (creditAmt > 0) {
-                amount = creditAmt;
+              }
+            }
+            // Method 2: Separate Withdrawal/Deposit columns
+            else if (withdrawalIdx >= 0 || depositIdx >= 0) {
+              const withdrawalAmt = withdrawalIdx >= 0 ? 
+                (parseFloat(String(row[withdrawalIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
+              const depositAmt = depositIdx >= 0 ? 
+                (parseFloat(String(row[depositIdx] || '0').replace(/[^0-9.-]/g, '')) || 0) : 0;
+
+              if (withdrawalAmt > 0) {
+                amount = withdrawalAmt;
+                type = 'debit';
+              } else if (depositAmt > 0) {
+                amount = depositAmt;
                 type = 'credit';
               }
-            } else if (amountIdx >= 0) {
-              const rawAmt = parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
-              amount = Math.abs(rawAmt);
-              type = rawAmt < 0 ? 'debit' : 'credit';
-            } else {
-              // Fallback: find first numeric column, excluding known non-amount columns
-              for (let col = 0; col < row.length; col++) {
-                if (col === effectiveDateIdx || col === effectiveNarrationIdx || col === balanceIdx || col === valueDtIdx || col === refIdx) continue;
-
-                const h = headers[col] || '';
-                const looksLikeRefHeader = h.includes('ref') || h.includes('chq') || h.includes('cheque') || h.includes('check');
-                const looksLikeBalanceHeader = h.includes('balance') || h.includes('closing');
-                const looksLikeValueDateHeader = h.includes('value dt') || h.includes('value date');
-                if (looksLikeRefHeader || looksLikeBalanceHeader || looksLikeValueDateHeader) continue;
-
-                const val = parseFloat(String(row[col] || '0').replace(/[^0-9.-]/g, ''));
-                if (!isNaN(val) && val !== 0) {
-                  amount = Math.abs(val);
-                  type = val < 0 ? 'debit' : 'credit';
-                  break;
+            }
+            // Method 3: Only Amount column without Type (default to debit)
+            else if (amountIdx >= 0) {
+              const rawAmount = parseFloat(String(row[amountIdx] || '0').replace(/[^0-9.-]/g, '')) || 0;
+              amount = Math.abs(rawAmount);
+              type = rawAmount < 0 ? 'debit' : 'credit';
+            }
+            
+            // VALIDATION: Skip if amount is too large (likely a balance)
+            if (amount > MAX_TRANSACTION_AMOUNT && type === 'credit') {
+              console.log('Skipping possible balance row (amount > 10Cr, credit):', { amount, row });
+              continue;
+            }
+            
+            // Skip zero or invalid amounts
+            if (amount <= 0) continue;
+            
+            // Parse date
+            let parsedDate = '';
+            if (date) {
+              if (typeof date === 'number') {
+                const excelDate = new Date((date - 25569) * 86400 * 1000);
+                parsedDate = excelDate.toISOString().split('T')[0];
+              } else {
+                // Try to parse various date formats
+                const dateStr = String(date).trim();
+                // DD/MM/YYYY or DD-MM-YYYY
+                const dmyMatch = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+                if (dmyMatch) {
+                  const day = dmyMatch[1].padStart(2, '0');
+                  const month = dmyMatch[2].padStart(2, '0');
+                  let year = dmyMatch[3];
+                  if (year.length === 2) {
+                    year = parseInt(year) > 50 ? '19' + year : '20' + year;
+                  }
+                  parsedDate = `${year}-${month}-${day}`;
+                } else {
+                  parsedDate = dateStr;
                 }
               }
             }
             
-            if (amount > 0) {
-              let parsedDate = '';
-              if (date) {
-                if (typeof date === 'number') {
-                  const excelDate = new Date((date - 25569) * 86400 * 1000);
-                  parsedDate = excelDate.toISOString().split('T')[0];
-                } else {
-                  parsedDate = String(date);
-                }
-              }
-              
-              transactions.push({
-                transaction_date: parsedDate,
-                narration: narration.trim() || `Transaction ${i}`,
-                amount,
-                transaction_type: type,
-                suggested_category: 'Unknown',
-                confidence_score: 0
-              });
-            }
+            transactions.push({
+              transaction_date: parsedDate,
+              narration: narration.trim() || `Transaction ${i}`,
+              amount,
+              transaction_type: type,
+              suggested_category: 'Unknown',
+              confidence_score: 0
+            });
           }
           
+          console.log(`Parsed ${transactions.length} valid transactions`);
           resolve(transactions);
         } catch (error) {
           console.error('Excel parsing error:', error);
