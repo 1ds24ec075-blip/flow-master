@@ -33,6 +33,9 @@ export default function Suppliers() {
     material_type: "",
     payment_terms: "",
     notes: "",
+    bank_account: "",
+    bank_name: "",
+    upi_payment_patterns: "",
   });
 
   const queryClient = useQueryClient();
@@ -94,6 +97,9 @@ export default function Suppliers() {
       material_type: "",
       payment_terms: "",
       notes: "",
+      bank_account: "",
+      bank_name: "",
+      upi_payment_patterns: "",
     });
     setEditingSupplier(null);
   };
@@ -116,6 +122,9 @@ export default function Suppliers() {
       material_type: supplier.material_type || "",
       payment_terms: supplier.payment_terms || "",
       notes: supplier.notes || "",
+      bank_account: supplier.bank_account || "",
+      bank_name: supplier.bank_name || "",
+      upi_payment_patterns: supplier.upi_payment_patterns || "",
     });
     setOpen(true);
   };
@@ -184,6 +193,39 @@ export default function Suppliers() {
                   value={formData.payment_terms}
                   onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="bank_account">Bank Account Number</Label>
+                  <Input
+                    id="bank_account"
+                    value={formData.bank_account}
+                    onChange={(e) => setFormData({ ...formData, bank_account: e.target.value })}
+                    placeholder="e.g., 1234567890"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="bank_name">Bank Name</Label>
+                  <Input
+                    id="bank_name"
+                    value={formData.bank_name}
+                    onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                    placeholder="e.g., HDFC Bank"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="upi_payment_patterns">UPI / Payment Reference Patterns</Label>
+                <Textarea
+                  id="upi_payment_patterns"
+                  value={formData.upi_payment_patterns}
+                  onChange={(e) => setFormData({ ...formData, upi_payment_patterns: e.target.value })}
+                  placeholder="e.g., supplier@upi, NEFT-REF-123 (comma separated)"
+                  className="min-h-[60px]"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter UPI IDs or payment reference patterns to auto-match bank transactions
+                </p>
               </div>
               <div>
                 <Label htmlFor="notes">Notes</Label>
