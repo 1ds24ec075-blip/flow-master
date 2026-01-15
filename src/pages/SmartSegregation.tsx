@@ -1352,6 +1352,10 @@ export default function SmartSegregation() {
                     <Receipt className="h-4 w-4" />
                     Transactions ({transactions.length})
                   </TabsTrigger>
+                  <TabsTrigger value="matched" className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    Matched Parties ({vouchers.filter(v => v.narration?.includes('Matched Customer') || v.narration?.includes('Matched Supplier')).length})
+                  </TabsTrigger>
                   <TabsTrigger value="vouchers" className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     Tally Vouchers ({vouchers.length})
@@ -1477,6 +1481,165 @@ export default function SmartSegregation() {
                     </div>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Matched Parties Tab */}
+              <TabsContent value="matched" className="space-y-4">
+                {vouchers.length === 0 ? (
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-muted-foreground">
+                        Generate Tally Vouchers first to see matched transactions
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    {/* Matched Summary */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-green-500">
+                            {vouchers.filter(v => v.narration?.includes('Matched Customer')).length}
+                          </div>
+                          <div className="text-sm text-muted-foreground">Customer Matches</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-blue-500">
+                            {vouchers.filter(v => v.narration?.includes('Matched Supplier')).length}
+                          </div>
+                          <div className="text-sm text-muted-foreground">Supplier Matches</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-purple-500">
+                            {vouchers.filter(v => v.narration?.includes('(UPI)')).length}
+                          </div>
+                          <div className="text-sm text-muted-foreground">UPI Matches</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-orange-500">
+                            {vouchers.filter(v => v.narration?.includes('(BANK)')).length}
+                          </div>
+                          <div className="text-sm text-muted-foreground">Bank A/c Matches</div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Customer Matches Section */}
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-green-600">
+                          <TrendingUp className="h-5 w-5" />
+                          Customer Matches (Receipts)
+                        </CardTitle>
+                        <CardDescription>
+                          Credit transactions matched to Customer Master via UPI or Bank Account
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {vouchers.filter(v => v.narration?.includes('Matched Customer')).length === 0 ? (
+                          <p className="text-muted-foreground text-sm">No customer matches found</p>
+                        ) : (
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[100px]">Date</TableHead>
+                                  <TableHead>Party Ledger</TableHead>
+                                  <TableHead>Match Type</TableHead>
+                                  <TableHead className="text-right">Amount</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {vouchers
+                                  .filter(v => v.narration?.includes('Matched Customer'))
+                                  .map((v) => {
+                                    const matchType = v.narration?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
+                                    return (
+                                      <TableRow key={v.id}>
+                                        <TableCell className="text-sm">{v.voucher_date}</TableCell>
+                                        <TableCell className="font-medium">{v.party_ledger}</TableCell>
+                                        <TableCell>
+                                          <Badge variant="outline" className={matchType === 'UPI' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
+                                            {matchType}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-medium text-green-600">
+                                          ₹{v.amount.toLocaleString()}
+                                        </TableCell>
+                                        <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Supplier Matches Section */}
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-blue-600">
+                          <TrendingDown className="h-5 w-5" />
+                          Supplier Matches (Payments)
+                        </CardTitle>
+                        <CardDescription>
+                          Debit transactions matched to Supplier Master via UPI or Bank Account
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {vouchers.filter(v => v.narration?.includes('Matched Supplier')).length === 0 ? (
+                          <p className="text-muted-foreground text-sm">No supplier matches found</p>
+                        ) : (
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[100px]">Date</TableHead>
+                                  <TableHead>Party Ledger</TableHead>
+                                  <TableHead>Match Type</TableHead>
+                                  <TableHead className="text-right">Amount</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {vouchers
+                                  .filter(v => v.narration?.includes('Matched Supplier'))
+                                  .map((v) => {
+                                    const matchType = v.narration?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
+                                    return (
+                                      <TableRow key={v.id}>
+                                        <TableCell className="text-sm">{v.voucher_date}</TableCell>
+                                        <TableCell className="font-medium">{v.party_ledger}</TableCell>
+                                        <TableCell>
+                                          <Badge variant="outline" className={matchType === 'UPI' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
+                                            {matchType}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-medium text-destructive">
+                                          ₹{v.amount.toLocaleString()}
+                                        </TableCell>
+                                        <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
               </TabsContent>
 
               {/* Vouchers Tab */}
