@@ -402,6 +402,31 @@ export default function SmartSegregation() {
     return upi.toLowerCase().trim().replace(/[^\w@.-]/g, '');
   };
 
+  // Extract username part from a full UPI ID (e.g., "harish.narayanan2806" from "harish.narayanan2806@okicici")
+  const extractUpiUsername = (upi: string): string => {
+    const atIndex = upi.indexOf('@');
+    return atIndex > 0 ? upi.substring(0, atIndex).toLowerCase().trim() : upi.toLowerCase().trim();
+  };
+
+  // Check if any UPI pattern's username appears in the narration (for partial matching)
+  const checkUpiPatternInNarration = (narration: string, upiPatterns: string): boolean => {
+    const normalizedNarration = narration.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const patterns = upiPatterns.split(/[,\/]/).map(p => p.trim()).filter(Boolean);
+    
+    for (const pattern of patterns) {
+      // Get the username part of the UPI pattern
+      const username = extractUpiUsername(pattern);
+      // Normalize by removing special chars for comparison
+      const normalizedUsername = username.replace(/[^a-z0-9]/g, '');
+      
+      // Check if username (min 6 chars) appears in narration
+      if (normalizedUsername.length >= 6 && normalizedNarration.includes(normalizedUsername)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // STRICT Customer Matching - UPI ID or Bank Account ONLY (No narration/name matching)
   const matchCustomerStrict = (
     narration: string,
@@ -410,28 +435,30 @@ export default function SmartSegregation() {
     const extractedUpi = extractUpiId(narration);
     const extractedBank = extractBankAccount(narration);
     
-    // If both are null, skip
-    if (!extractedUpi && !extractedBank) {
-      return { status: 'none', customerName: '', ledgerName: '', matchType: 'none' };
-    }
-    
     const matches: { customer: typeof customers[0]; matchType: 'upi' | 'bank' }[] = [];
     
     for (const customer of customers) {
-      // Try exact UPI ID match first
+      // Try exact UPI ID match first (full UPI extracted from narration)
       if (extractedUpi && customer.upi_payment_patterns) {
         const customerUpis = customer.upi_payment_patterns
-          .split(',')
-          .map(p => normalizeUpiId(p))
+          .split(/[,\/]/)
+          .map(p => normalizeUpiId(p.trim()))
           .filter(Boolean);
         
         const normalizedExtracted = normalizeUpiId(extractedUpi);
         if (normalizedExtracted && customerUpis.includes(normalizedExtracted)) {
           matches.push({ customer, matchType: 'upi' });
+          continue; // Found match, skip to next customer
         }
       }
       
-      // Try exact bank account match if no UPI match
+      // Fallback: Check if UPI pattern's username appears in narration (partial match)
+      if (customer.upi_payment_patterns && checkUpiPatternInNarration(narration, customer.upi_payment_patterns)) {
+        matches.push({ customer, matchType: 'upi' });
+        continue;
+      }
+      
+      // Try exact bank account match
       if (extractedBank && customer.bank_account) {
         const customerBank = customer.bank_account.trim();
         if (extractedBank === customerBank) {
@@ -466,28 +493,30 @@ export default function SmartSegregation() {
     const extractedUpi = extractUpiId(narration);
     const extractedBank = extractBankAccount(narration);
     
-    // If both are null, skip
-    if (!extractedUpi && !extractedBank) {
-      return { status: 'none', supplierName: '', matchType: 'none' };
-    }
-    
     const matches: { supplier: typeof suppliers[0]; matchType: 'upi' | 'bank' }[] = [];
     
     for (const supplier of suppliers) {
-      // Try exact UPI ID match first
+      // Try exact UPI ID match first (full UPI extracted from narration)
       if (extractedUpi && supplier.upi_payment_patterns) {
         const supplierUpis = supplier.upi_payment_patterns
-          .split(',')
-          .map(p => normalizeUpiId(p))
+          .split(/[,\/]/)
+          .map(p => normalizeUpiId(p.trim()))
           .filter(Boolean);
         
         const normalizedExtracted = normalizeUpiId(extractedUpi);
         if (normalizedExtracted && supplierUpis.includes(normalizedExtracted)) {
           matches.push({ supplier, matchType: 'upi' });
+          continue; // Found match, skip to next supplier
         }
       }
       
-      // Try exact bank account match if no UPI match
+      // Fallback: Check if UPI pattern's username appears in narration (partial match)
+      if (supplier.upi_payment_patterns && checkUpiPatternInNarration(narration, supplier.upi_payment_patterns)) {
+        matches.push({ supplier, matchType: 'upi' });
+        continue;
+      }
+      
+      // Try exact bank account match
       if (extractedBank && supplier.bank_account) {
         const supplierBank = supplier.bank_account.trim();
         if (extractedBank === supplierBank) {
