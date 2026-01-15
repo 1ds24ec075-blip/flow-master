@@ -69,7 +69,9 @@ const isSummaryRow = (narration: string): boolean => {
     'statement from', 'statement period', 'account no', 'account number',
     'ifsc', 'branch', 'customer id', 'cif no',
     '---', '===', '***', '###',
-    'page', 'continued', 'end of statement'
+    'page', 'continued', 'end of statement',
+    'statement summary', 'dr count', 'cr count', 'debit count', 'credit count',
+    'closing bal', 'debits', 'credits'
   ];
   
   for (const pattern of summaryPatterns) {
@@ -79,31 +81,63 @@ const isSummaryRow = (narration: string): boolean => {
   // Check if it's just numbers or symbols (separator rows)
   if (/^[\s\-\=\*\#\.\,]+$/.test(narration)) return true;
   
+  // Check for generic placeholder narrations like "Transaction 123", "Row 456"
+  if (/^transaction\s*\d+$/i.test(lower)) return true;
+  if (/^row\s*\d+$/i.test(lower)) return true;
+  if (/^entry\s*\d+$/i.test(lower)) return true;
+  
   return false;
 };
 
-// Check if date is valid
+// Check if date is valid and in realistic range
 const isValidDate = (dateStr: string | undefined | null): boolean => {
   if (!dateStr) return false;
   const str = String(dateStr).trim();
   if (!str) return false;
   if (isMaskedValue(str)) return false;
   
-  // Check for common date patterns
-  // YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return true;
-  // DD/MM/YY or DD-MM-YY
-  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2}$/.test(str)) return true;
-  // DD/MM/YYYY or DD-MM-YYYY
-  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(str)) return true;
+  // Parse the date to check year validity
+  const parseDateForValidation = (s: string): Date | null => {
+    // YYYY-MM-DD
+    let match = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+    }
+    
+    // DD/MM/YYYY or DD-MM-YYYY
+    match = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (match) {
+      return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+    }
+    
+    // DD/MM/YY or DD-MM-YY
+    match = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+    if (match) {
+      const year = parseInt(match[3], 10);
+      const fullYear = year > 50 ? 1900 + year : 2000 + year;
+      return new Date(fullYear, parseInt(match[2]) - 1, parseInt(match[1]));
+    }
+    
+    // Try native parsing
+    try {
+      const parsed = new Date(s);
+      if (!isNaN(parsed.getTime())) return parsed;
+    } catch {}
+    
+    return null;
+  };
   
-  // Try native parsing
-  try {
-    const parsed = new Date(str);
-    return !isNaN(parsed.getTime());
-  } catch {
+  const parsed = parseDateForValidation(str);
+  if (!parsed || isNaN(parsed.getTime())) return false;
+  
+  // Check if year is in realistic range (2000-2099)
+  const year = parsed.getFullYear();
+  if (year < 2000 || year > 2099) {
+    console.log(`Rejecting date with invalid year: ${str} -> year ${year}`);
     return false;
   }
+  
+  return true;
 };
 
 // Check if amount is valid numeric
