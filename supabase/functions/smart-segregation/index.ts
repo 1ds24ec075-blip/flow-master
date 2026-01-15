@@ -15,17 +15,185 @@ const CATEGORIES = [
   'Unknown'
 ];
 
+interface RawTransaction {
+  transaction_date?: string;
+  narration?: string;
+  amount?: number | string;
+  transaction_type?: 'debit' | 'credit' | string;
+  reference_number?: string;
+  utr?: string;
+  cheque_no?: string;
+}
+
 interface Transaction {
   transaction_date: string;
   narration: string;
   amount: number;
   transaction_type: 'debit' | 'credit';
+  reference_number?: string;
 }
 
 interface ClassifiedTransaction extends Transaction {
   category: string;
   confidence: number;
 }
+
+interface ValidationResult {
+  isValid: boolean;
+  reason?: string;
+}
+
+// ========== STRICT TRANSACTION VALIDATION ==========
+
+// Check if a value is masked (e.g., ****, XXXXXXXX, ####)
+const isMaskedValue = (value: string): boolean => {
+  if (!value) return false;
+  const str = value.trim();
+  // Check for common mask patterns
+  if (/^[\*]+$/.test(str)) return true; // All asterisks
+  if (/^[X]+$/i.test(str)) return true; // All X's
+  if (/^[#]+$/.test(str)) return true; // All hashes
+  if (/^\*{2,}.*\*{2,}$/.test(str)) return true; // Surrounded by asterisks
+  if (/^X{4,}/i.test(str)) return true; // Starts with 4+ X's
+  return false;
+};
+
+// Check if a value looks like a summary/footer/separator row
+const isSummaryRow = (narration: string): boolean => {
+  if (!narration) return false;
+  const lower = narration.toLowerCase().trim();
+  
+  const summaryPatterns = [
+    'total', 'grand total', 'sub total', 'subtotal',
+    'opening balance', 'closing balance', 'balance b/f', 'balance c/f',
+    'statement from', 'statement period', 'account no', 'account number',
+    'ifsc', 'branch', 'customer id', 'cif no',
+    '---', '===', '***', '###',
+    'page', 'continued', 'end of statement'
+  ];
+  
+  for (const pattern of summaryPatterns) {
+    if (lower.includes(pattern)) return true;
+  }
+  
+  // Check if it's just numbers or symbols (separator rows)
+  if (/^[\s\-\=\*\#\.\,]+$/.test(narration)) return true;
+  
+  return false;
+};
+
+// Check if date is valid
+const isValidDate = (dateStr: string | undefined | null): boolean => {
+  if (!dateStr) return false;
+  const str = String(dateStr).trim();
+  if (!str) return false;
+  if (isMaskedValue(str)) return false;
+  
+  // Check for common date patterns
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return true;
+  // DD/MM/YY or DD-MM-YY
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2}$/.test(str)) return true;
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(str)) return true;
+  
+  // Try native parsing
+  try {
+    const parsed = new Date(str);
+    return !isNaN(parsed.getTime());
+  } catch {
+    return false;
+  }
+};
+
+// Check if amount is valid numeric
+const isValidAmount = (amount: number | string | undefined | null): boolean => {
+  if (amount === undefined || amount === null) return false;
+  const num = typeof amount === 'string' ? parseFloat(amount.replace(/[,\s]/g, '')) : amount;
+  return !isNaN(num) && isFinite(num) && num !== 0;
+};
+
+// Check if narration is valid (non-empty, non-masked)
+const isValidNarration = (narration: string | undefined | null): boolean => {
+  if (!narration) return false;
+  const str = String(narration).trim();
+  if (!str || str.length < 3) return false;
+  if (isMaskedValue(str)) return false;
+  if (isSummaryRow(str)) return false;
+  return true;
+};
+
+// Check if transaction type is valid
+const isValidTransactionType = (type: string | undefined | null): boolean => {
+  if (!type) return false;
+  const lower = String(type).toLowerCase().trim();
+  return ['debit', 'credit', 'dr', 'cr', 'd', 'c'].includes(lower);
+};
+
+// Normalize transaction type to debit/credit
+const normalizeTransactionType = (type: string): 'debit' | 'credit' => {
+  const lower = String(type).toLowerCase().trim();
+  if (['credit', 'cr', 'c'].includes(lower)) return 'credit';
+  return 'debit';
+};
+
+// Count valid identifiers (reference, UTR, cheque no)
+const countValidIdentifiers = (tx: RawTransaction): number => {
+  let count = 0;
+  
+  const checkIdentifier = (value: string | undefined | null): boolean => {
+    if (!value) return false;
+    const str = String(value).trim();
+    if (!str || str.length < 3) return false;
+    if (isMaskedValue(str)) return false;
+    return true;
+  };
+  
+  if (checkIdentifier(tx.reference_number)) count++;
+  if (checkIdentifier(tx.utr)) count++;
+  if (checkIdentifier(tx.cheque_no)) count++;
+  
+  return count;
+};
+
+// Main validation function
+const validateTransaction = (tx: RawTransaction): ValidationResult => {
+  // Check mandatory: Transaction Date
+  if (!isValidDate(tx.transaction_date)) {
+    return { isValid: false, reason: 'Missing or invalid date' };
+  }
+  
+  // Check mandatory: Narration/Party Name
+  if (!isValidNarration(tx.narration)) {
+    return { isValid: false, reason: 'Missing or invalid narration' };
+  }
+  
+  // Check mandatory: Amount
+  if (!isValidAmount(tx.amount)) {
+    return { isValid: false, reason: 'Missing or invalid amount' };
+  }
+  
+  // Check mandatory: Debit/Credit indicator
+  if (!isValidTransactionType(tx.transaction_type)) {
+    return { isValid: false, reason: 'Missing debit/credit indicator' };
+  }
+  
+  // Check: At least 2 of 3 identifiers required (Reference, UTR, Cheque No)
+  // Note: Some banks only provide 1 identifier, so we'll require at least 1
+  const identifierCount = countValidIdentifiers(tx);
+  if (identifierCount < 1) {
+    // If no identifiers at all, try to extract from narration
+    const narration = tx.narration || '';
+    const hasRefInNarration = /\b[A-Z0-9]{8,20}\b/i.test(narration);
+    if (!hasRefInNarration) {
+      return { isValid: false, reason: 'Missing reference/UTR/cheque number' };
+    }
+  }
+  
+  return { isValid: true };
+};
+
+// ========== END VALIDATION ==========
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -45,7 +213,61 @@ serve(async (req) => {
     // Use defaults if fields are empty/null
     const effectiveBusinessName = businessName?.trim() || 'Default Business';
     
-    console.log(`Processing ${transactions.length} transactions for ${effectiveBusinessName}`);
+    console.log(`Received ${transactions.length} raw rows for ${effectiveBusinessName}`);
+
+    // ========== STRICT VALIDATION - Filter valid transactions ==========
+    const validTransactions: Transaction[] = [];
+    const rejectedRows: { index: number; reason: string }[] = [];
+
+    transactions.forEach((rawTx: RawTransaction, index: number) => {
+      const validation = validateTransaction(rawTx);
+      
+      if (validation.isValid) {
+        const amount = typeof rawTx.amount === 'string' 
+          ? parseFloat(String(rawTx.amount).replace(/[,\s]/g, '')) 
+          : (rawTx.amount || 0);
+        
+        validTransactions.push({
+          transaction_date: String(rawTx.transaction_date).trim(),
+          narration: String(rawTx.narration).trim(),
+          amount: Math.abs(amount),
+          transaction_type: normalizeTransactionType(rawTx.transaction_type || 'debit'),
+          reference_number: rawTx.reference_number || rawTx.utr || rawTx.cheque_no || undefined
+        });
+      } else {
+        rejectedRows.push({ index: index + 1, reason: validation.reason || 'Validation failed' });
+      }
+    });
+
+    console.log(`Valid transactions: ${validTransactions.length}, Rejected: ${rejectedRows.length}`);
+    if (rejectedRows.length > 0) {
+      console.log('Sample rejected rows:', rejectedRows.slice(0, 5));
+    }
+
+    // If no valid transactions, return early
+    if (validTransactions.length === 0) {
+      // Update upload status to failed
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      await supabase
+        .from('segregation_uploads')
+        .update({ 
+          status: 'failed',
+          total_transactions: 0
+        })
+        .eq('id', uploadId);
+
+      return new Response(JSON.stringify({ 
+        error: 'No valid transactions found after validation',
+        rejectedCount: rejectedRows.length,
+        sampleRejections: rejectedRows.slice(0, 10)
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -73,8 +295,8 @@ serve(async (req) => {
 
     // Process in batches of 20 for efficiency
     const batchSize = 20;
-    for (let i = 0; i < transactions.length; i += batchSize) {
-      const batch = transactions.slice(i, i + batchSize);
+    for (let i = 0; i < validTransactions.length; i += batchSize) {
+      const batch = validTransactions.slice(i, i + batchSize);
       
       // First check rules for each transaction
       const needsAI: number[] = [];
@@ -102,7 +324,7 @@ serve(async (req) => {
 
       // Use AI for unmatched transactions
       if (needsAI.length > 0 && LOVABLE_API_KEY) {
-        const txForAI = needsAI.map(idx => transactions[idx]);
+        const txForAI = needsAI.map(idx => validTransactions[idx]);
         
         const prompt = `You are a financial transaction classifier for small businesses. Classify each transaction into one of these categories:
 - Business Expense (rent, utilities, supplies, vendor payments, subscriptions, software)
@@ -146,7 +368,7 @@ Respond with JSON array only, no explanation:
               
               classifications.forEach((cls: { index: number; category: string; confidence: number }) => {
                 const originalIdx = needsAI[cls.index - 1];
-                const tx = transactions[originalIdx];
+                const tx = validTransactions[originalIdx];
                 classifiedTransactions.push({
                   ...tx,
                   category: CATEGORIES.includes(cls.category) ? cls.category : 'Unknown',
@@ -159,7 +381,7 @@ Respond with JSON array only, no explanation:
           console.error('AI classification error:', aiError);
           // Fallback: classify based on simple rules
           needsAI.forEach(idx => {
-            const tx = transactions[idx];
+            const tx = validTransactions[idx];
             classifiedTransactions.push({
               ...tx,
               category: classifyBySimpleRules(tx),
@@ -170,7 +392,7 @@ Respond with JSON array only, no explanation:
       } else if (needsAI.length > 0) {
         // No AI available, use simple rules
         needsAI.forEach(idx => {
-          const tx = transactions[idx];
+          const tx = validTransactions[idx];
           classifiedTransactions.push({
             ...tx,
             category: classifyBySimpleRules(tx),
