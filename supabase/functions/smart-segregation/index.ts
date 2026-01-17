@@ -1,7 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -242,20 +241,15 @@ const determineTransactionType = (
 
 // ========== FINGERPRINT FOR DUPLICATE DETECTION ==========
 
-const generateFingerprint = async (
+const generateFingerprint = (
   date: string,
   amount: number,
   type: 'debit' | 'credit',
   narration: string
-): Promise<string> => {
-  const normalizedNarration = (narration || '').toLowerCase().trim().replace(/\s+/g, ' ');
-  const data = `${date}|${amount.toFixed(2)}|${type}|${normalizedNarration}`;
-  
-  const encoder = new TextEncoder();
-  const dataBuffer = encoder.encode(data);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+): string => {
+  const normalizedNarration = (narration || '').toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+  // Simple hash using string concatenation - good enough for duplicate detection within a batch
+  return `${date}|${amount.toFixed(2)}|${type}|${normalizedNarration}`;
 };
 
 // ========== MAIN VALIDATION FUNCTION ==========
@@ -332,7 +326,7 @@ serve(async (req) => {
       const narration = (rawTx.narration || '').trim();
       
       // Generate fingerprint for duplicate detection
-      const fingerprint = await generateFingerprint(
+      const fingerprint = generateFingerprint(
         dateResult.normalized!,
         validation.amount!,
         validation.transactionType!,
