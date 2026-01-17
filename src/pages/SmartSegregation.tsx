@@ -1383,7 +1383,7 @@ export default function SmartSegregation() {
                   </TabsTrigger>
                   <TabsTrigger value="matched" className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4" />
-                    Matched Parties ({vouchers.filter(v => v.narration?.includes('Matched Customer') || v.narration?.includes('Matched Supplier')).length})
+                    Matched Parties ({vouchers.filter(v => v.flag_reason?.includes('Matched Customer') || v.flag_reason?.includes('Matched Supplier')).length})
                   </TabsTrigger>
                   <TabsTrigger value="vouchers" className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
@@ -1588,9 +1588,9 @@ export default function SmartSegregation() {
                               </TableHeader>
                               <TableBody>
                                 {vouchers
-                                  .filter(v => v.narration?.includes('Matched Customer'))
+                                  .filter(v => v.flag_reason?.includes('Matched Customer'))
                                   .map((v) => {
-                                    const matchType = v.narration?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
+                                    const matchType = v.flag_reason?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
                                     return (
                                       <TableRow key={v.id}>
                                         <TableCell className="text-sm">{v.voucher_date}</TableCell>
@@ -1601,7 +1601,7 @@ export default function SmartSegregation() {
                                           </Badge>
                                         </TableCell>
                                         <TableCell className="text-right font-medium text-green-600">
-                                          ₹{v.amount.toLocaleString()}
+                                          ₹{v.amount.toLocaleString('en-IN')}
                                         </TableCell>
                                         <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
                                       </TableRow>
@@ -1626,7 +1626,7 @@ export default function SmartSegregation() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        {vouchers.filter(v => v.narration?.includes('Matched Supplier')).length === 0 ? (
+                        {vouchers.filter(v => v.flag_reason?.includes('Matched Supplier')).length === 0 ? (
                           <p className="text-muted-foreground text-sm">No supplier matches found</p>
                         ) : (
                           <div className="rounded-md border">
@@ -1642,9 +1642,9 @@ export default function SmartSegregation() {
                               </TableHeader>
                               <TableBody>
                                 {vouchers
-                                  .filter(v => v.narration?.includes('Matched Supplier'))
+                                  .filter(v => v.flag_reason?.includes('Matched Supplier'))
                                   .map((v) => {
-                                    const matchType = v.narration?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
+                                    const matchType = v.flag_reason?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
                                     return (
                                       <TableRow key={v.id}>
                                         <TableCell className="text-sm">{v.voucher_date}</TableCell>
@@ -1655,7 +1655,7 @@ export default function SmartSegregation() {
                                           </Badge>
                                         </TableCell>
                                         <TableCell className="text-right font-medium text-destructive">
-                                          ₹{v.amount.toLocaleString()}
+                                          ₹{v.amount.toLocaleString('en-IN')}
                                         </TableCell>
                                         <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
                                       </TableRow>
