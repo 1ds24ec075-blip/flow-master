@@ -1342,7 +1342,7 @@ export default function SmartSegregation() {
               <Card>
                 <CardContent className="pt-4">
                   <div className="text-2xl font-bold text-green-500">
-                    ₹{summary.totalCredit.toLocaleString()}
+                    ₹{summary.totalCredit.toLocaleString('en-IN')}
                   </div>
                   <div className="text-sm text-muted-foreground">Total Income</div>
                 </CardContent>
@@ -1350,7 +1350,7 @@ export default function SmartSegregation() {
               <Card>
                 <CardContent className="pt-4">
                   <div className="text-2xl font-bold text-destructive">
-                    ₹{summary.totalDebit.toLocaleString()}
+                    ₹{summary.totalDebit.toLocaleString('en-IN')}
                   </div>
                   <div className="text-sm text-muted-foreground">Total Expenses</div>
                 </CardContent>
@@ -1465,7 +1465,7 @@ export default function SmartSegregation() {
                                 {tx.narration}
                               </TableCell>
                               <TableCell className="text-right font-medium">
-                                ₹{tx.amount.toLocaleString()}
+                                ₹{tx.amount.toLocaleString('en-IN')}
                               </TableCell>
                               <TableCell>
                                 <Badge variant={tx.transaction_type === 'debit' ? 'destructive' : 'default'}>
@@ -1763,7 +1763,7 @@ export default function SmartSegregation() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right font-medium">
-                                ₹{voucher.amount.toLocaleString()}
+                                ₹{voucher.amount.toLocaleString('en-IN')}
                               </TableCell>
                               <TableCell>
                                 <Select 
