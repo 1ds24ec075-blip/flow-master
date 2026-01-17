@@ -635,8 +635,18 @@ export default function SmartSegregation() {
     return false;
   };
 
-  // Generate vouchers from transactions (hybrid approach)
+  // Generate vouchers for ALL transactions
   const generateVouchers = async () => {
+    await generateVouchersInternal(false);
+  };
+
+  // Generate vouchers ONLY for matched parties
+  const generateVouchersForMatchedOnly = async () => {
+    await generateVouchersInternal(true);
+  };
+
+  // Internal voucher generation function
+  const generateVouchersInternal = async (matchedOnly: boolean) => {
     if (!currentUploadId || transactions.length === 0) {
       toast.error("No transactions to process");
       return;
@@ -728,6 +738,11 @@ export default function SmartSegregation() {
           continue;
         }
         
+        // If matchedOnly mode, skip transactions that didn't match any party
+        if (matchedOnly && matchType === 'none') {
+          continue;
+        }
+        
         // Check for duplicate
         const isDuplicate = referenceNumber ? existingRefs.has(referenceNumber) : false;
         
@@ -738,16 +753,16 @@ export default function SmartSegregation() {
         if (isDuplicate) {
           status = 'flagged';
           flagReason = 'Duplicate reference number detected';
+        } else if (matchSource) {
+          // Customer/Supplier matched = auto-approve (priority for matched parties)
+          status = 'approved';
+          flagReason = matchSource;
         } else if (category === 'Unknown' || category === 'Personal / Owner') {
           status = 'flagged';
           flagReason = 'Category needs clarification - unclear if business transaction';
         } else if (tx.confidence_score < 70) {
           status = 'flagged';
           flagReason = 'Low confidence classification - requires manual review';
-        } else if (matchSource) {
-          // Customer/Supplier matched = auto-approve
-          status = 'approved';
-          flagReason = matchSource;
         } else if (tx.confidence_score >= 85 && partyLedger !== 'Suspense A/c') {
           // High confidence + clear ledger = auto-approve
           status = 'approved';
@@ -1601,6 +1616,18 @@ export default function SmartSegregation() {
                   </Card>
                 ) : (
                   <>
+                    {/* Action Button */}
+                    <div className="flex justify-end">
+                      <Button 
+                        onClick={generateVouchersForMatchedOnly} 
+                        disabled={isGeneratingVouchers || matchedParties.length === 0}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        {isGeneratingVouchers ? 'Generating...' : `Generate Vouchers for ${matchedParties.length} Matched Parties`}
+                      </Button>
+                    </div>
+
                     {/* Matched Summary */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <Card>
