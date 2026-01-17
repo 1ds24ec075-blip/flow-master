@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,10 +16,15 @@ const CATEGORIES = [
   'Unknown'
 ];
 
+// Transaction status types based on validation
+type TransactionStatus = 'AUTO_POST' | 'NEEDS_REVIEW' | 'INVALID' | 'SUMMARY' | 'DUPLICATE';
+
 interface RawTransaction {
   transaction_date?: string;
   narration?: string;
   amount?: number | string;
+  debit_amount?: number | string;
+  credit_amount?: number | string;
   transaction_type?: 'debit' | 'credit' | string;
   reference_number?: string;
   utr?: string;
@@ -39,49 +45,74 @@ interface ClassifiedTransaction extends Transaction {
 }
 
 interface ValidationResult {
-  isValid: boolean;
+  status: TransactionStatus;
   reason?: string;
+  amount?: number;
+  transactionType?: 'debit' | 'credit';
 }
 
-// ========== STRICT TRANSACTION VALIDATION ==========
+// ========== STEP 1: HARD VALIDATION (NON-NEGOTIABLE) ==========
 
 // Check if a value is masked (e.g., ****, XXXXXXXX, ####)
 const isMaskedValue = (value: string): boolean => {
   if (!value) return false;
   const str = value.trim();
-  // Check for common mask patterns
-  if (/^[\*]+$/.test(str)) return true; // All asterisks
-  if (/^[X]+$/i.test(str)) return true; // All X's
-  if (/^[#]+$/.test(str)) return true; // All hashes
-  if (/^\*{2,}.*\*{2,}$/.test(str)) return true; // Surrounded by asterisks
-  if (/^X{4,}/i.test(str)) return true; // Starts with 4+ X's
+  if (/^[\*]+$/.test(str)) return true;
+  if (/^[X]+$/i.test(str)) return true;
+  if (/^[#]+$/.test(str)) return true;
+  if (/^\*{2,}.*\*{2,}$/.test(str)) return true;
+  if (/^X{4,}/i.test(str)) return true;
   return false;
 };
 
-// Check if a value looks like a summary/footer/separator row
+// ========== STEP 2: SUMMARY & NON-TRANSACTION FILTER ==========
+
+const SUMMARY_PATTERNS = [
+  'statement summary',
+  'opening balance',
+  'closing balance',
+  'total',
+  'debits',
+  'credits',
+  'dr count',
+  'cr count',
+  'balance b/f',
+  'balance c/f',
+  'grand total',
+  'sub total',
+  'subtotal',
+  'statement from',
+  'statement period',
+  'account no',
+  'account number',
+  'ifsc',
+  'branch',
+  'customer id',
+  'cif no',
+  'page',
+  'continued',
+  'end of statement',
+  'debit count',
+  'credit count',
+  'closing bal',
+  '---',
+  '===',
+  '***',
+  '###'
+];
+
 const isSummaryRow = (narration: string): boolean => {
   if (!narration) return false;
   const lower = narration.toLowerCase().trim();
   
-  const summaryPatterns = [
-    'total', 'grand total', 'sub total', 'subtotal',
-    'opening balance', 'closing balance', 'balance b/f', 'balance c/f',
-    'statement from', 'statement period', 'account no', 'account number',
-    'ifsc', 'branch', 'customer id', 'cif no',
-    '---', '===', '***', '###',
-    'page', 'continued', 'end of statement',
-    'statement summary', 'dr count', 'cr count', 'debit count', 'credit count',
-    'closing bal', 'debits', 'credits'
-  ];
-  
-  for (const pattern of summaryPatterns) {
+  for (const pattern of SUMMARY_PATTERNS) {
     if (lower.includes(pattern)) return true;
   }
   
-  // Check if it's just numbers or symbols (separator rows)
+  // Separator rows (just symbols)
   if (/^[\s\-\=\*\#\.\,]+$/.test(narration)) return true;
   
-  // Check for generic placeholder narrations like "Transaction 123", "Row 456"
+  // Generic placeholders like "Transaction 123", "Row 456", "Entry 789"
   if (/^transaction\s*\d+$/i.test(lower)) return true;
   if (/^row\s*\d+$/i.test(lower)) return true;
   if (/^entry\s*\d+$/i.test(lower)) return true;
@@ -89,142 +120,172 @@ const isSummaryRow = (narration: string): boolean => {
   return false;
 };
 
-// Check if date is valid and in realistic range
-const isValidDate = (dateStr: string | undefined | null): boolean => {
-  if (!dateStr) return false;
+// ========== DATE VALIDATION ==========
+
+const parseAndValidateDate = (dateStr: string | undefined | null): { valid: boolean; normalized?: string } => {
+  if (!dateStr) return { valid: false };
   const str = String(dateStr).trim();
-  if (!str) return false;
-  if (isMaskedValue(str)) return false;
+  if (!str) return { valid: false };
+  if (isMaskedValue(str)) return { valid: false };
   
-  // Parse the date to check year validity
-  const parseDateForValidation = (s: string): Date | null => {
+  const parseDateForValidation = (s: string): { date: Date | null; normalized: string | null } => {
     // YYYY-MM-DD
     let match = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (match) {
-      return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+      const d = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+      return { date: d, normalized: s };
     }
     
     // DD/MM/YYYY or DD-MM-YYYY
     match = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (match) {
-      return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+      const day = match[1].padStart(2, '0');
+      const month = match[2].padStart(2, '0');
+      const year = match[3];
+      const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      return { date: d, normalized: `${year}-${month}-${day}` };
     }
     
     // DD/MM/YY or DD-MM-YY
     match = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
     if (match) {
+      const day = match[1].padStart(2, '0');
+      const month = match[2].padStart(2, '0');
       const year = parseInt(match[3], 10);
       const fullYear = year > 50 ? 1900 + year : 2000 + year;
-      return new Date(fullYear, parseInt(match[2]) - 1, parseInt(match[1]));
+      const d = new Date(fullYear, parseInt(month) - 1, parseInt(day));
+      return { date: d, normalized: `${fullYear}-${month}-${day}` };
     }
     
     // Try native parsing
     try {
       const parsed = new Date(s);
-      if (!isNaN(parsed.getTime())) return parsed;
+      if (!isNaN(parsed.getTime())) {
+        return { date: parsed, normalized: parsed.toISOString().split('T')[0] };
+      }
     } catch {}
     
-    return null;
+    return { date: null, normalized: null };
   };
   
-  const parsed = parseDateForValidation(str);
-  if (!parsed || isNaN(parsed.getTime())) return false;
+  const result = parseDateForValidation(str);
+  if (!result.date || isNaN(result.date.getTime())) return { valid: false };
   
-  // Check if year is in realistic range (2000-2099)
-  const year = parsed.getFullYear();
+  // Check year is in realistic range (2000-2099)
+  const year = result.date.getFullYear();
   if (year < 2000 || year > 2099) {
     console.log(`Rejecting date with invalid year: ${str} -> year ${year}`);
-    return false;
+    return { valid: false };
   }
   
-  return true;
+  return { valid: true, normalized: result.normalized || undefined };
 };
 
-// Check if amount is valid numeric
-const isValidAmount = (amount: number | string | undefined | null): boolean => {
-  if (amount === undefined || amount === null) return false;
-  const num = typeof amount === 'string' ? parseFloat(amount.replace(/[,\s]/g, '')) : amount;
-  return !isNaN(num) && isFinite(num) && num !== 0;
-};
+// ========== AMOUNT VALIDATION ==========
 
-// Check if narration is valid (non-empty, non-masked)
-const isValidNarration = (narration: string | undefined | null): boolean => {
-  if (!narration) return false;
-  const str = String(narration).trim();
-  if (!str || str.length < 3) return false;
-  if (isMaskedValue(str)) return false;
-  if (isSummaryRow(str)) return false;
-  return true;
-};
-
-// Check if transaction type is valid
-const isValidTransactionType = (type: string | undefined | null): boolean => {
-  if (!type) return false;
-  const lower = String(type).toLowerCase().trim();
-  return ['debit', 'credit', 'dr', 'cr', 'd', 'c'].includes(lower);
-};
-
-// Normalize transaction type to debit/credit
-const normalizeTransactionType = (type: string): 'debit' | 'credit' => {
-  const lower = String(type).toLowerCase().trim();
-  if (['credit', 'cr', 'c'].includes(lower)) return 'credit';
-  return 'debit';
-};
-
-// Count valid identifiers (reference, UTR, cheque no)
-const countValidIdentifiers = (tx: RawTransaction): number => {
-  let count = 0;
+const parseAmount = (value: number | string | undefined | null): number | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && isMaskedValue(value)) return null;
   
-  const checkIdentifier = (value: string | undefined | null): boolean => {
-    if (!value) return false;
-    const str = String(value).trim();
-    if (!str || str.length < 3) return false;
-    if (isMaskedValue(str)) return false;
-    return true;
-  };
+  const num = typeof value === 'string' 
+    ? parseFloat(String(value).replace(/[,\s₹$]/g, '')) 
+    : value;
   
-  if (checkIdentifier(tx.reference_number)) count++;
-  if (checkIdentifier(tx.utr)) count++;
-  if (checkIdentifier(tx.cheque_no)) count++;
-  
-  return count;
+  if (isNaN(num) || !isFinite(num)) return null;
+  return num;
 };
 
-// Main validation function
-const validateTransaction = (tx: RawTransaction): ValidationResult => {
-  // Check mandatory: Transaction Date
-  if (!isValidDate(tx.transaction_date)) {
-    return { isValid: false, reason: 'Missing or invalid date' };
+// ========== STEP 4: TRANSACTION TYPE IDENTIFICATION ==========
+
+const determineTransactionType = (
+  rawTx: RawTransaction
+): { type: 'debit' | 'credit' | null; amount: number | null } => {
+  // Check for separate debit/credit columns first
+  const debitAmt = parseAmount(rawTx.debit_amount);
+  const creditAmt = parseAmount(rawTx.credit_amount);
+  
+  // Both have values - INVALID
+  if (debitAmt !== null && debitAmt > 0 && creditAmt !== null && creditAmt > 0) {
+    return { type: null, amount: null };
   }
   
-  // Check mandatory: Narration/Party Name
-  if (!isValidNarration(tx.narration)) {
-    return { isValid: false, reason: 'Missing or invalid narration' };
+  // Credit amount exists and > 0
+  if (creditAmt !== null && creditAmt > 0) {
+    return { type: 'credit', amount: creditAmt };
   }
   
-  // Check mandatory: Amount
-  if (!isValidAmount(tx.amount)) {
-    return { isValid: false, reason: 'Missing or invalid amount' };
+  // Debit amount exists and > 0
+  if (debitAmt !== null && debitAmt > 0) {
+    return { type: 'debit', amount: debitAmt };
   }
   
-  // Check mandatory: Debit/Credit indicator
-  if (!isValidTransactionType(tx.transaction_type)) {
-    return { isValid: false, reason: 'Missing debit/credit indicator' };
+  // Fallback to single amount column + type indicator
+  const amount = parseAmount(rawTx.amount);
+  if (amount === null || amount <= 0) {
+    return { type: null, amount: null };
   }
   
-  // Check: At least 2 of 3 identifiers required (Reference, UTR, Cheque No)
-  // Note: Some banks only provide 1 identifier, so we'll require at least 1
-  const identifierCount = countValidIdentifiers(tx);
-  if (identifierCount < 1) {
-    // If no identifiers at all, try to extract from narration
-    const narration = tx.narration || '';
-    const hasRefInNarration = /\b[A-Z0-9]{8,20}\b/i.test(narration);
-    if (!hasRefInNarration) {
-      return { isValid: false, reason: 'Missing reference/UTR/cheque number' };
+  // Check transaction_type field
+  if (rawTx.transaction_type) {
+    const lower = String(rawTx.transaction_type).toLowerCase().trim();
+    if (['credit', 'cr', 'c'].includes(lower)) {
+      return { type: 'credit', amount };
+    }
+    if (['debit', 'dr', 'd'].includes(lower)) {
+      return { type: 'debit', amount };
     }
   }
   
-  return { isValid: true };
+  // Cannot determine type
+  return { type: null, amount: null };
+};
+
+// ========== FINGERPRINT FOR DUPLICATE DETECTION ==========
+
+const generateFingerprint = async (
+  date: string,
+  amount: number,
+  type: 'debit' | 'credit',
+  narration: string
+): Promise<string> => {
+  const normalizedNarration = (narration || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  const data = `${date}|${amount.toFixed(2)}|${type}|${normalizedNarration}`;
+  
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+// ========== MAIN VALIDATION FUNCTION ==========
+
+const validateTransaction = (rawTx: RawTransaction): ValidationResult => {
+  const narration = (rawTx.narration || '').trim();
+  
+  // STEP 2: Check if it's a summary row first
+  if (isSummaryRow(narration)) {
+    return { status: 'SUMMARY', reason: 'Summary/total/header row detected' };
+  }
+  
+  // STEP 1: HARD VALIDATION - Date is mandatory
+  const dateResult = parseAndValidateDate(rawTx.transaction_date);
+  if (!dateResult.valid) {
+    return { status: 'INVALID', reason: 'Missing or invalid date (must be valid calendar date, year 2000-2099)' };
+  }
+  
+  // STEP 1 & 4: Amount + Type validation (exactly ONE of debit/credit)
+  const typeResult = determineTransactionType(rawTx);
+  if (typeResult.type === null || typeResult.amount === null || typeResult.amount <= 0) {
+    return { status: 'INVALID', reason: 'Missing/invalid amount or cannot determine debit/credit (exactly one required)' };
+  }
+  
+  // PASSED HARD VALIDATION
+  return {
+    status: 'NEEDS_REVIEW', // Will be upgraded to AUTO_POST if party matches
+    amount: typeResult.amount,
+    transactionType: typeResult.type
+  };
 };
 
 // ========== END VALIDATION ==========
@@ -244,43 +305,75 @@ serve(async (req) => {
       });
     }
 
-    // Use defaults if fields are empty/null
     const effectiveBusinessName = businessName?.trim() || 'Default Business';
     
     console.log(`Received ${transactions.length} raw rows for ${effectiveBusinessName}`);
 
-    // ========== STRICT VALIDATION - Filter valid transactions ==========
+    // ========== STRICT VALIDATION - Filter transactions by status ==========
     const validTransactions: Transaction[] = [];
-    const rejectedRows: { index: number; reason: string }[] = [];
+    const rejectedRows: { index: number; reason: string; status: TransactionStatus }[] = [];
+    const processedFingerprints = new Set<string>();
 
-    transactions.forEach((rawTx: RawTransaction, index: number) => {
+    for (let i = 0; i < transactions.length; i++) {
+      const rawTx = transactions[i] as RawTransaction;
       const validation = validateTransaction(rawTx);
       
-      if (validation.isValid) {
-        const amount = typeof rawTx.amount === 'string' 
-          ? parseFloat(String(rawTx.amount).replace(/[,\s]/g, '')) 
-          : (rawTx.amount || 0);
-        
-        validTransactions.push({
-          transaction_date: String(rawTx.transaction_date).trim(),
-          narration: String(rawTx.narration).trim(),
-          amount: Math.abs(amount),
-          transaction_type: normalizeTransactionType(rawTx.transaction_type || 'debit'),
-          reference_number: rawTx.reference_number || rawTx.utr || rawTx.cheque_no || undefined
+      if (validation.status === 'INVALID' || validation.status === 'SUMMARY') {
+        rejectedRows.push({ 
+          index: i + 1, 
+          reason: validation.reason || 'Validation failed',
+          status: validation.status
         });
-      } else {
-        rejectedRows.push({ index: index + 1, reason: validation.reason || 'Validation failed' });
+        continue;
       }
-    });
+      
+      // Passed hard validation - extract data
+      const dateResult = parseAndValidateDate(rawTx.transaction_date);
+      const narration = (rawTx.narration || '').trim();
+      
+      // Generate fingerprint for duplicate detection
+      const fingerprint = await generateFingerprint(
+        dateResult.normalized!,
+        validation.amount!,
+        validation.transactionType!,
+        narration
+      );
+      
+      // Check for duplicates within this batch
+      if (processedFingerprints.has(fingerprint)) {
+        rejectedRows.push({
+          index: i + 1,
+          reason: 'Duplicate transaction (same date, amount, type, narration)',
+          status: 'DUPLICATE'
+        });
+        continue;
+      }
+      processedFingerprints.add(fingerprint);
+      
+      validTransactions.push({
+        transaction_date: dateResult.normalized!,
+        narration: narration || 'No narration',
+        amount: Math.abs(validation.amount!),
+        transaction_type: validation.transactionType!,
+        reference_number: rawTx.reference_number || rawTx.utr || rawTx.cheque_no || undefined
+      });
+    }
 
     console.log(`Valid transactions: ${validTransactions.length}, Rejected: ${rejectedRows.length}`);
+    
+    // Log rejection breakdown
+    const rejectionBreakdown = rejectedRows.reduce((acc, r) => {
+      acc[r.status] = (acc[r.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log('Rejection breakdown:', rejectionBreakdown);
+    
     if (rejectedRows.length > 0) {
-      console.log('Sample rejected rows:', rejectedRows.slice(0, 5));
+      console.log('Sample rejected rows:', rejectedRows.slice(0, 10));
     }
 
     // If no valid transactions, return early
     if (validTransactions.length === 0) {
-      // Update upload status to failed
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -296,7 +389,8 @@ serve(async (req) => {
       return new Response(JSON.stringify({ 
         error: 'No valid transactions found after validation',
         rejectedCount: rejectedRows.length,
-        sampleRejections: rejectedRows.slice(0, 10)
+        rejectionBreakdown,
+        sampleRejections: rejectedRows.slice(0, 15)
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -344,7 +438,7 @@ serve(async (req) => {
             classifiedTransactions.push({
               ...tx,
               category,
-              confidence: 95 // High confidence for learned rules
+              confidence: 95
             });
             matched = true;
             break;
@@ -413,7 +507,6 @@ Respond with JSON array only, no explanation:
           }
         } catch (aiError) {
           console.error('AI classification error:', aiError);
-          // Fallback: classify based on simple rules
           needsAI.forEach(idx => {
             const tx = validTransactions[idx];
             classifiedTransactions.push({
@@ -424,7 +517,6 @@ Respond with JSON array only, no explanation:
           });
         }
       } else if (needsAI.length > 0) {
-        // No AI available, use simple rules
         needsAI.forEach(idx => {
           const tx = validTransactions[idx];
           classifiedTransactions.push({
@@ -436,54 +528,10 @@ Respond with JSON array only, no explanation:
       }
     }
 
-    // Helper function to parse various date formats to YYYY-MM-DD
-    const parseDate = (dateStr: string | null | undefined): string | null => {
-      if (!dateStr) return null;
-      
-      const str = String(dateStr).trim();
-      if (!str) return null;
-      
-      // Already in YYYY-MM-DD format
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-        return str;
-      }
-      
-      // DD/MM/YY or DD-MM-YY format
-      let match = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
-      if (match) {
-        const day = match[1].padStart(2, '0');
-        const month = match[2].padStart(2, '0');
-        const year = parseInt(match[3], 10);
-        const fullYear = year > 50 ? 1900 + year : 2000 + year;
-        return `${fullYear}-${month}-${day}`;
-      }
-      
-      // DD/MM/YYYY or DD-MM-YYYY format
-      match = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      if (match) {
-        const day = match[1].padStart(2, '0');
-        const month = match[2].padStart(2, '0');
-        const year = match[3];
-        return `${year}-${month}-${day}`;
-      }
-      
-      // Try native Date parsing as fallback
-      try {
-        const parsed = new Date(str);
-        if (!isNaN(parsed.getTime())) {
-          return parsed.toISOString().split('T')[0];
-        }
-      } catch {
-        // ignore
-      }
-      
-      return null;
-    };
-
     // Store transactions in database
     const transactionsToInsert = classifiedTransactions.map(tx => ({
       upload_id: uploadId,
-      transaction_date: parseDate(tx.transaction_date),
+      transaction_date: tx.transaction_date,
       narration: tx.narration,
       amount: Math.abs(tx.amount),
       transaction_type: tx.transaction_type,
@@ -513,7 +561,11 @@ Respond with JSON array only, no explanation:
     const summary = {
       total: classifiedTransactions.length,
       byCategory: {} as Record<string, number>,
-      lowConfidence: classifiedTransactions.filter(t => t.confidence < 70).length
+      lowConfidence: classifiedTransactions.filter(t => t.confidence < 70).length,
+      rejected: {
+        total: rejectedRows.length,
+        breakdown: rejectionBreakdown
+      }
     };
 
     classifiedTransactions.forEach(tx => {
@@ -525,7 +577,8 @@ Respond with JSON array only, no explanation:
     return new Response(JSON.stringify({
       success: true,
       summary,
-      transactions: classifiedTransactions
+      transactions: classifiedTransactions,
+      rejectedRows: rejectedRows.slice(0, 20) // Include sample for debugging
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
