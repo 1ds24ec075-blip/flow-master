@@ -122,6 +122,19 @@ export default function SmartSegregation() {
     totalCredit: number;
   } | null>(null);
 
+  // Matched parties state (real-time matching without voucher generation)
+  interface MatchedParty {
+    transactionId: string;
+    transactionDate: string;
+    narration: string;
+    amount: number;
+    transactionType: 'debit' | 'credit';
+    partyName: string;
+    partyType: 'customer' | 'supplier';
+    matchType: 'upi' | 'bank';
+  }
+  const [matchedParties, setMatchedParties] = useState<MatchedParty[]>([]);
+
   // Voucher state
   const [activeTab, setActiveTab] = useState("transactions");
   const [vouchers, setVouchers] = useState<TallyVoucher[]>([]);
@@ -240,11 +253,75 @@ export default function SmartSegregation() {
       }));
       setTransactions(typedData);
       calculateSummary(typedData);
+      
+      // Run real-time party matching
+      await matchPartiesRealTime(typedData);
     }
 
     // Also fetch existing vouchers
     await fetchVouchers(uploadId);
   };
+
+  // Real-time party matching without voucher generation
+  const matchPartiesRealTime = async (txns: Transaction[]) => {
+    // Fetch customers for credit matching
+    const { data: customers } = await supabase
+      .from('customer_master')
+      .select('customer_name, bank_account, upi_payment_patterns, tally_ledger_name')
+      .eq('is_active', true);
+
+    // Fetch suppliers for debit matching
+    const { data: suppliers } = await supabase
+      .from('suppliers')
+      .select('name, bank_account, upi_payment_patterns');
+
+    const matched: MatchedParty[] = [];
+
+    for (const tx of txns) {
+      if (!tx.id) continue;
+      
+      // Skip excluded transactions
+      if (shouldExcludeTransaction(tx.narration, tx.amount)) continue;
+
+      // Check for customer match (credits)
+      if (tx.transaction_type === 'credit' && customers && customers.length > 0) {
+        const customerMatch = matchCustomerStrict(tx.narration, customers);
+        if (customerMatch.status === 'matched' && customerMatch.matchType !== 'none') {
+          matched.push({
+            transactionId: tx.id,
+            transactionDate: tx.transaction_date,
+            narration: tx.narration,
+            amount: tx.amount,
+            transactionType: tx.transaction_type,
+            partyName: customerMatch.customerName,
+            partyType: 'customer',
+            matchType: customerMatch.matchType as 'upi' | 'bank'
+          });
+          continue; // Skip supplier check if customer matched
+        }
+      }
+
+      // Check for supplier match (debits)
+      if (tx.transaction_type === 'debit' && suppliers && suppliers.length > 0) {
+        const supplierMatch = matchSupplierStrict(tx.narration, suppliers);
+        if (supplierMatch.status === 'matched' && supplierMatch.matchType !== 'none') {
+          matched.push({
+            transactionId: tx.id,
+            transactionDate: tx.transaction_date,
+            narration: tx.narration,
+            amount: tx.amount,
+            transactionType: tx.transaction_type,
+            partyName: supplierMatch.supplierName,
+            partyType: 'supplier',
+            matchType: supplierMatch.matchType as 'upi' | 'bank'
+          });
+        }
+      }
+    }
+
+    setMatchedParties(matched);
+  };
+
 
   const fetchVouchers = async (uploadId: string) => {
     const { data } = await supabase
@@ -1383,7 +1460,7 @@ export default function SmartSegregation() {
                   </TabsTrigger>
                   <TabsTrigger value="matched" className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4" />
-                    Matched Parties ({vouchers.filter(v => v.flag_reason?.includes('Matched Customer') || v.flag_reason?.includes('Matched Supplier')).length})
+                    Matched Parties ({matchedParties.length})
                   </TabsTrigger>
                   <TabsTrigger value="vouchers" className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
@@ -1514,11 +1591,11 @@ export default function SmartSegregation() {
 
               {/* Matched Parties Tab */}
               <TabsContent value="matched" className="space-y-4">
-                {vouchers.length === 0 ? (
+                {matchedParties.length === 0 ? (
                   <Card>
                     <CardContent className="pt-6 text-center">
                       <p className="text-muted-foreground">
-                        Generate Tally Vouchers first to see matched transactions
+                        No matched parties found. Add UPI patterns or Bank Account numbers to Customer/Supplier Master to enable matching.
                       </p>
                     </CardContent>
                   </Card>
@@ -1529,7 +1606,7 @@ export default function SmartSegregation() {
                       <Card>
                         <CardContent className="pt-4">
                           <div className="text-2xl font-bold text-green-500">
-                            {vouchers.filter(v => v.narration?.includes('Matched Customer')).length}
+                            {matchedParties.filter(m => m.partyType === 'customer').length}
                           </div>
                           <div className="text-sm text-muted-foreground">Customer Matches</div>
                         </CardContent>
@@ -1537,7 +1614,7 @@ export default function SmartSegregation() {
                       <Card>
                         <CardContent className="pt-4">
                           <div className="text-2xl font-bold text-blue-500">
-                            {vouchers.filter(v => v.narration?.includes('Matched Supplier')).length}
+                            {matchedParties.filter(m => m.partyType === 'supplier').length}
                           </div>
                           <div className="text-sm text-muted-foreground">Supplier Matches</div>
                         </CardContent>
@@ -1545,7 +1622,7 @@ export default function SmartSegregation() {
                       <Card>
                         <CardContent className="pt-4">
                           <div className="text-2xl font-bold text-purple-500">
-                            {vouchers.filter(v => v.narration?.includes('(UPI)')).length}
+                            {matchedParties.filter(m => m.matchType === 'upi').length}
                           </div>
                           <div className="text-sm text-muted-foreground">UPI Matches</div>
                         </CardContent>
@@ -1553,7 +1630,7 @@ export default function SmartSegregation() {
                       <Card>
                         <CardContent className="pt-4">
                           <div className="text-2xl font-bold text-orange-500">
-                            {vouchers.filter(v => v.narration?.includes('(BANK)')).length}
+                            {matchedParties.filter(m => m.matchType === 'bank').length}
                           </div>
                           <div className="text-sm text-muted-foreground">Bank A/c Matches</div>
                         </CardContent>
@@ -1572,7 +1649,7 @@ export default function SmartSegregation() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        {vouchers.filter(v => v.narration?.includes('Matched Customer')).length === 0 ? (
+                        {matchedParties.filter(m => m.partyType === 'customer').length === 0 ? (
                           <p className="text-muted-foreground text-sm">No customer matches found</p>
                         ) : (
                           <div className="rounded-md border">
@@ -1580,33 +1657,32 @@ export default function SmartSegregation() {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="w-[100px]">Date</TableHead>
-                                  <TableHead>Party Ledger</TableHead>
+                                  <TableHead>Customer Name</TableHead>
                                   <TableHead>Match Type</TableHead>
                                   <TableHead className="text-right">Amount</TableHead>
-                                  <TableHead>Status</TableHead>
+                                  <TableHead>Narration</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {vouchers
-                                  .filter(v => v.flag_reason?.includes('Matched Customer'))
-                                  .map((v) => {
-                                    const matchType = v.flag_reason?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
-                                    return (
-                                      <TableRow key={v.id}>
-                                        <TableCell className="text-sm">{v.voucher_date}</TableCell>
-                                        <TableCell className="font-medium">{v.party_ledger}</TableCell>
-                                        <TableCell>
-                                          <Badge variant="outline" className={matchType === 'UPI' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
-                                            {matchType}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium text-green-600">
-                                          ₹{v.amount.toLocaleString('en-IN')}
-                                        </TableCell>
-                                        <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
+                                {matchedParties
+                                  .filter(m => m.partyType === 'customer')
+                                  .map((m) => (
+                                    <TableRow key={m.transactionId}>
+                                      <TableCell className="text-sm">{m.transactionDate}</TableCell>
+                                      <TableCell className="font-medium">{m.partyName}</TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className={m.matchType === 'upi' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
+                                          {m.matchType.toUpperCase()}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-green-600">
+                                        ₹{m.amount.toLocaleString('en-IN')}
+                                      </TableCell>
+                                      <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={m.narration}>
+                                        {m.narration}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
                               </TableBody>
                             </Table>
                           </div>
@@ -1626,7 +1702,7 @@ export default function SmartSegregation() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        {vouchers.filter(v => v.flag_reason?.includes('Matched Supplier')).length === 0 ? (
+                        {matchedParties.filter(m => m.partyType === 'supplier').length === 0 ? (
                           <p className="text-muted-foreground text-sm">No supplier matches found</p>
                         ) : (
                           <div className="rounded-md border">
@@ -1634,33 +1710,32 @@ export default function SmartSegregation() {
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="w-[100px]">Date</TableHead>
-                                  <TableHead>Party Ledger</TableHead>
+                                  <TableHead>Supplier Name</TableHead>
                                   <TableHead>Match Type</TableHead>
                                   <TableHead className="text-right">Amount</TableHead>
-                                  <TableHead>Status</TableHead>
+                                  <TableHead>Narration</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {vouchers
-                                  .filter(v => v.flag_reason?.includes('Matched Supplier'))
-                                  .map((v) => {
-                                    const matchType = v.flag_reason?.includes('(UPI)') ? 'UPI' : 'Bank A/c';
-                                    return (
-                                      <TableRow key={v.id}>
-                                        <TableCell className="text-sm">{v.voucher_date}</TableCell>
-                                        <TableCell className="font-medium">{v.party_ledger}</TableCell>
-                                        <TableCell>
-                                          <Badge variant="outline" className={matchType === 'UPI' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
-                                            {matchType}
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium text-destructive">
-                                          ₹{v.amount.toLocaleString('en-IN')}
-                                        </TableCell>
-                                        <TableCell>{getVoucherStatusBadge(v.status)}</TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
+                                {matchedParties
+                                  .filter(m => m.partyType === 'supplier')
+                                  .map((m) => (
+                                    <TableRow key={m.transactionId}>
+                                      <TableCell className="text-sm">{m.transactionDate}</TableCell>
+                                      <TableCell className="font-medium">{m.partyName}</TableCell>
+                                      <TableCell>
+                                        <Badge variant="outline" className={m.matchType === 'upi' ? 'border-purple-500 text-purple-600' : 'border-orange-500 text-orange-600'}>
+                                          {m.matchType.toUpperCase()}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-destructive">
+                                        ₹{m.amount.toLocaleString('en-IN')}
+                                      </TableCell>
+                                      <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={m.narration}>
+                                        {m.narration}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
                               </TableBody>
                             </Table>
                           </div>
