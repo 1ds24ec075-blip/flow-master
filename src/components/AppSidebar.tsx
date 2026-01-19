@@ -9,7 +9,6 @@ import {
   Upload,
   ScanLine,
   Bot,
-  Landmark,
   Camera,
   TrendingDown,
   Mail,
@@ -43,7 +42,7 @@ const navigationItems = [
   { title: "Client Invoices", url: "/client-invoices", icon: FileCheck },
   { title: "Approvals", url: "/approvals", icon: CheckCircle },
   { title: "Tally Upload", url: "/tally-upload", icon: Upload },
-  { title: "Bank Statement Parser", url: "/bank-statement-parser", icon: Landmark },
+  
   { title: "Bills", url: "/bills", icon: Camera },
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
