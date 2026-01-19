@@ -1467,6 +1467,7 @@ export type Database = {
           flag_reason: string | null
           id: string
           is_duplicate: boolean | null
+          is_manual: boolean | null
           narration: string | null
           party_ledger: string | null
           payment_mode: string | null
@@ -1486,6 +1487,7 @@ export type Database = {
           flag_reason?: string | null
           id?: string
           is_duplicate?: boolean | null
+          is_manual?: boolean | null
           narration?: string | null
           party_ledger?: string | null
           payment_mode?: string | null
@@ -1505,6 +1507,7 @@ export type Database = {
           flag_reason?: string | null
           id?: string
           is_duplicate?: boolean | null
+          is_manual?: boolean | null
           narration?: string | null
           party_ledger?: string | null
           payment_mode?: string | null
