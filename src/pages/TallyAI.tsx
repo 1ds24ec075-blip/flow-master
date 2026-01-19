@@ -433,7 +433,7 @@ export default function TallyAI() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <Trash2 className="h-4 w-4" />
