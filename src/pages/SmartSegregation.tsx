@@ -1900,33 +1900,33 @@ export default function SmartSegregation() {
                           Add Manual Voucher
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="sm:max-w-lg">
-                        <DialogHeader className="pb-4 border-b">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                              <PenLine className="h-5 w-5 text-purple-600" />
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader className="pb-3 border-b">
+                          <div className="flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-md bg-purple-100 flex items-center justify-center">
+                              <PenLine className="h-4 w-4 text-purple-600" />
                             </div>
                             <div>
-                              <DialogTitle className="text-lg font-semibold">Add Manual Voucher</DialogTitle>
-                              <DialogDescription className="text-sm mt-0.5">
-                                Create a voucher entry manually. These will be highlighted in purple.
+                              <DialogTitle className="text-base font-semibold">Add Manual Voucher</DialogTitle>
+                              <DialogDescription className="text-xs">
+                                Highlighted in purple for identification.
                               </DialogDescription>
                             </div>
                           </div>
                         </DialogHeader>
 
-                        <div className="space-y-6 py-4">
-                          {/* Basic Info Section */}
-                          <div className="space-y-4">
-                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Basic Information</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Voucher Type <span className="text-destructive">*</span></Label>
+                        <div className="space-y-3 py-3 max-h-[60vh] overflow-y-auto">
+                          {/* Basic Info */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Basic Info</h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Voucher Type <span className="text-destructive">*</span></Label>
                                 <Select 
                                   value={manualVoucher.voucher_type} 
                                   onValueChange={(val) => setManualVoucher(prev => ({ ...prev, voucher_type: val as any }))}
                                 >
-                                  <SelectTrigger className="h-10">
+                                  <SelectTrigger className="h-9">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1937,24 +1937,24 @@ export default function SmartSegregation() {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Date <span className="text-destructive">*</span></Label>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Date <span className="text-destructive">*</span></Label>
                                 <Input 
                                   type="date"
-                                  className="h-10"
+                                  className="h-9"
                                   value={manualVoucher.voucher_date}
                                   onChange={(e) => setManualVoucher(prev => ({ ...prev, voucher_date: e.target.value }))}
                                 />
                               </div>
                             </div>
-                            <div className="space-y-2">
-                              <Label className="text-sm font-medium">Amount (₹) <span className="text-destructive">*</span></Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Amount (₹) <span className="text-destructive">*</span></Label>
                               <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">₹</span>
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
                                 <Input 
                                   type="number"
                                   placeholder="0.00"
-                                  className="h-10 pl-8 text-lg font-semibold"
+                                  className="h-9 pl-7 font-medium"
                                   value={manualVoucher.amount}
                                   onChange={(e) => setManualVoucher(prev => ({ ...prev, amount: e.target.value }))}
                                 />
@@ -1962,18 +1962,18 @@ export default function SmartSegregation() {
                             </div>
                           </div>
 
-                          {/* Ledger Section */}
-                          <div className="space-y-4">
-                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Ledger Details</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Bank/Cash Ledger <span className="text-destructive">*</span></Label>
+                          {/* Ledgers */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Ledgers</h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Bank/Cash <span className="text-destructive">*</span></Label>
                                 <Select 
                                   value={manualVoucher.bank_ledger} 
                                   onValueChange={(val) => setManualVoucher(prev => ({ ...prev, bank_ledger: val }))}
                                 >
-                                  <SelectTrigger className="h-10">
-                                    <SelectValue placeholder="Select ledger" />
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Select" />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {ledgers.filter(l => l.ledger_type === 'Bank' || l.ledger_type === 'Cash').map(l => (
@@ -1982,14 +1982,14 @@ export default function SmartSegregation() {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Party/Expense Ledger <span className="text-destructive">*</span></Label>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Party/Expense <span className="text-destructive">*</span></Label>
                                 <Select 
                                   value={manualVoucher.party_ledger} 
                                   onValueChange={(val) => setManualVoucher(prev => ({ ...prev, party_ledger: val }))}
                                 >
-                                  <SelectTrigger className="h-10">
-                                    <SelectValue placeholder="Select ledger" />
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue placeholder="Select" />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {ledgers.map(l => (
@@ -2001,17 +2001,17 @@ export default function SmartSegregation() {
                             </div>
                           </div>
 
-                          {/* Transaction Details Section */}
-                          <div className="space-y-4">
-                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Transaction Details</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Payment Mode</Label>
+                          {/* Transaction Details */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Details</h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Payment Mode</Label>
                                 <Select 
                                   value={manualVoucher.payment_mode} 
                                   onValueChange={(val) => setManualVoucher(prev => ({ ...prev, payment_mode: val }))}
                                 >
-                                  <SelectTrigger className="h-10">
+                                  <SelectTrigger className="h-9">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -2023,21 +2023,21 @@ export default function SmartSegregation() {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm font-medium">Reference No.</Label>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Reference No.</Label>
                                 <Input 
                                   placeholder="Optional"
-                                  className="h-10"
+                                  className="h-9"
                                   value={manualVoucher.reference_number}
                                   onChange={(e) => setManualVoucher(prev => ({ ...prev, reference_number: e.target.value }))}
                                 />
                               </div>
                             </div>
-                            <div className="space-y-2">
-                              <Label className="text-sm font-medium">Narration</Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Narration</Label>
                               <Input 
-                                placeholder="Add a description for this voucher"
-                                className="h-10"
+                                placeholder="Description (optional)"
+                                className="h-9"
                                 value={manualVoucher.narration}
                                 onChange={(e) => setManualVoucher(prev => ({ ...prev, narration: e.target.value }))}
                               />
@@ -2045,12 +2045,12 @@ export default function SmartSegregation() {
                           </div>
                         </div>
 
-                        <DialogFooter className="pt-4 border-t gap-2 sm:gap-0">
-                          <Button variant="outline" onClick={() => setShowManualVoucherDialog(false)}>
+                        <DialogFooter className="pt-3 border-t gap-2 sm:gap-0">
+                          <Button variant="outline" size="sm" onClick={() => setShowManualVoucherDialog(false)}>
                             Cancel
                           </Button>
-                          <Button onClick={createManualVoucher} className="bg-purple-600 hover:bg-purple-700">
-                            <Plus className="h-4 w-4 mr-2" />
+                          <Button size="sm" onClick={createManualVoucher} className="bg-purple-600 hover:bg-purple-700">
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />
                             Create Voucher
                           </Button>
                         </DialogFooter>
