@@ -13,7 +13,7 @@ import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
 import TallyAI from "./pages/TallyAI";
-import BankStatementParser from "./pages/BankStatementParser";
+
 import Bills from "./pages/Bills";
 import Expenses from "./pages/Expenses";
 import GmailIntegration from "./pages/GmailIntegration";
@@ -45,7 +45,7 @@ const App = () => (
           <Route path="/approvals" element={<Layout><Approvals /></Layout>} />
           <Route path="/tally-upload" element={<Layout><TallyUpload /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
-          <Route path="/bank-statement-parser" element={<Layout><BankStatementParser /></Layout>} />
+          
           <Route path="/bills" element={<Layout><Bills /></Layout>} />
           <Route path="/expenses" element={<Layout><Expenses /></Layout>} />
           <Route path="/gmail-integration" element={<Layout><GmailIntegration /></Layout>} />
