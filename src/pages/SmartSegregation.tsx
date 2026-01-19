@@ -13,8 +13,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { 
   Upload, Download, Filter, AlertCircle, CheckCircle, TrendingUp, TrendingDown, 
   ArrowLeftRight, User, HelpCircle, FileText, Flag, Check, X, Receipt, 
-  CreditCard, ArrowUpDown, Banknote, Trash2
+  CreditCard, ArrowUpDown, Banknote, Trash2, Plus, PenLine
 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -45,6 +46,7 @@ interface TallyVoucher {
   status: 'draft' | 'flagged' | 'approved' | 'created';
   flag_reason?: string;
   is_duplicate: boolean;
+  is_manual?: boolean;
 }
 
 interface Ledger {
@@ -141,6 +143,19 @@ export default function SmartSegregation() {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [voucherFilter, setVoucherFilter] = useState<string>("all");
   const [isGeneratingVouchers, setIsGeneratingVouchers] = useState(false);
+
+  // Manual voucher form state
+  const [showManualVoucherDialog, setShowManualVoucherDialog] = useState(false);
+  const [manualVoucher, setManualVoucher] = useState({
+    voucher_type: 'Payment' as 'Payment' | 'Receipt' | 'Contra' | 'Journal',
+    voucher_date: new Date().toISOString().split('T')[0],
+    amount: '',
+    bank_ledger: '',
+    party_ledger: '',
+    reference_number: '',
+    narration: '',
+    payment_mode: 'NEFT/RTGS'
+  });
 
   useEffect(() => {
     fetchUploadHistory();
@@ -880,6 +895,62 @@ export default function SmartSegregation() {
     
     toast.success('Exported vouchers for Tally import');
   };
+
+  // Create manual voucher
+  const createManualVoucher = async () => {
+    if (!manualVoucher.amount || !manualVoucher.bank_ledger || !manualVoucher.party_ledger) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    const amount = parseFloat(manualVoucher.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    const newVoucher = {
+      upload_id: currentUploadId,
+      voucher_type: manualVoucher.voucher_type,
+      voucher_date: manualVoucher.voucher_date,
+      amount: amount,
+      bank_ledger: manualVoucher.bank_ledger,
+      party_ledger: manualVoucher.party_ledger,
+      reference_number: manualVoucher.reference_number || `MANUAL-${Date.now()}`,
+      narration: manualVoucher.narration || `Manual ${manualVoucher.voucher_type} voucher`,
+      payment_mode: manualVoucher.payment_mode,
+      status: 'draft',
+      is_duplicate: false,
+      is_manual: true
+    };
+
+    const { data, error } = await supabase
+      .from('tally_vouchers')
+      .insert([newVoucher])
+      .select()
+      .single();
+
+    if (error) {
+      toast.error('Failed to create voucher');
+      console.error(error);
+      return;
+    }
+
+    setVouchers(prev => [data as TallyVoucher, ...prev]);
+    setShowManualVoucherDialog(false);
+    setManualVoucher({
+      voucher_type: 'Payment',
+      voucher_date: new Date().toISOString().split('T')[0],
+      amount: '',
+      bank_ledger: '',
+      party_ledger: '',
+      reference_number: '',
+      narration: '',
+      payment_mode: 'NEFT/RTGS'
+    });
+    toast.success('Manual voucher created');
+  };
+
 
   const parseExcelFile = async (file: File): Promise<Transaction[]> => {
     return new Promise((resolve, reject) => {
@@ -1821,10 +1892,146 @@ export default function SmartSegregation() {
                       </Select>
                     </div>
                   </div>
-                  <Button onClick={exportVouchersToExcel} variant="outline">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export for Tally
-                  </Button>
+                  <div className="flex gap-2">
+                    <Dialog open={showManualVoucherDialog} onOpenChange={setShowManualVoucherDialog}>
+                      <DialogTrigger asChild>
+                        <Button variant="default" className="bg-primary">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Manual Voucher
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2">
+                            <PenLine className="h-5 w-5" />
+                            Add Manual Voucher
+                          </DialogTitle>
+                          <DialogDescription>
+                            Manually create a voucher entry. These will be highlighted in purple for easy identification.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="voucher_type">Voucher Type *</Label>
+                              <Select 
+                                value={manualVoucher.voucher_type} 
+                                onValueChange={(val) => setManualVoucher(prev => ({ ...prev, voucher_type: val as any }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Payment">Payment</SelectItem>
+                                  <SelectItem value="Receipt">Receipt</SelectItem>
+                                  <SelectItem value="Contra">Contra</SelectItem>
+                                  <SelectItem value="Journal">Journal</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="voucher_date">Date *</Label>
+                              <Input 
+                                type="date"
+                                value={manualVoucher.voucher_date}
+                                onChange={(e) => setManualVoucher(prev => ({ ...prev, voucher_date: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="amount">Amount (₹) *</Label>
+                            <Input 
+                              type="number"
+                              placeholder="Enter amount"
+                              value={manualVoucher.amount}
+                              onChange={(e) => setManualVoucher(prev => ({ ...prev, amount: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="bank_ledger">Bank/Cash Ledger *</Label>
+                            <Select 
+                              value={manualVoucher.bank_ledger} 
+                              onValueChange={(val) => setManualVoucher(prev => ({ ...prev, bank_ledger: val }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select bank/cash ledger" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ledgers.filter(l => l.ledger_type === 'Bank' || l.ledger_type === 'Cash').map(l => (
+                                  <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="party_ledger">Party/Expense Ledger *</Label>
+                            <Select 
+                              value={manualVoucher.party_ledger} 
+                              onValueChange={(val) => setManualVoucher(prev => ({ ...prev, party_ledger: val }))}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select party/expense ledger" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ledgers.map(l => (
+                                  <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="payment_mode">Payment Mode</Label>
+                              <Select 
+                                value={manualVoucher.payment_mode} 
+                                onValueChange={(val) => setManualVoucher(prev => ({ ...prev, payment_mode: val }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="NEFT/RTGS">NEFT/RTGS</SelectItem>
+                                  <SelectItem value="UPI">UPI</SelectItem>
+                                  <SelectItem value="Cheque">Cheque</SelectItem>
+                                  <SelectItem value="Cash">Cash</SelectItem>
+                                  <SelectItem value="Card">Card</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="reference_number">Reference No.</Label>
+                              <Input 
+                                placeholder="Optional"
+                                value={manualVoucher.reference_number}
+                                onChange={(e) => setManualVoucher(prev => ({ ...prev, reference_number: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="narration">Narration</Label>
+                            <Input 
+                              placeholder="Description for this voucher"
+                              value={manualVoucher.narration}
+                              onChange={(e) => setManualVoucher(prev => ({ ...prev, narration: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setShowManualVoucherDialog(false)}>
+                            Cancel
+                          </Button>
+                          <Button onClick={createManualVoucher}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create Voucher
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                    <Button onClick={exportVouchersToExcel} variant="outline">
+                      <Download className="h-4 w-4 mr-2" />
+                      Export for Tally
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Vouchers Table */}
@@ -1855,13 +2062,25 @@ export default function SmartSegregation() {
                           {filteredVouchers.map((voucher) => (
                             <TableRow 
                               key={voucher.id}
-                              className={voucher.status === 'flagged' ? 'bg-red-50 dark:bg-red-950/20' : ''}
+                              className={
+                                voucher.is_manual 
+                                  ? 'bg-purple-50 dark:bg-purple-950/30 border-l-4 border-l-purple-500' 
+                                  : voucher.status === 'flagged' 
+                                    ? 'bg-red-50 dark:bg-red-950/20' 
+                                    : ''
+                              }
                             >
                               <TableCell className="text-sm">{voucher.voucher_date}</TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">
                                   {voucherTypeIcons[voucher.voucher_type]}
                                   <span className="text-sm">{voucher.voucher_type}</span>
+                                  {voucher.is_manual && (
+                                    <Badge className="bg-purple-500 text-white text-xs px-1.5 py-0.5">
+                                      <PenLine className="h-3 w-3 mr-1" />
+                                      MANUAL
+                                    </Badge>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell className="text-right font-medium">
