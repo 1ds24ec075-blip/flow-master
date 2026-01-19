@@ -1900,127 +1900,156 @@ export default function SmartSegregation() {
                           Add Manual Voucher
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-md">
-                        <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2">
-                            <PenLine className="h-5 w-5" />
-                            Add Manual Voucher
-                          </DialogTitle>
-                          <DialogDescription>
-                            Manually create a voucher entry. These will be highlighted in purple for easy identification.
-                          </DialogDescription>
+                      <DialogContent className="sm:max-w-lg">
+                        <DialogHeader className="pb-4 border-b">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                              <PenLine className="h-5 w-5 text-purple-600" />
+                            </div>
+                            <div>
+                              <DialogTitle className="text-lg font-semibold">Add Manual Voucher</DialogTitle>
+                              <DialogDescription className="text-sm mt-0.5">
+                                Create a voucher entry manually. These will be highlighted in purple.
+                              </DialogDescription>
+                            </div>
+                          </div>
                         </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="voucher_type">Voucher Type *</Label>
-                              <Select 
-                                value={manualVoucher.voucher_type} 
-                                onValueChange={(val) => setManualVoucher(prev => ({ ...prev, voucher_type: val as any }))}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Payment">Payment</SelectItem>
-                                  <SelectItem value="Receipt">Receipt</SelectItem>
-                                  <SelectItem value="Contra">Contra</SelectItem>
-                                  <SelectItem value="Journal">Journal</SelectItem>
-                                </SelectContent>
-                              </Select>
+
+                        <div className="space-y-6 py-4">
+                          {/* Basic Info Section */}
+                          <div className="space-y-4">
+                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Basic Information</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Voucher Type <span className="text-destructive">*</span></Label>
+                                <Select 
+                                  value={manualVoucher.voucher_type} 
+                                  onValueChange={(val) => setManualVoucher(prev => ({ ...prev, voucher_type: val as any }))}
+                                >
+                                  <SelectTrigger className="h-10">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Payment">Payment</SelectItem>
+                                    <SelectItem value="Receipt">Receipt</SelectItem>
+                                    <SelectItem value="Contra">Contra</SelectItem>
+                                    <SelectItem value="Journal">Journal</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Date <span className="text-destructive">*</span></Label>
+                                <Input 
+                                  type="date"
+                                  className="h-10"
+                                  value={manualVoucher.voucher_date}
+                                  onChange={(e) => setManualVoucher(prev => ({ ...prev, voucher_date: e.target.value }))}
+                                />
+                              </div>
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor="voucher_date">Date *</Label>
+                              <Label className="text-sm font-medium">Amount (₹) <span className="text-destructive">*</span></Label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">₹</span>
+                                <Input 
+                                  type="number"
+                                  placeholder="0.00"
+                                  className="h-10 pl-8 text-lg font-semibold"
+                                  value={manualVoucher.amount}
+                                  onChange={(e) => setManualVoucher(prev => ({ ...prev, amount: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Ledger Section */}
+                          <div className="space-y-4">
+                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Ledger Details</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Bank/Cash Ledger <span className="text-destructive">*</span></Label>
+                                <Select 
+                                  value={manualVoucher.bank_ledger} 
+                                  onValueChange={(val) => setManualVoucher(prev => ({ ...prev, bank_ledger: val }))}
+                                >
+                                  <SelectTrigger className="h-10">
+                                    <SelectValue placeholder="Select ledger" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ledgers.filter(l => l.ledger_type === 'Bank' || l.ledger_type === 'Cash').map(l => (
+                                      <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Party/Expense Ledger <span className="text-destructive">*</span></Label>
+                                <Select 
+                                  value={manualVoucher.party_ledger} 
+                                  onValueChange={(val) => setManualVoucher(prev => ({ ...prev, party_ledger: val }))}
+                                >
+                                  <SelectTrigger className="h-10">
+                                    <SelectValue placeholder="Select ledger" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ledgers.map(l => (
+                                      <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Transaction Details Section */}
+                          <div className="space-y-4">
+                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Transaction Details</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Payment Mode</Label>
+                                <Select 
+                                  value={manualVoucher.payment_mode} 
+                                  onValueChange={(val) => setManualVoucher(prev => ({ ...prev, payment_mode: val }))}
+                                >
+                                  <SelectTrigger className="h-10">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="NEFT/RTGS">NEFT/RTGS</SelectItem>
+                                    <SelectItem value="UPI">UPI</SelectItem>
+                                    <SelectItem value="Cheque">Cheque</SelectItem>
+                                    <SelectItem value="Cash">Cash</SelectItem>
+                                    <SelectItem value="Card">Card</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Reference No.</Label>
+                                <Input 
+                                  placeholder="Optional"
+                                  className="h-10"
+                                  value={manualVoucher.reference_number}
+                                  onChange={(e) => setManualVoucher(prev => ({ ...prev, reference_number: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Narration</Label>
                               <Input 
-                                type="date"
-                                value={manualVoucher.voucher_date}
-                                onChange={(e) => setManualVoucher(prev => ({ ...prev, voucher_date: e.target.value }))}
+                                placeholder="Add a description for this voucher"
+                                className="h-10"
+                                value={manualVoucher.narration}
+                                onChange={(e) => setManualVoucher(prev => ({ ...prev, narration: e.target.value }))}
                               />
                             </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="amount">Amount (₹) *</Label>
-                            <Input 
-                              type="number"
-                              placeholder="Enter amount"
-                              value={manualVoucher.amount}
-                              onChange={(e) => setManualVoucher(prev => ({ ...prev, amount: e.target.value }))}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="bank_ledger">Bank/Cash Ledger *</Label>
-                            <Select 
-                              value={manualVoucher.bank_ledger} 
-                              onValueChange={(val) => setManualVoucher(prev => ({ ...prev, bank_ledger: val }))}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select bank/cash ledger" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ledgers.filter(l => l.ledger_type === 'Bank' || l.ledger_type === 'Cash').map(l => (
-                                  <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="party_ledger">Party/Expense Ledger *</Label>
-                            <Select 
-                              value={manualVoucher.party_ledger} 
-                              onValueChange={(val) => setManualVoucher(prev => ({ ...prev, party_ledger: val }))}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select party/expense ledger" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ledgers.map(l => (
-                                  <SelectItem key={l.id} value={l.ledger_name}>{l.ledger_name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="payment_mode">Payment Mode</Label>
-                              <Select 
-                                value={manualVoucher.payment_mode} 
-                                onValueChange={(val) => setManualVoucher(prev => ({ ...prev, payment_mode: val }))}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="NEFT/RTGS">NEFT/RTGS</SelectItem>
-                                  <SelectItem value="UPI">UPI</SelectItem>
-                                  <SelectItem value="Cheque">Cheque</SelectItem>
-                                  <SelectItem value="Cash">Cash</SelectItem>
-                                  <SelectItem value="Card">Card</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="reference_number">Reference No.</Label>
-                              <Input 
-                                placeholder="Optional"
-                                value={manualVoucher.reference_number}
-                                onChange={(e) => setManualVoucher(prev => ({ ...prev, reference_number: e.target.value }))}
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="narration">Narration</Label>
-                            <Input 
-                              placeholder="Description for this voucher"
-                              value={manualVoucher.narration}
-                              onChange={(e) => setManualVoucher(prev => ({ ...prev, narration: e.target.value }))}
-                            />
                           </div>
                         </div>
-                        <DialogFooter>
+
+                        <DialogFooter className="pt-4 border-t gap-2 sm:gap-0">
                           <Button variant="outline" onClick={() => setShowManualVoucherDialog(false)}>
                             Cancel
                           </Button>
-                          <Button onClick={createManualVoucher}>
+                          <Button onClick={createManualVoucher} className="bg-purple-600 hover:bg-purple-700">
                             <Plus className="h-4 w-4 mr-2" />
                             Create Voucher
                           </Button>
