@@ -7,7 +7,6 @@ import {
   FileCheck,
   CheckCircle,
   Upload,
-  ScanLine,
   Bot,
   Camera,
   TrendingDown,
@@ -15,6 +14,7 @@ import {
   ClipboardList,
   Sparkles,
   FileSpreadsheet,
+  LogIn,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -47,6 +47,7 @@ const navigationItems = [
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
   { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
+  { title: "Sign In", url: "/auth", icon: LogIn },
 ];
 
 export function AppSidebar() {
