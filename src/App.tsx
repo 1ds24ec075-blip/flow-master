@@ -13,7 +13,7 @@ import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
 import TallyAI from "./pages/TallyAI";
-
+import Auth from "./pages/Auth";
 import Bills from "./pages/Bills";
 import Expenses from "./pages/Expenses";
 import GmailIntegration from "./pages/GmailIntegration";
@@ -36,6 +36,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/clients" element={<Layout><Clients /></Layout>} />
           <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
