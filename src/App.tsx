@@ -13,7 +13,7 @@ import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
 import TallyAI from "./pages/TallyAI";
-import Auth from "./pages/Auth";
+import Auth from "@/pages/Auth";
 import Bills from "./pages/Bills";
 import Expenses from "./pages/Expenses";
 import GmailIntegration from "./pages/GmailIntegration";
