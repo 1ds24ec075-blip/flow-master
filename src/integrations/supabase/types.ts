@@ -685,6 +685,62 @@ export type Database = {
         }
         Relationships: []
       }
+      liquidity_line_items: {
+        Row: {
+          actual_amount: number | null
+          created_at: string
+          description: string
+          due_date: string | null
+          expected_amount: number
+          id: string
+          item_type: string
+          linked_invoice_id: string | null
+          linked_invoice_type: string | null
+          liquidity_week_id: string
+          payment_date: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          actual_amount?: number | null
+          created_at?: string
+          description: string
+          due_date?: string | null
+          expected_amount?: number
+          id?: string
+          item_type: string
+          linked_invoice_id?: string | null
+          linked_invoice_type?: string | null
+          liquidity_week_id: string
+          payment_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          actual_amount?: number | null
+          created_at?: string
+          description?: string
+          due_date?: string | null
+          expected_amount?: number
+          id?: string
+          item_type?: string
+          linked_invoice_id?: string | null
+          linked_invoice_type?: string | null
+          liquidity_week_id?: string
+          payment_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "liquidity_line_items_liquidity_week_id_fkey"
+            columns: ["liquidity_week_id"]
+            isOneToOne: false
+            referencedRelation: "weekly_liquidity"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -1682,6 +1738,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      weekly_liquidity: {
+        Row: {
+          alert_threshold: number | null
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          opening_balance: number | null
+          updated_at: string
+          week_start_date: string
+        }
+        Insert: {
+          alert_threshold?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          opening_balance?: number | null
+          updated_at?: string
+          week_start_date: string
+        }
+        Update: {
+          alert_threshold?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          opening_balance?: number | null
+          updated_at?: string
+          week_start_date?: string
+        }
+        Relationships: []
       }
     }
     Views: {
