@@ -39,8 +39,7 @@ const navigationItems = [
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Suppliers", url: "/suppliers", icon: Package },
   { title: "Quotations", url: "/quotations", icon: FileText },
-  { title: "Raw Material Invoices", url: "/raw-material-invoices", icon: Receipt },
-  { title: "Client Invoices", url: "/client-invoices", icon: FileCheck },
+  { title: "Supplier Invoices", url: "/raw-material-invoices", icon: Receipt },
   { title: "Approvals", url: "/approvals", icon: CheckCircle },
   { title: "Tally Upload", url: "/tally-upload", icon: Upload },
   
