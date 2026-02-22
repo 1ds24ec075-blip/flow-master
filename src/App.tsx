@@ -41,11 +41,7 @@ const App = () => (
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/clients" element={<Layout><Clients /></Layout>} />
           <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
-          <Route path="/quotations" element={<Layout><Quotations /></Layout>} />
           <Route path="/raw-material-invoices" element={<Layout><RawMaterialInvoices /></Layout>} />
-          <Route path="/client-invoices" element={<Layout><ClientInvoices /></Layout>} />
-          <Route path="/approvals" element={<Layout><Approvals /></Layout>} />
-          <Route path="/tally-upload" element={<Layout><TallyUpload /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
           
           <Route path="/bills" element={<Layout><Bills /></Layout>} />
