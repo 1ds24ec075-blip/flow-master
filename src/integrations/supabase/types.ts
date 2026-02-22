@@ -1474,6 +1474,8 @@ export type Database = {
           bank_account: string | null
           bank_name: string | null
           created_at: string | null
+          credit_days: number | null
+          credit_limit: number | null
           email: string | null
           gst_number: string | null
           id: string
@@ -1488,6 +1490,8 @@ export type Database = {
           bank_account?: string | null
           bank_name?: string | null
           created_at?: string | null
+          credit_days?: number | null
+          credit_limit?: number | null
           email?: string | null
           gst_number?: string | null
           id?: string
@@ -1502,6 +1506,8 @@ export type Database = {
           bank_account?: string | null
           bank_name?: string | null
           created_at?: string | null
+          credit_days?: number | null
+          credit_limit?: number | null
           email?: string | null
           gst_number?: string | null
           id?: string
