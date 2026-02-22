@@ -66,7 +66,7 @@ interface EditableBill {
   payment_status: string;
 }
 
-export default function Bills() {
+export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
@@ -303,12 +303,14 @@ export default function Bills() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Bills Management</h1>
-        <p className="text-muted-foreground">
-          Upload and manage bill photos with automatic data extraction
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-3xl font-bold">Bills Management</h1>
+          <p className="text-muted-foreground">
+            Upload and manage bill photos with automatic data extraction
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
