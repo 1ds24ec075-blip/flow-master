@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
+import BillsExpenses from "./pages/BillsExpenses";
 import Clients from "./pages/Clients";
 import Suppliers from "./pages/Suppliers";
 import Quotations from "./pages/Quotations";
@@ -44,8 +45,7 @@ const App = () => (
           <Route path="/raw-material-invoices" element={<Layout><RawMaterialInvoices /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
           
-          <Route path="/bills" element={<Layout><Bills /></Layout>} />
-          <Route path="/expenses" element={<Layout><Expenses /></Layout>} />
+          <Route path="/bills" element={<Layout><BillsExpenses /></Layout>} />
           <Route path="/gmail-integration" element={<Layout><GmailIntegration /></Layout>} />
           <Route path="/excel-integration" element={<Layout><ExcelIntegration /></Layout>} />
           <Route path="/po-dashboard" element={<Layout><PODashboard /></Layout>} />

@@ -40,8 +40,7 @@ const navigationItems = [
   { title: "Suppliers", url: "/suppliers", icon: Package },
   { title: "Supplier Invoices", url: "/raw-material-invoices", icon: Receipt },
   
-  { title: "Bills", url: "/bills", icon: Camera },
-  { title: "Expenses", url: "/expenses", icon: TrendingDown },
+  { title: "Bills & Expenses", url: "/bills", icon: Camera },
   { title: "Liquidity Dashboard", url: "/liquidity", icon: Wallet },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
   { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },

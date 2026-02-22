@@ -71,7 +71,7 @@ interface CategoryStats {
   count: number;
 }
 
-export default function Expenses() {
+export default function Expenses({ embedded = false }: { embedded?: boolean }) {
   const [selectedMonth, setSelectedMonth] = useState(
     format(new Date(), "yyyy-MM")
   );
@@ -260,13 +260,15 @@ export default function Expenses() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Expense Tracking</h1>
-          <p className="text-muted-foreground">
-            Monitor and categorize your business expenses
-          </p>
-        </div>
-        <div className="flex items-end gap-2">
+        {!embedded && (
+          <div>
+            <h1 className="text-3xl font-bold">Expense Tracking</h1>
+            <p className="text-muted-foreground">
+              Monitor and categorize your business expenses
+            </p>
+          </div>
+        )}
+        <div className={`flex items-end gap-2 ${embedded ? "" : ""}`}>
           <div>
             <Label>Select Month</Label>
             <div className="flex gap-1 mt-1">
