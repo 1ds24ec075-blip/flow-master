@@ -38,10 +38,7 @@ const navigationItems = [
   { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Suppliers", url: "/suppliers", icon: Package },
-  { title: "Quotations", url: "/quotations", icon: FileText },
   { title: "Supplier Invoices", url: "/raw-material-invoices", icon: Receipt },
-  { title: "Approvals", url: "/approvals", icon: CheckCircle },
-  { title: "Tally Upload", url: "/tally-upload", icon: Upload },
   
   { title: "Bills", url: "/bills", icon: Camera },
   { title: "Expenses", url: "/expenses", icon: TrendingDown },
