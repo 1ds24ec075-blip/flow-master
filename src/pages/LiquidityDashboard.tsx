@@ -3,35 +3,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarIcon, DollarSign, Plus, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarIcon, DollarSign, Plus, TrendingDown, TrendingUp, Wallet, StickyNote } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useLiquidity, LiquidityLineItem } from "@/hooks/useLiquidity";
+import { LiquidityBalanceCards } from "@/components/liquidity/BalanceCards";
+import { LiquidityLineItemTable } from "@/components/liquidity/LineItemTable";
 
 function formatINR(n: number) {
   return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
-}
-
-function BalanceCard({ title, value, icon: Icon, subtitle }: { title: string; value: number; icon: any; subtitle?: string }) {
-  const isNeg = value < 0;
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <Icon className={cn("h-5 w-5", isNeg ? "text-destructive" : "text-emerald-600")} />
-      </CardHeader>
-      <CardContent>
-        <div className={cn("text-2xl font-bold", isNeg ? "text-destructive" : "text-emerald-600")}>{formatINR(value)}</div>
-        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
-      </CardContent>
-    </Card>
-  );
 }
 
 export default function LiquidityDashboard() {
@@ -40,6 +27,7 @@ export default function LiquidityDashboard() {
   const [weekDate, setWeekDate] = useState<Date | undefined>(new Date());
   const [openBal, setOpenBal] = useState("");
   const [threshold, setThreshold] = useState("");
+  const [weekNotes, setWeekNotes] = useState("");
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [itemType, setItemType] = useState<"collection" | "payment">("collection");
   const [itemDesc, setItemDesc] = useState("");
@@ -47,13 +35,17 @@ export default function LiquidityDashboard() {
   const [itemDue, setItemDue] = useState<Date | undefined>();
   const [editItem, setEditItem] = useState<LiquidityLineItem | null>(null);
   const [editActual, setEditActual] = useState("");
+  const [editPaymentDate, setEditPaymentDate] = useState<Date | undefined>();
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [editNotes, setEditNotes] = useState("");
 
   const handleCreateWeek = async () => {
     if (!weekDate) return;
-    await liq.createWeek(weekDate, Number(openBal) || 0, Number(threshold) || 0);
+    await liq.createWeek(weekDate, Number(openBal) || 0, Number(threshold) || 0, weekNotes);
     setNewWeekOpen(false);
     setOpenBal("");
     setThreshold("");
+    setWeekNotes("");
   };
 
   const handleAddItem = async () => {
@@ -73,9 +65,17 @@ export default function LiquidityDashboard() {
     if (!editItem) return;
     const amt = Number(editActual);
     const status = amt >= Number(editItem.expected_amount) ? "completed" : amt > 0 ? "partial" : "pending";
-    await liq.updateLineItem(editItem.id, { actual_amount: amt, status, payment_date: format(new Date(), "yyyy-MM-dd") });
+    const payDate = editPaymentDate ? format(editPaymentDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
+    await liq.updateLineItem(editItem.id, { actual_amount: amt, status, payment_date: payDate });
     setEditItem(null);
     setEditActual("");
+    setEditPaymentDate(undefined);
+  };
+
+  const handleSaveNotes = async () => {
+    if (!liq.activeWeek) return;
+    await liq.updateWeek(liq.activeWeek.id, { notes: editNotes });
+    setNotesOpen(false);
   };
 
   if (liq.loading) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
@@ -99,6 +99,11 @@ export default function LiquidityDashboard() {
               </SelectContent>
             </Select>
           )}
+          {liq.activeWeek && (
+            <Button variant="outline" size="icon" onClick={() => { setEditNotes(liq.activeWeek?.notes || ""); setNotesOpen(true); }} title="Week Notes">
+              <StickyNote className="h-4 w-4" />
+            </Button>
+          )}
           <Dialog open={newWeekOpen} onOpenChange={setNewWeekOpen}>
             <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-1" /> New Week</Button></DialogTrigger>
             <DialogContent>
@@ -118,13 +123,18 @@ export default function LiquidityDashboard() {
                   </Popover>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Opening Bank Balance (₹)</label>
+                  <label className="text-sm font-medium">Opening Bank Balance (₹) — optional</label>
                   <Input type="number" placeholder="0" value={openBal} onChange={e => setOpenBal(e.target.value)} />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Alert Threshold (₹)</label>
                   <Input type="number" placeholder="Alert when balance below..." value={threshold} onChange={e => setThreshold(e.target.value)} />
                 </div>
+                <div>
+                  <label className="text-sm font-medium">Notes (optional)</label>
+                  <Textarea placeholder="Week notes..." value={weekNotes} onChange={e => setWeekNotes(e.target.value)} />
+                </div>
+                <p className="text-xs text-muted-foreground">Unpaid supplier & customer invoices will be auto-fetched.</p>
                 <Button className="w-full" onClick={handleCreateWeek}>Create Week</Button>
               </div>
             </DialogContent>
@@ -145,6 +155,14 @@ export default function LiquidityDashboard() {
         </div>
       )}
 
+      {/* Week Notes Banner */}
+      {liq.activeWeek?.notes && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border bg-muted/30 text-sm">
+          <StickyNote className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+          <p className="text-muted-foreground">{liq.activeWeek.notes}</p>
+        </div>
+      )}
+
       {!liq.activeWeek ? (
         <Card><CardContent className="p-12 text-center text-muted-foreground">
           <Wallet className="h-12 w-12 mx-auto mb-4 opacity-40" />
@@ -152,24 +170,7 @@ export default function LiquidityDashboard() {
         </CardContent></Card>
       ) : (
         <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <BalanceCard title="Opening Balance" value={liq.openingBalance} icon={DollarSign} />
-            <BalanceCard title="Projected End Balance" value={liq.projectedEndBalance} icon={TrendingUp} subtitle={`Collections: ${formatINR(liq.totalExpectedCollections)} | Payments: ${formatINR(liq.totalScheduledPayments)}`} />
-            <BalanceCard title="Actual Balance" value={liq.actualBalance} icon={Wallet} subtitle={`In: ${formatINR(liq.totalActualCollections)} | Out: ${formatINR(liq.totalActualPayments)}`} />
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Variance</CardTitle>
-                {liq.actualBalance >= liq.projectedEndBalance ? <TrendingUp className="h-5 w-5 text-emerald-600" /> : <TrendingDown className="h-5 w-5 text-destructive" />}
-              </CardHeader>
-              <CardContent>
-                <div className={cn("text-2xl font-bold", (liq.actualBalance - liq.projectedEndBalance) >= 0 ? "text-emerald-600" : "text-destructive")}>
-                  {formatINR(liq.actualBalance - liq.projectedEndBalance)}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Actual vs Projected</p>
-              </CardContent>
-            </Card>
-          </div>
+          <LiquidityBalanceCards liq={liq} />
 
           {/* Line Items Tabs */}
           <Tabs defaultValue="all" className="space-y-4">
@@ -214,10 +215,10 @@ export default function LiquidityDashboard() {
 
             {["all", "collections", "payments"].map(tab => (
               <TabsContent key={tab} value={tab}>
-                <LineItemTable
+                <LiquidityLineItemTable
                   items={tab === "collections" ? liq.collections : tab === "payments" ? liq.payments : liq.lineItems}
                   onMarkDone={handleMarkDone}
-                  onEditActual={(item) => { setEditItem(item); setEditActual(String(item.actual_amount || "")); }}
+                  onEditActual={(item) => { setEditItem(item); setEditActual(String(item.actual_amount || "")); setEditPaymentDate(undefined); }}
                   onDelete={liq.deleteLineItem}
                 />
               </TabsContent>
@@ -225,75 +226,38 @@ export default function LiquidityDashboard() {
           </Tabs>
 
           {/* Edit actual amount dialog */}
-          <Dialog open={!!editItem} onOpenChange={v => { if (!v) setEditItem(null); }}>
+          <Dialog open={!!editItem} onOpenChange={v => { if (!v) { setEditItem(null); setEditPaymentDate(undefined); } }}>
             <DialogContent>
               <DialogHeader><DialogTitle>Update Actual Amount</DialogTitle></DialogHeader>
               <p className="text-sm text-muted-foreground">{editItem?.description} — Expected: {formatINR(Number(editItem?.expected_amount || 0))}</p>
               <Input type="number" placeholder="Actual amount received/paid" value={editActual} onChange={e => setEditActual(e.target.value)} />
+              <div>
+                <label className="text-sm font-medium">Payment/Collection Date</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full justify-start text-left", !editPaymentDate && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />{editPaymentDate ? format(editPaymentDate, "PPP") : "Today (default)"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={editPaymentDate} onSelect={setEditPaymentDate} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
+              </div>
               <Button className="w-full" onClick={handleUpdateActual}>Update</Button>
+            </DialogContent>
+          </Dialog>
+
+          {/* Notes dialog */}
+          <Dialog open={notesOpen} onOpenChange={setNotesOpen}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Week Notes</DialogTitle></DialogHeader>
+              <Textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Add notes for this week..." rows={4} />
+              <Button className="w-full" onClick={handleSaveNotes}>Save Notes</Button>
             </DialogContent>
           </Dialog>
         </>
       )}
     </div>
-  );
-}
-
-function LineItemTable({ items, onMarkDone, onEditActual, onDelete }: {
-  items: LiquidityLineItem[];
-  onMarkDone: (item: LiquidityLineItem) => void;
-  onEditActual: (item: LiquidityLineItem) => void;
-  onDelete: (id: string) => void;
-}) {
-  if (items.length === 0) return <Card><CardContent className="p-8 text-center text-muted-foreground">No items yet.</CardContent></Card>;
-  return (
-    <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Type</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead className="text-right">Expected</TableHead>
-            <TableHead className="text-right">Actual</TableHead>
-            <TableHead>Due Date</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map(item => (
-            <TableRow key={item.id}>
-              <TableCell>
-                {item.item_type === "collection" ? (
-                  <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400"><ArrowDownCircle className="h-3 w-3 mr-1" />In</Badge>
-                ) : (
-                  <Badge variant="outline" className="text-red-700 border-red-300 bg-red-50 dark:bg-red-900/20 dark:text-red-400"><ArrowUpCircle className="h-3 w-3 mr-1" />Out</Badge>
-                )}
-              </TableCell>
-              <TableCell className="font-medium">{item.description}</TableCell>
-              <TableCell className="text-right">{formatINR(Number(item.expected_amount))}</TableCell>
-              <TableCell className="text-right">{item.actual_amount ? formatINR(Number(item.actual_amount)) : "—"}</TableCell>
-              <TableCell>{item.due_date ? format(new Date(item.due_date), "dd MMM") : "—"}</TableCell>
-              <TableCell>
-                <Badge variant={item.status === "completed" ? "default" : item.status === "partial" ? "secondary" : item.status === "overdue" ? "destructive" : "outline"}>
-                  {item.status}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex gap-1 justify-end">
-                  {item.status !== "completed" && (
-                    <>
-                      <Button size="sm" variant="ghost" onClick={() => onMarkDone(item)}>✓ Done</Button>
-                      <Button size="sm" variant="ghost" onClick={() => onEditActual(item)}>Update</Button>
-                    </>
-                  )}
-                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(item.id)}>×</Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Card>
   );
 }

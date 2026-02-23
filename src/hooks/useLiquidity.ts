@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { format, startOfWeek, addDays } from "date-fns";
+import { format, startOfWeek, addDays, endOfWeek } from "date-fns";
 
 export interface LiquidityWeek {
   id: string;
@@ -88,20 +88,78 @@ export function useLiquidity() {
     return () => { supabase.removeChannel(channel); };
   }, [activeWeek, fetchLineItems]);
 
-  const createWeek = async (weekStartDate: Date, openingBalance: number, alertThreshold: number) => {
+  // Auto-fetch unpaid supplier invoices for a given week
+  const fetchUnpaidSupplierInvoices = async (weekStart: Date, weekId: string) => {
+    const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+    // Get all pending supplier invoices
+    const { data: supplierInvoices } = await supabase
+      .from("raw_material_invoices")
+      .select("id, invoice_number, amount, supplier_id, suppliers(name)")
+      .in("status", ["pending", "awaiting_approval"]);
+
+    if (supplierInvoices && supplierInvoices.length > 0) {
+      const items = supplierInvoices.map((inv: any) => ({
+        liquidity_week_id: weekId,
+        item_type: "payment",
+        description: `Supplier: ${inv.suppliers?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+        expected_amount: inv.amount || 0,
+        linked_invoice_id: inv.id,
+        linked_invoice_type: "supplier",
+        status: "pending",
+      }));
+      await supabase.from("liquidity_line_items").insert(items);
+    }
+  };
+
+  // Auto-fetch unpaid customer invoices for a given week
+  const fetchUnpaidCustomerInvoices = async (weekStart: Date, weekId: string) => {
+    // Get all pending/awaiting customer invoices
+    const { data: customerInvoices } = await supabase
+      .from("client_invoices")
+      .select("id, invoice_number, amount, client_id, clients(name)")
+      .in("status", ["pending", "awaiting_approval"]);
+
+    if (customerInvoices && customerInvoices.length > 0) {
+      const items = customerInvoices.map((inv: any) => ({
+        liquidity_week_id: weekId,
+        item_type: "collection",
+        description: `Customer: ${inv.clients?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+        expected_amount: inv.amount || 0,
+        linked_invoice_id: inv.id,
+        linked_invoice_type: "customer",
+        status: "pending",
+      }));
+      await supabase.from("liquidity_line_items").insert(items);
+    }
+  };
+
+  const createWeek = async (weekStartDate: Date, openingBalance: number, alertThreshold: number, notes?: string) => {
     const { data, error } = await supabase
       .from("weekly_liquidity")
-      .insert({ week_start_date: format(weekStartDate, "yyyy-MM-dd"), opening_balance: openingBalance, alert_threshold: alertThreshold })
+      .insert({ 
+        week_start_date: format(weekStartDate, "yyyy-MM-dd"), 
+        opening_balance: openingBalance, 
+        alert_threshold: alertThreshold,
+        notes: notes || null,
+      })
       .select()
       .single();
     if (error) {
       toast({ title: "Error creating week", description: error.message, variant: "destructive" });
       return null;
     }
-    toast({ title: "Week created" });
+    
+    // Auto-fetch unpaid invoices
+    const week = data as LiquidityWeek;
+    await Promise.all([
+      fetchUnpaidSupplierInvoices(weekStartDate, week.id),
+      fetchUnpaidCustomerInvoices(weekStartDate, week.id),
+    ]);
+    
+    toast({ title: "Week created with auto-fetched invoices" });
     await fetchWeeks();
-    setActiveWeek(data as LiquidityWeek);
-    return data as LiquidityWeek;
+    setActiveWeek(week);
+    return week;
   };
 
   const addLineItem = async (item: { item_type: "collection" | "payment"; description: string; expected_amount: number; due_date?: string; linked_invoice_type?: string }) => {
