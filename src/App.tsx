@@ -7,9 +7,7 @@ import { Layout } from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import BillsExpenses from "./pages/BillsExpenses";
 import Clients from "./pages/Clients";
-import Suppliers from "./pages/Suppliers";
 import Quotations from "./pages/Quotations";
-import RawMaterialInvoices from "./pages/RawMaterialInvoices";
 import ClientInvoices from "./pages/ClientInvoices";
 import Approvals from "./pages/Approvals";
 import TallyUpload from "./pages/TallyUpload";
@@ -27,6 +25,7 @@ import ProductMaster from "./pages/ProductMaster";
 import UnmappedCodes from "./pages/UnmappedCodes";
 import CustomerProductMapping from "./pages/CustomerProductMapping";
 import LiquidityDashboard from "./pages/LiquidityDashboard";
+import SupplierDashboard from "./pages/SupplierDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,8 +40,7 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/clients" element={<Layout><Clients /></Layout>} />
-          <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
-          <Route path="/raw-material-invoices" element={<Layout><RawMaterialInvoices /></Layout>} />
+          <Route path="/supplier-hub" element={<Layout><SupplierDashboard /></Layout>} />
           <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
           
           <Route path="/bills" element={<Layout><BillsExpenses /></Layout>} />
