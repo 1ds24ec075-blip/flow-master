@@ -31,7 +31,7 @@ export default function SupplierDashboard() {
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [detailSupplierId, setDetailSupplierId] = useState<string | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
-  const [formData, setFormData] = useState({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" });
+  const [formData, setFormData] = useState({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [supplierForm, setSupplierForm] = useState({
     name: "", email: "", gst_number: "", material_type: "", payment_terms: "",
@@ -97,6 +97,7 @@ export default function SupplierDashboard() {
         supplier_id: data.supplier_id || null,
         po_id: data.po_id || null,
         invoice_file,
+        due_date: data.due_date || null,
       };
 
       const { error } = await supabase.from("raw_material_invoices").insert(insertData);
@@ -106,7 +107,7 @@ export default function SupplierDashboard() {
       queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
       toast.success("Invoice uploaded");
       setInvoiceDialogOpen(false);
-      setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" });
+      setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
       setInvoiceFile(null);
     },
     onError: (err: any) => {
@@ -119,10 +120,15 @@ export default function SupplierDashboard() {
       await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", invoice.id);
       await supabase.from("purchase_orders").update({ status: "materials_received" }).eq("id", invoice.po_id);
       await supabase.from("approvals").insert({ linked_invoice_type: "raw_materials", linked_invoice_id: invoice.id, status: "approved" });
+      // Sync to liquidity: mark linked line items as completed
+      await supabase.from("liquidity_line_items")
+        .update({ status: "completed", actual_amount: invoice.amount, payment_date: new Date().toISOString().split("T")[0] })
+        .eq("linked_invoice_id", invoice.id)
+        .eq("linked_invoice_type", "supplier");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
-      toast.success("Invoice approved");
+      toast.success("Invoice approved & liquidity updated");
     },
   });
 
@@ -363,7 +369,7 @@ export default function SupplierDashboard() {
         {/* Invoices Tab */}
         <TabsContent value="invoices" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) { setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" }); setInvoiceFile(null); } }}>
+            <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) { setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" }); setInvoiceFile(null); } }}>
               <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-2" />Upload Invoice</Button></DialogTrigger>
               <DialogContent className="max-w-lg">
                 <DialogHeader><DialogTitle>Upload Supplier Invoice</DialogTitle></DialogHeader>
@@ -388,7 +394,10 @@ export default function SupplierDashboard() {
                     <div><Label>Invoice Number *</Label><Input value={formData.invoice_number} onChange={e => setFormData({ ...formData, invoice_number: e.target.value })} required /></div>
                     <div><Label>Amount (₹) *</Label><Input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} required /></div>
                   </div>
-                  <div><Label>Invoice Date <span className="text-muted-foreground text-xs">(optional)</span></Label><Input type="date" value={formData.invoice_date} onChange={e => setFormData({ ...formData, invoice_date: e.target.value })} /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label>Invoice Date <span className="text-muted-foreground text-xs">(optional)</span></Label><Input type="date" value={formData.invoice_date} onChange={e => setFormData({ ...formData, invoice_date: e.target.value })} /></div>
+                    <div><Label>Due Date <span className="text-muted-foreground text-xs">(optional)</span></Label><Input type="date" value={formData.due_date} onChange={e => setFormData({ ...formData, due_date: e.target.value })} /></div>
+                  </div>
                   {/* File upload */}
                   <div>
                     <Label>Attach Invoice (PDF / Image)</Label>
@@ -426,10 +435,11 @@ export default function SupplierDashboard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice #</TableHead>
+                     <TableHead>Invoice #</TableHead>
                     <TableHead>PO Number</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Amount</TableHead>
+                    <TableHead>Due Date</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -441,6 +451,7 @@ export default function SupplierDashboard() {
                       <TableCell>{invoice.purchase_orders?.po_number}</TableCell>
                       <TableCell>{invoice.suppliers?.name || "-"}</TableCell>
                       <TableCell className="whitespace-nowrap">₹{invoice.amount?.toLocaleString("en-IN")}</TableCell>
+                      <TableCell>{(invoice as any).due_date ? new Date((invoice as any).due_date).toLocaleDateString("en-IN") : "—"}</TableCell>
                       <TableCell><StatusBadge status={invoice.status as any} /></TableCell>
                       <TableCell className="text-right space-x-2">
                         {invoice.status === "pending" && (
