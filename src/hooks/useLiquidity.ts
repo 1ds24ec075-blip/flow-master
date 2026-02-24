@@ -91,10 +91,9 @@ export function useLiquidity() {
   // Auto-fetch unpaid supplier invoices for a given week
   const fetchUnpaidSupplierInvoices = async (weekStart: Date, weekId: string) => {
     const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-    // Get all pending supplier invoices
     const { data: supplierInvoices } = await supabase
       .from("raw_material_invoices")
-      .select("id, invoice_number, amount, supplier_id, suppliers(name)")
+      .select("id, invoice_number, amount, supplier_id, due_date, suppliers(name)")
       .in("status", ["pending", "awaiting_approval"]);
 
     if (supplierInvoices && supplierInvoices.length > 0) {
@@ -106,6 +105,7 @@ export function useLiquidity() {
         linked_invoice_id: inv.id,
         linked_invoice_type: "supplier",
         status: "pending",
+        due_date: inv.due_date || null,
       }));
       await supabase.from("liquidity_line_items").insert(items);
     }
@@ -181,6 +181,17 @@ export function useLiquidity() {
     const { error } = await supabase.from("liquidity_line_items").update(updates).eq("id", id);
     if (error) {
       toast({ title: "Error updating item", description: error.message, variant: "destructive" });
+      return;
+    }
+    // Two-way sync: if marked completed, update linked invoice status
+    if (updates.status === "completed") {
+      const item = lineItems.find(i => i.id === id);
+      if (item?.linked_invoice_id && item.linked_invoice_type === "supplier") {
+        await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", item.linked_invoice_id);
+      }
+      if (item?.linked_invoice_id && item.linked_invoice_type === "customer") {
+        await supabase.from("client_invoices").update({ status: "approved" }).eq("id", item.linked_invoice_id);
+      }
     }
   };
 

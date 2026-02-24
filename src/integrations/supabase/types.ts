@@ -1303,6 +1303,7 @@ export type Database = {
         Row: {
           amount: number | null
           created_at: string | null
+          due_date: string | null
           extracted_data: Json | null
           id: string
           invoice_file: string | null
@@ -1315,6 +1316,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           created_at?: string | null
+          due_date?: string | null
           extracted_data?: Json | null
           id?: string
           invoice_file?: string | null
@@ -1327,6 +1329,7 @@ export type Database = {
         Update: {
           amount?: number | null
           created_at?: string | null
+          due_date?: string | null
           extracted_data?: Json | null
           id?: string
           invoice_file?: string | null
