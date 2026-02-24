@@ -21,7 +21,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Plus, CheckCircle, XCircle, Edit, Trash2 } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Edit, Trash2, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -31,7 +31,8 @@ export default function SupplierDashboard() {
   const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
   const [detailSupplierId, setDetailSupplierId] = useState<string | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
-  const [formData, setFormData] = useState({ po_id: "", invoice_number: "", amount: "" });
+  const [formData, setFormData] = useState({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" });
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [supplierForm, setSupplierForm] = useState({
     name: "", email: "", gst_number: "", material_type: "", payment_terms: "",
     notes: "", bank_account: "", bank_name: "", upi_payment_patterns: "",
@@ -77,14 +78,39 @@ export default function SupplierDashboard() {
   // Invoice Mutations
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase.from("raw_material_invoices").insert({ ...data, amount: parseFloat(data.amount), status: "pending" });
+      let invoice_file: string | null = null;
+
+      // Upload file if provided
+      if (invoiceFile) {
+        const fileExt = invoiceFile.name.split(".").pop();
+        const filePath = `supplier-invoices/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from("bills").upload(filePath, invoiceFile);
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabase.storage.from("bills").getPublicUrl(filePath);
+        invoice_file = urlData.publicUrl;
+      }
+
+      const insertData: any = {
+        invoice_number: data.invoice_number,
+        amount: parseFloat(data.amount),
+        status: "pending",
+        supplier_id: data.supplier_id || null,
+        po_id: data.po_id || null,
+        invoice_file,
+      };
+
+      const { error } = await supabase.from("raw_material_invoices").insert(insertData);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
       toast.success("Invoice uploaded");
       setInvoiceDialogOpen(false);
-      setFormData({ po_id: "", invoice_number: "", amount: "" });
+      setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" });
+      setInvoiceFile(null);
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to upload invoice");
     },
   });
 
@@ -337,22 +363,56 @@ export default function SupplierDashboard() {
         {/* Invoices Tab */}
         <TabsContent value="invoices" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) setFormData({ po_id: "", invoice_number: "", amount: "" }); }}>
+            <Dialog open={invoiceDialogOpen} onOpenChange={(o) => { setInvoiceDialogOpen(o); if (!o) { setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "" }); setInvoiceFile(null); } }}>
               <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-2" />Upload Invoice</Button></DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-lg">
                 <DialogHeader><DialogTitle>Upload Supplier Invoice</DialogTitle></DialogHeader>
-                <form onSubmit={(e) => { e.preventDefault(); createInvoiceMutation.mutate(formData); }} className="space-y-4">
-                  <div><Label>Purchase Order *</Label>
+                <form onSubmit={(e) => { e.preventDefault(); if (!formData.supplier_id) { toast.error("Please select a supplier"); return; } createInvoiceMutation.mutate(formData); }} className="space-y-4">
+                  {/* Supplier */}
+                  <div>
+                    <Label>Supplier *</Label>
+                    <Select value={formData.supplier_id} onValueChange={v => setFormData({ ...formData, supplier_id: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger>
+                      <SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  {/* PO (optional) */}
+                  <div>
+                    <Label>Purchase Order <span className="text-muted-foreground text-xs">(optional)</span></Label>
                     <Select value={formData.po_id} onValueChange={v => setFormData({ ...formData, po_id: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select PO" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Link to PO (if any)" /></SelectTrigger>
                       <SelectContent>{purchaseOrders?.map(po => <SelectItem key={po.id} value={po.id}>{po.po_number}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                  <div><Label>Invoice Number *</Label><Input value={formData.invoice_number} onChange={e => setFormData({ ...formData, invoice_number: e.target.value })} required /></div>
-                  <div><Label>Amount *</Label><Input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} required /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label>Invoice Number *</Label><Input value={formData.invoice_number} onChange={e => setFormData({ ...formData, invoice_number: e.target.value })} required /></div>
+                    <div><Label>Amount (₹) *</Label><Input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} required /></div>
+                  </div>
+                  <div><Label>Invoice Date <span className="text-muted-foreground text-xs">(optional)</span></Label><Input type="date" value={formData.invoice_date} onChange={e => setFormData({ ...formData, invoice_date: e.target.value })} /></div>
+                  {/* File upload */}
+                  <div>
+                    <Label>Attach Invoice (PDF / Image)</Label>
+                    <div className="mt-1">
+                      {invoiceFile ? (
+                        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3">
+                          <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                          <span className="text-sm truncate flex-1">{invoiceFile.name}</span>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setInvoiceFile(null)}>Remove</Button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center gap-2 rounded-md border-2 border-dashed border-border p-6 cursor-pointer hover:bg-muted/50 transition-colors">
+                          <Upload className="h-8 w-8 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Click to select PDF, JPG, or PNG</span>
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={e => { if (e.target.files?.[0]) setInvoiceFile(e.target.files[0]); }} />
+                        </label>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex justify-end gap-2">
                     <Button type="button" variant="outline" onClick={() => setInvoiceDialogOpen(false)}>Cancel</Button>
-                    <Button type="submit">Upload</Button>
+                    <Button type="submit" disabled={createInvoiceMutation.isPending}>
+                      {createInvoiceMutation.isPending ? "Uploading..." : "Save Invoice"}
+                    </Button>
                   </div>
                 </form>
               </DialogContent>
