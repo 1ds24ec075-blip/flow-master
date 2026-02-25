@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { format, startOfWeek, addDays, endOfWeek } from "date-fns";
+import { format, startOfWeek, addDays, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
 
 export interface LiquidityWeek {
   id: string;
@@ -30,67 +30,24 @@ export interface LiquidityLineItem {
   updated_at: string;
 }
 
+export interface MonthlyPaymentDay {
+  date: Date;
+  dateStr: string;
+  supplierCount: number;
+  supplierNames: string[];
+  totalAmount: number;
+}
+
 export function useLiquidity() {
   const [weeks, setWeeks] = useState<LiquidityWeek[]>([]);
   const [activeWeek, setActiveWeek] = useState<LiquidityWeek | null>(null);
   const [lineItems, setLineItems] = useState<LiquidityLineItem[]>([]);
+  const [monthlyData, setMonthlyData] = useState<MonthlyPaymentDay[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const fetchWeeks = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("weekly_liquidity")
-      .select("*")
-      .order("week_start_date", { ascending: false });
-    if (error) {
-      toast({ title: "Error fetching weeks", description: error.message, variant: "destructive" });
-    } else {
-      setWeeks(data as LiquidityWeek[]);
-      if (data.length > 0 && !activeWeek) {
-        setActiveWeek(data[0] as LiquidityWeek);
-      }
-    }
-  }, [toast, activeWeek]);
-
-  const fetchLineItems = useCallback(async (weekId: string) => {
-    const { data, error } = await supabase
-      .from("liquidity_line_items")
-      .select("*")
-      .eq("liquidity_week_id", weekId)
-      .order("due_date", { ascending: true });
-    if (error) {
-      toast({ title: "Error fetching items", description: error.message, variant: "destructive" });
-    } else {
-      setLineItems(data as LiquidityLineItem[]);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchWeeks().finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (activeWeek) {
-      fetchLineItems(activeWeek.id);
-    }
-  }, [activeWeek, fetchLineItems]);
-
-  // Realtime subscription
-  useEffect(() => {
-    if (!activeWeek) return;
-    const channel = supabase
-      .channel("liquidity-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "liquidity_line_items", filter: `liquidity_week_id=eq.${activeWeek.id}` }, () => {
-        fetchLineItems(activeWeek.id);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeWeek, fetchLineItems]);
-
   // Auto-fetch unpaid supplier invoices for a given week
   const fetchUnpaidSupplierInvoices = async (weekStart: Date, weekId: string) => {
-    const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
     const { data: supplierInvoices } = await supabase
       .from("raw_material_invoices")
       .select("id, invoice_number, amount, supplier_id, due_date, suppliers(name)")
@@ -113,7 +70,6 @@ export function useLiquidity() {
 
   // Auto-fetch unpaid customer invoices for a given week
   const fetchUnpaidCustomerInvoices = async (weekStart: Date, weekId: string) => {
-    // Get all pending/awaiting customer invoices
     const { data: customerInvoices } = await supabase
       .from("client_invoices")
       .select("id, invoice_number, amount, client_id, clients(name)")
@@ -133,6 +89,121 @@ export function useLiquidity() {
     }
   };
 
+  // Auto-ensure current week exists (Sunday to Sunday)
+  const ensureCurrentWeek = async () => {
+    const today = new Date();
+    const weekStart = startOfWeek(today, { weekStartsOn: 0 });
+    const weekStartStr = format(weekStart, "yyyy-MM-dd");
+
+    const { data: existing } = await supabase
+      .from("weekly_liquidity")
+      .select("*")
+      .eq("week_start_date", weekStartStr)
+      .maybeSingle();
+
+    if (!existing) {
+      const { data: newWeek, error } = await supabase
+        .from("weekly_liquidity")
+        .insert({ week_start_date: weekStartStr, opening_balance: 0, alert_threshold: 0 })
+        .select()
+        .single();
+
+      if (!error && newWeek) {
+        await Promise.all([
+          fetchUnpaidSupplierInvoices(weekStart, newWeek.id),
+          fetchUnpaidCustomerInvoices(weekStart, newWeek.id),
+        ]);
+      }
+    }
+  };
+
+  const fetchWeeks = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("weekly_liquidity")
+      .select("*")
+      .order("week_start_date", { ascending: false });
+    if (error) {
+      toast({ title: "Error fetching weeks", description: error.message, variant: "destructive" });
+    } else {
+      setWeeks(data as LiquidityWeek[]);
+      if (data.length > 0 && !activeWeek) {
+        const today = new Date();
+        const weekStartStr = format(startOfWeek(today, { weekStartsOn: 0 }), "yyyy-MM-dd");
+        const currentWeek = data.find((w: any) => w.week_start_date === weekStartStr);
+        setActiveWeek((currentWeek || data[0]) as LiquidityWeek);
+      }
+    }
+  }, [toast, activeWeek]);
+
+  const fetchLineItems = useCallback(async (weekId: string) => {
+    const { data, error } = await supabase
+      .from("liquidity_line_items")
+      .select("*")
+      .eq("liquidity_week_id", weekId)
+      .order("due_date", { ascending: true });
+    if (error) {
+      toast({ title: "Error fetching items", description: error.message, variant: "destructive" });
+    } else {
+      setLineItems(data as LiquidityLineItem[]);
+    }
+  }, [toast]);
+
+  // Fetch monthly supplier payment data
+  const fetchMonthlyData = useCallback(async (month: Date) => {
+    const monthStart = format(startOfMonth(month), "yyyy-MM-dd");
+    const monthEnd = format(endOfMonth(month), "yyyy-MM-dd");
+
+    const { data } = await supabase
+      .from("liquidity_line_items")
+      .select("*")
+      .eq("item_type", "payment")
+      .gte("due_date", monthStart)
+      .lte("due_date", monthEnd)
+      .neq("status", "completed");
+
+    const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
+    const result: MonthlyPaymentDay[] = days.map(day => {
+      const dateStr = format(day, "yyyy-MM-dd");
+      const dayItems = (data || []).filter((item: any) => item.due_date === dateStr);
+      return {
+        date: day,
+        dateStr,
+        supplierCount: dayItems.length,
+        supplierNames: dayItems.map((i: any) => i.description),
+        totalAmount: dayItems.reduce((s: number, i: any) => s + Number(i.expected_amount || 0), 0),
+      };
+    });
+    setMonthlyData(result);
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    ensureCurrentWeek().then(() => fetchWeeks()).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (activeWeek) {
+      fetchLineItems(activeWeek.id);
+    }
+  }, [activeWeek, fetchLineItems]);
+
+  // Fetch monthly data on load
+  useEffect(() => {
+    fetchMonthlyData(new Date());
+  }, [fetchMonthlyData, lineItems]);
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!activeWeek) return;
+    const channel = supabase
+      .channel("liquidity-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "liquidity_line_items", filter: `liquidity_week_id=eq.${activeWeek.id}` }, () => {
+        fetchLineItems(activeWeek.id);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeWeek, fetchLineItems]);
+
   const createWeek = async (weekStartDate: Date, openingBalance: number, alertThreshold: number, notes?: string) => {
     const { data, error } = await supabase
       .from("weekly_liquidity")
@@ -149,7 +220,6 @@ export function useLiquidity() {
       return null;
     }
     
-    // Auto-fetch unpaid invoices
     const week = data as LiquidityWeek;
     await Promise.all([
       fetchUnpaidSupplierInvoices(weekStartDate, week.id),
@@ -183,7 +253,6 @@ export function useLiquidity() {
       toast({ title: "Error updating item", description: error.message, variant: "destructive" });
       return;
     }
-    // Two-way sync: if marked completed, update linked invoice status
     if (updates.status === "completed") {
       const item = lineItems.find(i => i.id === id);
       if (item?.linked_invoice_id && item.linked_invoice_type === "supplier") {
@@ -246,6 +315,6 @@ export function useLiquidity() {
     collections, payments, openingBalance,
     totalExpectedCollections, totalScheduledPayments, projectedEndBalance,
     totalActualCollections, totalActualPayments, actualBalance,
-    alerts, fetchWeeks,
+    alerts, fetchWeeks, monthlyData, fetchMonthlyData,
   };
 }

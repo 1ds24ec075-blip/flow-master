@@ -1,21 +1,21 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, CalendarIcon, DollarSign, Plus, TrendingDown, TrendingUp, Wallet, StickyNote } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Plus, StickyNote, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useLiquidity, LiquidityLineItem } from "@/hooks/useLiquidity";
 import { LiquidityBalanceCards } from "@/components/liquidity/BalanceCards";
 import { LiquidityLineItemTable } from "@/components/liquidity/LineItemTable";
+import { MonthlyPaymentCalendar } from "@/components/liquidity/MonthlyCalendar";
 
 function formatINR(n: number) {
   return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
@@ -23,11 +23,6 @@ function formatINR(n: number) {
 
 export default function LiquidityDashboard() {
   const liq = useLiquidity();
-  const [newWeekOpen, setNewWeekOpen] = useState(false);
-  const [weekDate, setWeekDate] = useState<Date | undefined>(new Date());
-  const [openBal, setOpenBal] = useState("");
-  const [threshold, setThreshold] = useState("");
-  const [weekNotes, setWeekNotes] = useState("");
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [itemType, setItemType] = useState<"collection" | "payment">("collection");
   const [itemDesc, setItemDesc] = useState("");
@@ -38,15 +33,6 @@ export default function LiquidityDashboard() {
   const [editPaymentDate, setEditPaymentDate] = useState<Date | undefined>();
   const [notesOpen, setNotesOpen] = useState(false);
   const [editNotes, setEditNotes] = useState("");
-
-  const handleCreateWeek = async () => {
-    if (!weekDate) return;
-    await liq.createWeek(weekDate, Number(openBal) || 0, Number(threshold) || 0, weekNotes);
-    setNewWeekOpen(false);
-    setOpenBal("");
-    setThreshold("");
-    setWeekNotes("");
-  };
 
   const handleAddItem = async () => {
     if (!itemDesc.trim() || !itemAmt) return;
@@ -86,10 +72,13 @@ export default function LiquidityDashboard() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Liquidity Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Weekly Cash Flow & Supplier Payment Tracker</p>
+          <p className="text-sm text-muted-foreground">
+            Weekly Cash Flow & Supplier Payment Tracker
+            {liq.activeWeek && ` — Week of ${format(new Date(liq.activeWeek.week_start_date), "dd MMM yyyy")}`}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {liq.weeks.length > 0 && (
+          {liq.weeks.length > 1 && (
             <Select value={liq.activeWeek?.id || ""} onValueChange={v => liq.setActiveWeek(liq.weeks.find(w => w.id === v) || null)}>
               <SelectTrigger className="w-[200px]"><SelectValue placeholder="Select week" /></SelectTrigger>
               <SelectContent>
@@ -104,41 +93,6 @@ export default function LiquidityDashboard() {
               <StickyNote className="h-4 w-4" />
             </Button>
           )}
-          <Dialog open={newWeekOpen} onOpenChange={setNewWeekOpen}>
-            <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-1" /> New Week</Button></DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Create New Week</DialogTitle></DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Week Start Date</label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className={cn("w-full justify-start text-left", !weekDate && "text-muted-foreground")}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />{weekDate ? format(weekDate, "PPP") : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={weekDate} onSelect={setWeekDate} className="p-3 pointer-events-auto" />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Opening Bank Balance (₹) — optional</label>
-                  <Input type="number" placeholder="0" value={openBal} onChange={e => setOpenBal(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Alert Threshold (₹)</label>
-                  <Input type="number" placeholder="Alert when balance below..." value={threshold} onChange={e => setThreshold(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Notes (optional)</label>
-                  <Textarea placeholder="Week notes..." value={weekNotes} onChange={e => setWeekNotes(e.target.value)} />
-                </div>
-                <p className="text-xs text-muted-foreground">Unpaid supplier & customer invoices will be auto-fetched.</p>
-                <Button className="w-full" onClick={handleCreateWeek}>Create Week</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -166,11 +120,17 @@ export default function LiquidityDashboard() {
       {!liq.activeWeek ? (
         <Card><CardContent className="p-12 text-center text-muted-foreground">
           <Wallet className="h-12 w-12 mx-auto mb-4 opacity-40" />
-          <p>No week set up yet. Click "New Week" to start tracking.</p>
+          <p>Setting up current week...</p>
         </CardContent></Card>
       ) : (
         <>
           <LiquidityBalanceCards liq={liq} />
+
+          {/* Monthly Payment Calendar */}
+          <MonthlyPaymentCalendar
+            monthlyData={liq.monthlyData}
+            onMonthChange={(month) => liq.fetchMonthlyData(month)}
+          />
 
           {/* Line Items Tabs */}
           <Tabs defaultValue="all" className="space-y-4">
