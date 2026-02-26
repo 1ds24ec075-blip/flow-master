@@ -235,7 +235,9 @@ export default function PODashboard() {
           delivery_date: formData.deliveryDate || null,
           total_amount: totalAmount,
           currency: formData.currency,
-          status: "pending",
+          status: "UNDER_REVIEW",
+          suggested_payment_type: "ADVANCE",
+          suggestion_reason: "Manually created order; defaulting to ADVANCE",
         })
         .select()
         .single();
@@ -499,34 +501,27 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
 }`;
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return (
-          <Badge variant="outline" className="border-muted-foreground text-muted-foreground">
-            Pending
-          </Badge>
-        );
-      case "processed":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
-            Processed
-          </Badge>
-        );
-      case "converted":
-        return (
-          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-            Converted
-          </Badge>
-        );
-      case "duplicate":
-        return (
-          <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
-            Duplicate
-          </Badge>
-        );
-      default:
-        return <Badge variant="outline">{status}</Badge>;
+    const statusMap: Record<string, { label: string; className: string }> = {
+      pending: { label: "Pending", className: "border-muted-foreground text-muted-foreground" },
+      processed: { label: "Processed", className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100" },
+      converted: { label: "Converted", className: "bg-green-100 text-green-800 hover:bg-green-100" },
+      duplicate: { label: "Duplicate", className: "bg-red-100 text-red-800 hover:bg-red-100" },
+      UNDER_REVIEW: { label: "Under Review", className: "bg-amber-100 text-amber-800 hover:bg-amber-100" },
+      AWAITING_PAYMENT: { label: "Awaiting Payment", className: "bg-orange-100 text-orange-800 hover:bg-orange-100" },
+      SO_CREATED: { label: "SO Created", className: "bg-blue-100 text-blue-800 hover:bg-blue-100" },
+      DISPATCHED: { label: "Dispatched", className: "bg-cyan-100 text-cyan-800 hover:bg-cyan-100" },
+      PAYMENT_PENDING: { label: "Payment Pending", className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100" },
+      PAYMENT_COMPLETED: { label: "Completed", className: "bg-green-100 text-green-800 hover:bg-green-100" },
+    };
+    const config = statusMap[status];
+    if (config) {
+      return status === "pending" ? (
+        <Badge variant="outline" className={config.className}>{config.label}</Badge>
+      ) : (
+        <Badge className={config.className}>{config.label}</Badge>
+      );
     }
+    return <Badge variant="outline">{status}</Badge>;
   };
 
   return (
@@ -829,6 +824,13 @@ function sendToProcessor(pdfBase64, filename, emailSubject, emailFrom, emailDate
             {priceMismatchCount ? (
               <Badge className="ml-2 bg-orange-500 text-white">{priceMismatchCount}</Badge>
             ) : null}
+          </Button>
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => navigate("/order-lifecycle")}
+          >
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+            Order Lifecycle
           </Button>
           <Dialog open={showAppsScriptDialog} onOpenChange={setShowAppsScriptDialog}>
             <DialogTrigger asChild>

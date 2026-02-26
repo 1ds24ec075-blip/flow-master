@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   LogIn,
   Boxes,
+  ShieldCheck,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -30,6 +31,7 @@ const navigationItems = [
   { title: "Talligence", url: "/", icon: LayoutDashboard },
   { title: "Ask AI", url: "/tally-ai", icon: Bot },
   { title: "PO Dashboard", url: "/po-dashboard", icon: ClipboardList },
+  { title: "Order Lifecycle", url: "/order-lifecycle", icon: ShieldCheck },
   { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Supplier Hub", url: "/supplier-hub", icon: Package },

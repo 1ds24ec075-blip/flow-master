@@ -20,6 +20,7 @@ import ExcelIntegration from "./pages/ExcelIntegration";
 import PODashboard from "./pages/PODashboard";
 import CustomerMaster from "./pages/CustomerMaster";
 import Review from "./pages/Review";
+import OrderLifecycle from "./pages/OrderLifecycle";
 import SmartSegregation from "./pages/SmartSegregation";
 import ProductMaster from "./pages/ProductMaster";
 import UnmappedCodes from "./pages/UnmappedCodes";
@@ -50,6 +51,7 @@ const App = () => (
           <Route path="/po-dashboard" element={<Layout><PODashboard /></Layout>} />
           <Route path="/customer-master" element={<Layout><CustomerMaster /></Layout>} />
           <Route path="/review" element={<Layout><Review /></Layout>} />
+          <Route path="/order-lifecycle" element={<Layout><OrderLifecycle /></Layout>} />
           <Route path="/smart-segregation" element={<SmartSegregation />} />
           <Route path="/product-master" element={<Layout><ProductMaster /></Layout>} />
           <Route path="/unmapped-codes" element={<Layout><UnmappedCodes /></Layout>} />

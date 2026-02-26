@@ -617,16 +617,75 @@ Return ONLY valid JSON with this structure:
       }
     }
 
-    // Auto-send email if no issues
-    if (status === "pending" && customerMasterId) {
-      try {
-        await supabase.functions.invoke("send-sales-order", {
-          body: { orderId: order.id },
-        });
-        await supabase.from("po_orders").update({ status: "converted" }).eq("id", order.id);
-      } catch (e) {
-        console.error("Failed to send SO email:", e);
+    // Hybrid Payment Suggestion Engine
+    // Instead of auto-sending SO, run suggestion logic and set status to UNDER_REVIEW
+    if (status === "pending") {
+      let suggestedPaymentType = null;
+      let suggestionReason = "";
+      let riskFlag = "NONE";
+
+      // Step A: Extract payment terms from PO
+      const paymentTerms = (extracted.payment_terms || "").toLowerCase();
+      if (paymentTerms.includes("advance") || paymentTerms.includes("100% advance")) {
+        suggestedPaymentType = "ADVANCE";
+        suggestionReason = `PO payment terms indicate advance: "${extracted.payment_terms}"`;
+      } else if (
+        paymentTerms.includes("net 30") || paymentTerms.includes("30 days") ||
+        paymentTerms.includes("45 days") || paymentTerms.includes("net 45") ||
+        paymentTerms.includes("60 days") || paymentTerms.includes("net 60") ||
+        paymentTerms.includes("credit")
+      ) {
+        suggestedPaymentType = "CREDIT";
+        const daysMatch = paymentTerms.match(/(\d+)\s*days?/);
+        const creditDays = daysMatch ? daysMatch[1] : "30";
+        suggestionReason = `PO payment terms indicate credit: "${extracted.payment_terms}" (${creditDays} days)`;
       }
+
+      // Step B: Check customer default policy (if Step A was unclear)
+      let customerData = null;
+      if (customerMasterId) {
+        const { data: cust } = await supabase
+          .from("customer_master")
+          .select("default_payment_mode, default_credit_days, credit_limit, outstanding_amount, has_overdue_invoices")
+          .eq("id", customerMasterId)
+          .maybeSingle();
+        customerData = cust;
+
+        if (!suggestedPaymentType && customerData?.default_payment_mode) {
+          suggestedPaymentType = customerData.default_payment_mode;
+          suggestionReason = `Customer default policy: ${customerData.default_payment_mode}`;
+        }
+      }
+
+      // Step C: Risk & Credit Limit Check
+      if (suggestedPaymentType === "CREDIT" && customerData) {
+        const orderValue = extracted.total_amount || 0;
+        const outstanding = customerData.outstanding_amount || 0;
+        const creditLimit = customerData.credit_limit || 0;
+
+        if (creditLimit > 0 && (outstanding + orderValue) > creditLimit) {
+          riskFlag = "CREDIT_LIMIT_EXCEEDED";
+          suggestionReason += ` | WARNING: Outstanding (${outstanding}) + Order (${orderValue}) exceeds credit limit (${creditLimit})`;
+        }
+        if (customerData.has_overdue_invoices) {
+          riskFlag = riskFlag === "CREDIT_LIMIT_EXCEEDED" ? "CREDIT_LIMIT_EXCEEDED_AND_OVERDUE" : "OVERDUE_INVOICES";
+          suggestionReason += " | WARNING: Customer has overdue invoices";
+        }
+      }
+
+      // Default suggestion if still unclear
+      if (!suggestedPaymentType) {
+        suggestedPaymentType = "ADVANCE";
+        suggestionReason = "No payment terms detected in PO or customer profile; defaulting to ADVANCE";
+      }
+
+      // Update order with suggestion and move to UNDER_REVIEW
+      await supabase.from("po_orders").update({
+        status: "UNDER_REVIEW",
+        suggested_payment_type: suggestedPaymentType,
+        suggestion_reason: suggestionReason,
+        risk_flag: riskFlag,
+      }).eq("id", order.id);
     }
 
     return new Response(JSON.stringify({ success: true, order }), {
