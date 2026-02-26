@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Users,
   Package,
-  Receipt,
   Bot,
   Camera,
   Mail,
@@ -11,6 +10,7 @@ import {
   Sparkles,
   FileSpreadsheet,
   LogIn,
+  Boxes,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -33,6 +33,7 @@ const navigationItems = [
   { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Supplier Hub", url: "/supplier-hub", icon: Package },
+  { title: "Inventory", url: "/inventory", icon: Boxes },
   { title: "Bills & Expenses", url: "/bills", icon: Camera },
   { title: "Liquidity Dashboard", url: "/liquidity", icon: Wallet },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
