@@ -1,0 +1,1 @@
+UPDATE public.po_orders SET status = 'UNDER_REVIEW' WHERE status IN ('pending', 'duplicate', 'price_mismatch', 'delivery_date_issue') AND status != 'UNDER_REVIEW';
