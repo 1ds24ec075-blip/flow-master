@@ -12,6 +12,7 @@ import {
   LogIn,
   Boxes,
   ShieldCheck,
+  Download,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -40,6 +41,7 @@ const navigationItems = [
   { title: "Liquidity Dashboard", url: "/liquidity", icon: Wallet },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
   { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
+  { title: "Data Export", url: "/data-export", icon: Download },
   { title: "Sign In", url: "/auth", icon: LogIn },
 ];
 
