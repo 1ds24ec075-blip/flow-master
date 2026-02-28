@@ -84,32 +84,22 @@ export default function Review() {
     },
   });
 
-  const approveMutation = useMutation({
+  const approveToLifecycleMutation = useMutation({
     mutationFn: async (orderId: string) => {
-      // Update status to processed
-      const { error: updateError } = await supabase
+      const { error } = await supabase
         .from("po_orders")
-        .update({ status: "processed" })
+        .update({
+          status: "UNDER_REVIEW",
+          risk_flag: "NONE",
+        } as any)
         .eq("id", orderId);
-      if (updateError) throw updateError;
-
-      // Send SO email
-      const { error: emailError } = await supabase.functions.invoke(
-        "send-sales-order",
-        { body: { orderId } }
-      );
-      if (emailError) throw emailError;
-
-      // Update status to converted
-      await supabase
-        .from("po_orders")
-        .update({ status: "converted" })
-        .eq("id", orderId);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["review-orders"] });
       queryClient.invalidateQueries({ queryKey: ["price-mismatch-count"] });
-      toast.success("Order approved and SO email sent!");
+      queryClient.invalidateQueries({ queryKey: ["order-lifecycle"] });
+      toast.success("Order approved and moved to Order Lifecycle!");
     },
     onError: (error: any) => {
       toast.error(`Failed to approve: ${error.message}`);
@@ -324,6 +314,21 @@ export default function Review() {
                         >
                           <Eye className="h-4 w-4 mr-1" />
                           View
+                        </Button>
+
+                        {/* Approve to Order Lifecycle */}
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => approveToLifecycleMutation.mutate(order.id)}
+                          disabled={approveToLifecycleMutation.isPending}
+                        >
+                          {approveToLifecycleMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4 mr-1" />
+                          )}
+                          Approve
                         </Button>
 
                         {/* Send SO button - opens dialog to edit date */}
