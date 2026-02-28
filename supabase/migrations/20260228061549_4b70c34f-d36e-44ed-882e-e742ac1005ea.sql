@@ -1,0 +1,12 @@
+
+ALTER TABLE public.po_orders
+ADD COLUMN IF NOT EXISTS suggested_payment_type TEXT,
+ADD COLUMN IF NOT EXISTS suggestion_reason TEXT,
+ADD COLUMN IF NOT EXISTS risk_flag TEXT DEFAULT 'NONE';
+
+ALTER TABLE public.customer_master
+ADD COLUMN IF NOT EXISTS default_payment_mode TEXT,
+ADD COLUMN IF NOT EXISTS default_credit_days INTEGER DEFAULT 30,
+ADD COLUMN IF NOT EXISTS credit_limit NUMERIC DEFAULT 0,
+ADD COLUMN IF NOT EXISTS outstanding_amount NUMERIC DEFAULT 0,
+ADD COLUMN IF NOT EXISTS has_overdue_invoices BOOLEAN DEFAULT false;

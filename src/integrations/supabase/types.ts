@@ -351,12 +351,17 @@ export type Database = {
           bank_name: string | null
           billing_address: string | null
           created_at: string | null
+          credit_limit: number | null
           currency: string | null
           customer_name: string
+          default_credit_days: number | null
+          default_payment_mode: string | null
           email: string | null
           gst_number: string | null
+          has_overdue_invoices: boolean | null
           id: string
           is_active: boolean | null
+          outstanding_amount: number | null
           payment_terms: string | null
           phone: string | null
           shipping_address: string | null
@@ -369,12 +374,17 @@ export type Database = {
           bank_name?: string | null
           billing_address?: string | null
           created_at?: string | null
+          credit_limit?: number | null
           currency?: string | null
           customer_name: string
+          default_credit_days?: number | null
+          default_payment_mode?: string | null
           email?: string | null
           gst_number?: string | null
+          has_overdue_invoices?: boolean | null
           id?: string
           is_active?: boolean | null
+          outstanding_amount?: number | null
           payment_terms?: string | null
           phone?: string | null
           shipping_address?: string | null
@@ -387,12 +397,17 @@ export type Database = {
           bank_name?: string | null
           billing_address?: string | null
           created_at?: string | null
+          credit_limit?: number | null
           currency?: string | null
           customer_name?: string
+          default_credit_days?: number | null
+          default_payment_mode?: string | null
           email?: string | null
           gst_number?: string | null
+          has_overdue_invoices?: boolean | null
           id?: string
           is_active?: boolean | null
+          outstanding_amount?: number | null
           payment_terms?: string | null
           phone?: string | null
           shipping_address?: string | null
@@ -967,9 +982,12 @@ export type Database = {
           population_source: string | null
           price_mismatch_details: Json | null
           raw_text: string | null
+          risk_flag: string | null
           shipping_address: string | null
           source_customer_master_id: string | null
           status: string | null
+          suggested_payment_type: string | null
+          suggestion_reason: string | null
           tally_ledger_name: string | null
           total_amount: number | null
           updated_at: string | null
@@ -999,9 +1017,12 @@ export type Database = {
           population_source?: string | null
           price_mismatch_details?: Json | null
           raw_text?: string | null
+          risk_flag?: string | null
           shipping_address?: string | null
           source_customer_master_id?: string | null
           status?: string | null
+          suggested_payment_type?: string | null
+          suggestion_reason?: string | null
           tally_ledger_name?: string | null
           total_amount?: number | null
           updated_at?: string | null
@@ -1031,9 +1052,12 @@ export type Database = {
           population_source?: string | null
           price_mismatch_details?: Json | null
           raw_text?: string | null
+          risk_flag?: string | null
           shipping_address?: string | null
           source_customer_master_id?: string | null
           status?: string | null
+          suggested_payment_type?: string | null
+          suggestion_reason?: string | null
           tally_ledger_name?: string | null
           total_amount?: number | null
           updated_at?: string | null
