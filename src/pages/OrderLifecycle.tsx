@@ -32,6 +32,9 @@ interface LifecycleOrder {
   order_date: string | null;
   created_at: string;
   updated_at: string;
+  suggested_payment_type: string | null;
+  suggestion_reason: string | null;
+  risk_flag: string | null;
 }
 
 interface CustomerCredit {

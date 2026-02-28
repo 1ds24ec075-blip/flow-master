@@ -18,6 +18,9 @@ interface OrderForReview {
   total_amount: number | null;
   payment_terms: string | null;
   currency: string;
+  suggested_payment_type?: string | null;
+  suggestion_reason?: string | null;
+  risk_flag?: string | null;
   [key: string]: any;
 }
 
@@ -43,7 +46,8 @@ export function PaymentDecisionDialog({
 
   const handleOpen = (isOpen: boolean) => {
     if (isOpen && order) {
-      setSelectedType("ADVANCE");
+      const suggested = order.suggested_payment_type as "ADVANCE" | "CREDIT" | null;
+      setSelectedType(suggested === "CREDIT" ? "CREDIT" : "ADVANCE");
       setCreditDays(30);
     }
     onOpenChange(isOpen);
@@ -80,6 +84,24 @@ export function PaymentDecisionDialog({
               <p className="font-medium">{order.payment_terms || "Not specified"}</p>
             </div>
           </div>
+
+          {order.suggestion_reason && (
+            <div className="rounded-lg border bg-muted/40 p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={`h-4 w-4 ${order.risk_flag && order.risk_flag !== "NONE" ? "text-amber-500" : "text-blue-500"}`} />
+                <p className="text-sm font-semibold">AI Suggestion</p>
+                {order.suggested_payment_type && (
+                  <Badge variant="outline" className={order.suggested_payment_type === "ADVANCE" ? "border-green-300 text-green-700" : "border-blue-300 text-blue-700"}>
+                    {order.suggested_payment_type}
+                  </Badge>
+                )}
+                {order.risk_flag && order.risk_flag !== "NONE" && (
+                  <Badge variant="destructive" className="text-xs">{order.risk_flag}</Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">{order.suggestion_reason}</p>
+            </div>
+          )}
 
           <div className="space-y-3">
             <Label className="text-sm font-semibold">Select Final Decision</Label>
