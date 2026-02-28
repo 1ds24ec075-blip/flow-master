@@ -618,8 +618,9 @@ Return ONLY valid JSON with this structure:
     }
 
     // Hybrid Payment Suggestion Engine
-    // Instead of auto-sending SO, run suggestion logic and set status to UNDER_REVIEW
-    if (status === "pending") {
+    // Always run suggestion logic and move ALL orders to UNDER_REVIEW for lifecycle tracking
+    // Duplicate/price_mismatch/delivery_date info is preserved in respective detail columns
+    {
       let suggestedPaymentType = null;
       let suggestionReason = "";
       let riskFlag = "NONE";
@@ -677,6 +678,20 @@ Return ONLY valid JSON with this structure:
       if (!suggestedPaymentType) {
         suggestedPaymentType = "ADVANCE";
         suggestionReason = "No payment terms detected in PO or customer profile; defaulting to ADVANCE";
+      }
+
+      // Append warnings for duplicate/price_mismatch/delivery issues
+      if (status === "duplicate") {
+        riskFlag = riskFlag === "NONE" ? "DUPLICATE" : riskFlag + "_AND_DUPLICATE";
+        suggestionReason += " | ⚠️ Potential duplicate PO detected";
+      }
+      if (status === "price_mismatch") {
+        riskFlag = riskFlag === "NONE" ? "PRICE_MISMATCH" : riskFlag + "_AND_PRICE_MISMATCH";
+        suggestionReason += " | ⚠️ Price mismatch detected on one or more items";
+      }
+      if (status === "delivery_date_issue") {
+        riskFlag = riskFlag === "NONE" ? "DELIVERY_DATE" : riskFlag + "_AND_DELIVERY_DATE";
+        suggestionReason += " | ⚠️ Delivery date exceeds 30 days from order date";
       }
 
       // Update order with suggestion and move to UNDER_REVIEW
