@@ -43,31 +43,20 @@ export async function runPaymentSuggestion(
   if (customerMasterId) {
     const { data: cust } = await supabase
       .from("customer_master")
-      .select("default_payment_mode, default_credit_days, credit_limit, outstanding_amount, has_overdue_invoices")
+      .select("payment_terms")
       .eq("id", customerMasterId)
       .maybeSingle();
 
     if (cust) {
-      creditLimit = cust.credit_limit || 0;
-      outstandingAmount = cust.outstanding_amount || 0;
-      hasOverdueInvoices = cust.has_overdue_invoices || false;
-      creditDays = creditDays || cust.default_credit_days || 30;
-
-      if (!reason && cust.default_payment_mode) {
-        suggestedType = cust.default_payment_mode as "ADVANCE" | "CREDIT";
-        reason = `Customer default: ${cust.default_payment_mode}`;
-      }
-
-      if (suggestedType === "CREDIT") {
-        if (creditLimit > 0 && (outstandingAmount + orderValue) > creditLimit) {
-          riskFlag = "CREDIT_LIMIT_EXCEEDED";
-          reason += ` | Outstanding (${outstandingAmount}) + Order (${orderValue}) > Limit (${creditLimit})`;
-        }
-        if (hasOverdueInvoices) {
-          riskFlag = riskFlag === "CREDIT_LIMIT_EXCEEDED"
-            ? "CREDIT_LIMIT_EXCEEDED_AND_OVERDUE"
-            : "OVERDUE_INVOICES";
-          reason += " | Customer has overdue invoices";
+      // Use payment_terms from customer master as fallback
+      if (!reason && cust.payment_terms) {
+        const custTerms = cust.payment_terms.toLowerCase();
+        if (custTerms.includes("advance")) {
+          suggestedType = "ADVANCE";
+          reason = `Customer default: ${cust.payment_terms}`;
+        } else if (custTerms.includes("credit") || custTerms.includes("net")) {
+          suggestedType = "CREDIT";
+          reason = `Customer default: ${cust.payment_terms}`;
         }
       }
     }

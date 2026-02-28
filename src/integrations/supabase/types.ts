@@ -658,6 +658,59 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory_items: {
+        Row: {
+          created_at: string
+          current_quantity: number
+          default_reorder_quantity: number
+          estimated_lead_time_days: number | null
+          id: string
+          is_active: boolean
+          item_name: string
+          minimum_threshold: number
+          preferred_supplier_id: string | null
+          sku: string
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_quantity?: number
+          default_reorder_quantity?: number
+          estimated_lead_time_days?: number | null
+          id?: string
+          is_active?: boolean
+          item_name: string
+          minimum_threshold?: number
+          preferred_supplier_id?: string | null
+          sku: string
+          unit?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_quantity?: number
+          default_reorder_quantity?: number
+          estimated_lead_time_days?: number | null
+          id?: string
+          is_active?: boolean
+          item_name?: string
+          minimum_threshold?: number
+          preferred_supplier_id?: string | null
+          sku?: string
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_items_preferred_supplier_id_fkey"
+            columns: ["preferred_supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ledger_master: {
         Row: {
           created_at: string
@@ -1356,6 +1409,66 @@ export type Database = {
           },
         ]
       }
+      reorder_requests: {
+        Row: {
+          created_at: string
+          id: string
+          internal_note: string | null
+          inventory_item_id: string
+          minimum_threshold_at_trigger: number | null
+          quantity_at_trigger: number | null
+          quantity_requested: number
+          requested_delivery_date: string | null
+          status: string
+          supplier_id: string | null
+          triggered_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          internal_note?: string | null
+          inventory_item_id: string
+          minimum_threshold_at_trigger?: number | null
+          quantity_at_trigger?: number | null
+          quantity_requested: number
+          requested_delivery_date?: string | null
+          status?: string
+          supplier_id?: string | null
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          internal_note?: string | null
+          inventory_item_id?: string
+          minimum_threshold_at_trigger?: number | null
+          quantity_at_trigger?: number | null
+          quantity_requested?: number
+          requested_delivery_date?: string | null
+          status?: string
+          supplier_id?: string | null
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reorder_requests_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reorder_requests_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       segregated_transactions: {
         Row: {
           amount: number
@@ -1471,6 +1584,57 @@ export type Database = {
           upload_date?: string
         }
         Relationships: []
+      }
+      supplier_communications: {
+        Row: {
+          body: string | null
+          communication_type: string
+          created_at: string
+          id: string
+          recipient_email: string
+          reorder_request_id: string | null
+          status: string
+          subject: string | null
+          supplier_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          communication_type?: string
+          created_at?: string
+          id?: string
+          recipient_email?: string
+          reorder_request_id?: string | null
+          status?: string
+          subject?: string | null
+          supplier_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          communication_type?: string
+          created_at?: string
+          id?: string
+          recipient_email?: string
+          reorder_request_id?: string | null
+          status?: string
+          subject?: string | null
+          supplier_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_communications_reorder_request_id_fkey"
+            columns: ["reorder_request_id"]
+            isOneToOne: false
+            referencedRelation: "reorder_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_communications_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       suppliers: {
         Row: {
