@@ -618,9 +618,16 @@ Return ONLY valid JSON with this structure:
     }
 
     // Hybrid Payment Suggestion Engine
-    // Always run suggestion logic and move ALL orders to UNDER_REVIEW for lifecycle tracking
-    // Duplicate/price_mismatch/delivery_date info is preserved in respective detail columns
+    // Only move CLEAN orders (all items resolved, no price mismatches) to UNDER_REVIEW
+    // Orders with issues stay in their flagged status for the Review tab
     {
+      const hasUnmappedItems = (productResolutionResults?.unmapped_count || 0) > 0;
+      const hasPriceMismatch = mismatches.length > 0;
+      const hasUnmatchedItems = unmatchedItems.length > 0;
+      const isDuplicate = status === "duplicate";
+      const hasDeliveryIssue = status === "delivery_date_issue";
+      const isClean = !hasUnmappedItems && !hasPriceMismatch && !hasUnmatchedItems && !isDuplicate && !hasDeliveryIssue;
+
       let suggestedPaymentType = null;
       let suggestionReason = "";
       let riskFlag = "NONE";
@@ -680,27 +687,35 @@ Return ONLY valid JSON with this structure:
         suggestionReason = "No payment terms detected in PO or customer profile; defaulting to ADVANCE";
       }
 
-      // Append warnings for duplicate/price_mismatch/delivery issues
-      if (status === "duplicate") {
-        riskFlag = riskFlag === "NONE" ? "DUPLICATE" : riskFlag + "_AND_DUPLICATE";
-        suggestionReason += " | ⚠️ Potential duplicate PO detected";
+      if (isClean) {
+        // ✅ All items resolved, no price issues → move to Order Lifecycle
+        await supabase.from("po_orders").update({
+          status: "UNDER_REVIEW",
+          suggested_payment_type: suggestedPaymentType,
+          suggestion_reason: suggestionReason,
+          risk_flag: riskFlag,
+        }).eq("id", order.id);
+      } else {
+        // ❌ Has issues → stay in Review tab with appropriate status and attach suggestion for later
+        let finalStatus = status; // keep duplicate, price_mismatch, delivery_date_issue as-is
+        if (finalStatus === "pending" && (hasUnmappedItems || hasUnmatchedItems)) {
+          finalStatus = "price_mismatch"; // unmapped items also go to review
+        }
+        
+        // Build issue summary
+        const issues: string[] = [];
+        if (hasUnmappedItems || hasUnmatchedItems) issues.push(`${(productResolutionResults?.unmapped_count || 0) + unmatchedItems.length} unmapped item(s)`);
+        if (hasPriceMismatch) issues.push(`${mismatches.length} price mismatch(es)`);
+        if (isDuplicate) issues.push("Potential duplicate");
+        if (hasDeliveryIssue) issues.push("Delivery date exceeds 30 days");
+        
+        await supabase.from("po_orders").update({
+          status: finalStatus,
+          suggested_payment_type: suggestedPaymentType,
+          suggestion_reason: suggestionReason + ` | ⚠️ Blocked from lifecycle: ${issues.join(", ")}`,
+          risk_flag: issues.length > 0 ? issues.map(i => i.toUpperCase().replace(/[^A-Z_]/g, "_")).join("_AND_") : riskFlag,
+        }).eq("id", order.id);
       }
-      if (status === "price_mismatch") {
-        riskFlag = riskFlag === "NONE" ? "PRICE_MISMATCH" : riskFlag + "_AND_PRICE_MISMATCH";
-        suggestionReason += " | ⚠️ Price mismatch detected on one or more items";
-      }
-      if (status === "delivery_date_issue") {
-        riskFlag = riskFlag === "NONE" ? "DELIVERY_DATE" : riskFlag + "_AND_DELIVERY_DATE";
-        suggestionReason += " | ⚠️ Delivery date exceeds 30 days from order date";
-      }
-
-      // Update order with suggestion and move to UNDER_REVIEW
-      await supabase.from("po_orders").update({
-        status: "UNDER_REVIEW",
-        suggested_payment_type: suggestedPaymentType,
-        suggestion_reason: suggestionReason,
-        risk_flag: riskFlag,
-      }).eq("id", order.id);
     }
 
     return new Response(JSON.stringify({ success: true, order }), {
