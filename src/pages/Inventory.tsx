@@ -12,6 +12,7 @@ import { InventoryTable } from "@/components/inventory/InventoryTable";
 import { ReorderConfirmDialog } from "@/components/inventory/ReorderConfirmDialog";
 import { AddEditItemDialog } from "@/components/inventory/AddEditItemDialog";
 import { ReorderHistory } from "@/components/inventory/ReorderHistory";
+import { OrderSentTable } from "@/components/inventory/OrderSentTable";
 import { useLowStockAlerts } from "@/components/inventory/LowStockAlert";
 import type { InventoryItem } from "@/components/inventory/ReorderConfirmDialog";
 
@@ -244,6 +245,9 @@ export default function Inventory() {
                 <Badge className="ml-1.5 h-4 text-[10px] px-1.5 bg-red-500 text-white">{lowStock.length}</Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="sent" className="text-xs">
+              Order Sent
+            </TabsTrigger>
             <TabsTrigger value="history" className="text-xs">Reorder History</TabsTrigger>
           </TabsList>
 
@@ -294,6 +298,10 @@ export default function Inventory() {
               />
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="sent" className="mt-4">
+          <OrderSentTable />
         </TabsContent>
 
         <TabsContent value="history" className="mt-4">
