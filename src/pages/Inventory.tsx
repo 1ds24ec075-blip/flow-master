@@ -120,37 +120,16 @@ export default function Inventory() {
 
       if (reorderError) throw reorderError;
 
-      const supplierEmail = item.suppliers?.email;
-      const supplierName = item.suppliers?.name ?? "Supplier";
-      const companyName = "Your Company";
-
-      const emailSubject = `Restock Request – ${item.item_name} – ${companyName}`;
-      const emailBody = `Dear ${supplierName},
-
-We hope this message finds you well.
-
-We are writing to request a restock of the following item:
-
-  Item Name    : ${item.item_name}
-  SKU          : ${item.sku}
-  Quantity     : ${quantity} ${item.unit}
-  Delivery By  : ${deliveryDate}
-  ${note ? `\n  Note         : ${note}` : ""}
-
-Please confirm receipt of this order at your earliest convenience.
-
-Thank you,
-${companyName} Procurement Team`;
-
-      await supabase.from("supplier_communications").insert({
-        reorder_request_id: reorderData.id,
-        supplier_id: item.preferred_supplier_id,
-        communication_type: "email",
-        subject: emailSubject,
-        body: emailBody,
-        recipient_email: supplierEmail ?? "",
-        status: "sent",
+      // Send email via edge function
+      const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-reorder-email", {
+        body: { reorder_request_id: reorderData.id },
       });
+
+      if (emailError) {
+        console.error("Email send error:", emailError);
+      } else if (emailResult && !emailResult.email_sent) {
+        console.warn("Email not sent:", emailResult.email_error);
+      }
 
       return reorderData;
     },
