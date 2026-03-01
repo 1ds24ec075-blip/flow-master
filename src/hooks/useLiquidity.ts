@@ -272,10 +272,11 @@ export function useLiquidity() {
   };
 
   const updateWeek = async (id: string, updates: Partial<Pick<LiquidityWeek, "opening_balance" | "alert_threshold" | "notes">>) => {
-    const { error } = await supabase.from("weekly_liquidity").update(updates).eq("id", id);
+    const { data, error } = await supabase.from("weekly_liquidity").update(updates).eq("id", id).select().single();
     if (error) {
       toast({ title: "Error updating week", description: error.message, variant: "destructive" });
     } else {
+      setActiveWeek(data as LiquidityWeek);
       await fetchWeeks();
     }
   };
