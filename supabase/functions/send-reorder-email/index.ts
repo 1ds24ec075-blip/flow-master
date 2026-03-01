@@ -1,10 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 Deno.serve(async (req: Request) => {
@@ -72,6 +73,7 @@ Please confirm receipt of this order at your earliest convenience.
 Thank you,
 ${companyName} Procurement Team`;
 
+    // Log the communication
     await supabase.from("supplier_communications").insert({
       reorder_request_id,
       supplier_id: request.supplier_id,
@@ -79,14 +81,70 @@ ${companyName} Procurement Team`;
       subject,
       body: emailBody,
       recipient_email: supplierEmail ?? "",
-      status: "sent",
+      status: supplierEmail ? "sending" : "no_email",
     });
 
+    // Actually send the email via Gmail SMTP
+    let emailSent = false;
+    let emailError = "";
+
+    if (supplierEmail) {
+      const smtpUser = Deno.env.get("GMAIL_SMTP_USER");
+      const smtpPass = Deno.env.get("GMAIL_SMTP_PASSWORD");
+
+      if (!smtpUser || !smtpPass) {
+        emailError = "SMTP credentials not configured";
+        console.error(emailError);
+      } else {
+        try {
+          const client = new SMTPClient({
+            connection: {
+              hostname: "smtp.gmail.com",
+              port: 465,
+              tls: true,
+              auth: {
+                username: smtpUser,
+                password: smtpPass,
+              },
+            },
+          });
+
+          await client.send({
+            from: smtpUser,
+            to: supplierEmail,
+            subject,
+            content: emailBody,
+          });
+
+          await client.close();
+          emailSent = true;
+          console.log(`Email sent successfully to ${supplierEmail}`);
+        } catch (smtpErr: any) {
+          emailError = smtpErr.message ?? "SMTP send failed";
+          console.error("SMTP error:", emailError);
+        }
+      }
+
+      // Update communication status
+      await supabase
+        .from("supplier_communications")
+        .update({ status: emailSent ? "sent" : "failed" })
+        .eq("reorder_request_id", reorder_request_id)
+        .eq("communication_type", "email");
+    }
+
     return new Response(
-      JSON.stringify({ success: true, subject, recipient: supplierEmail }),
+      JSON.stringify({
+        success: true,
+        email_sent: emailSent,
+        email_error: emailError || undefined,
+        subject,
+        recipient: supplierEmail,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
+    console.error("Function error:", err);
     return new Response(
       JSON.stringify({ error: err.message ?? "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
