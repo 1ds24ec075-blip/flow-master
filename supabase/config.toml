@@ -69,3 +69,6 @@ verify_jwt = false
 
 [functions.excel-sync]
 verify_jwt = false
+
+[functions.supplier-invoice-extract]
+verify_jwt = false
