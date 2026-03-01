@@ -92,7 +92,7 @@ export function useLiquidity() {
   // Auto-ensure current week exists (Sunday to Sunday)
   const ensureCurrentWeek = async () => {
     const today = new Date();
-    const weekStart = startOfWeek(today, { weekStartsOn: 0 });
+    const weekStart = startOfWeek(today, { weekStartsOn: 1 });
     const weekStartStr = format(weekStart, "yyyy-MM-dd");
 
     const { data: existing } = await supabase
@@ -128,7 +128,7 @@ export function useLiquidity() {
       setWeeks(data as LiquidityWeek[]);
       if (data.length > 0 && !activeWeek) {
         const today = new Date();
-        const weekStartStr = format(startOfWeek(today, { weekStartsOn: 0 }), "yyyy-MM-dd");
+        const weekStartStr = format(startOfWeek(today, { weekStartsOn: 1 }), "yyyy-MM-dd");
         const currentWeek = data.find((w: any) => w.week_start_date === weekStartStr);
         setActiveWeek((currentWeek || data[0]) as LiquidityWeek);
       }
