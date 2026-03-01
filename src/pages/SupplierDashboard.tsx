@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,7 +21,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Plus, CheckCircle, XCircle, Edit, Trash2, Upload, FileText } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Edit, Trash2, Upload, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -32,6 +32,7 @@ export default function SupplierDashboard() {
   const [detailSupplierId, setDetailSupplierId] = useState<string | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<any>(null);
   const [formData, setFormData] = useState({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
+  const [isExtracting, setIsExtracting] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [supplierForm, setSupplierForm] = useState({
     name: "", email: "", gst_number: "", material_type: "", payment_terms: "",
@@ -44,7 +45,6 @@ export default function SupplierDashboard() {
     setEditingSupplier(null);
   };
 
-  // Queries
   const { data: suppliers } = useQuery({
     queryKey: ["suppliers_all"],
     queryFn: async () => {
@@ -53,6 +53,50 @@ export default function SupplierDashboard() {
       return data;
     },
   });
+
+  const handleFileSelected = useCallback(async (file: File) => {
+    setInvoiceFile(file);
+    setIsExtracting(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const tempPath = `supplier-invoices/temp-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from("bills").upload(tempPath, file);
+      if (uploadError) throw uploadError;
+
+      const { data: extractedData, error: fnError } = await supabase.functions.invoke('supplier-invoice-extract', {
+        body: { filePath: tempPath },
+      });
+
+      if (fnError) throw fnError;
+
+      if (extractedData && !extractedData.error) {
+        setFormData(prev => ({
+          ...prev,
+          invoice_number: extractedData.invoice_number || prev.invoice_number,
+          amount: extractedData.amount ? String(extractedData.amount) : prev.amount,
+          invoice_date: extractedData.invoice_date || prev.invoice_date,
+          due_date: extractedData.due_date || prev.due_date,
+        }));
+
+        if (extractedData.vendor_name && suppliers) {
+          const vendorLower = extractedData.vendor_name.toLowerCase();
+          const matched = suppliers.find(s =>
+            s.name.toLowerCase().includes(vendorLower) || vendorLower.includes(s.name.toLowerCase())
+          );
+          if (matched) {
+            setFormData(prev => ({ ...prev, supplier_id: matched.id }));
+          }
+        }
+
+        toast.success(`Extracted: Invoice #${extractedData.invoice_number || '?'}, ₹${extractedData.amount || '?'}, Due: ${extractedData.due_date || 'N/A'}`, { duration: 5000 });
+      }
+    } catch (err: any) {
+      console.error('Extraction error:', err);
+      toast.error("Could not auto-extract invoice data. Please fill manually.");
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [suppliers]);
 
   const { data: invoices, isLoading: invoicesLoading } = useQuery({
     queryKey: ["raw_material_invoices"],
@@ -404,23 +448,26 @@ export default function SupplierDashboard() {
                     <div className="mt-1">
                       {invoiceFile ? (
                         <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3">
-                          <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
-                          <span className="text-sm truncate flex-1">{invoiceFile.name}</span>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => setInvoiceFile(null)}>Remove</Button>
+                          {isExtracting ? <Loader2 className="h-5 w-5 text-primary shrink-0 animate-spin" /> : <FileText className="h-5 w-5 text-muted-foreground shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm truncate block">{invoiceFile.name}</span>
+                            {isExtracting && <span className="text-xs text-primary">Extracting invoice data...</span>}
+                          </div>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setInvoiceFile(null)} disabled={isExtracting}>Remove</Button>
                         </div>
                       ) : (
                         <label className="flex flex-col items-center gap-2 rounded-md border-2 border-dashed border-border p-6 cursor-pointer hover:bg-muted/50 transition-colors">
                           <Upload className="h-8 w-8 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">Click to select PDF, JPG, or PNG</span>
-                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={e => { if (e.target.files?.[0]) setInvoiceFile(e.target.files[0]); }} />
+                          <span className="text-sm text-muted-foreground">Click to select PDF, JPG, or PNG — data will be auto-extracted</span>
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFileSelected(e.target.files[0]); }} />
                         </label>
                       )}
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
                     <Button type="button" variant="outline" onClick={() => setInvoiceDialogOpen(false)}>Cancel</Button>
-                    <Button type="submit" disabled={createInvoiceMutation.isPending}>
-                      {createInvoiceMutation.isPending ? "Uploading..." : "Save Invoice"}
+                    <Button type="submit" disabled={createInvoiceMutation.isPending || isExtracting}>
+                      {isExtracting ? "Extracting..." : createInvoiceMutation.isPending ? "Uploading..." : "Save Invoice"}
                     </Button>
                   </div>
                 </form>
