@@ -33,6 +33,8 @@ export default function LiquidityDashboard() {
   const [editPaymentDate, setEditPaymentDate] = useState<Date | undefined>();
   const [notesOpen, setNotesOpen] = useState(false);
   const [editNotes, setEditNotes] = useState("");
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceInput, setBalanceInput] = useState("");
 
   const handleAddItem = async () => {
     if (!itemDesc.trim() || !itemAmt) return;
@@ -64,6 +66,12 @@ export default function LiquidityDashboard() {
     setNotesOpen(false);
   };
 
+  const handleSaveBalance = async () => {
+    if (!liq.activeWeek) return;
+    await liq.updateWeek(liq.activeWeek.id, { opening_balance: Number(balanceInput) || 0 });
+    setEditingBalance(false);
+  };
+
   if (liq.loading) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
 
   return (
@@ -77,7 +85,35 @@ export default function LiquidityDashboard() {
             {liq.activeWeek && ` — Week of ${format(new Date(liq.activeWeek.week_start_date), "dd MMM yyyy")}`}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* Opening Balance Editor */}
+          {liq.activeWeek && (
+            editingBalance ? (
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-medium text-muted-foreground">Opening:</span>
+                <Input
+                  type="number"
+                  className="w-[140px] h-8"
+                  value={balanceInput}
+                  onChange={e => setBalanceInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSaveBalance()}
+                  autoFocus
+                />
+                <Button size="sm" variant="default" className="h-8" onClick={handleSaveBalance}>Save</Button>
+                <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingBalance(false)}>✕</Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setBalanceInput(String(liq.openingBalance)); setEditingBalance(true); }}
+                title="Edit opening balance"
+              >
+                <Wallet className="h-4 w-4 mr-1" />
+                Opening: {formatINR(liq.openingBalance)}
+              </Button>
+            )
+          )}
           {liq.weeks.length > 1 && (
             <Select value={liq.activeWeek?.id || ""} onValueChange={v => liq.setActiveWeek(liq.weeks.find(w => w.id === v) || null)}>
               <SelectTrigger className="w-[200px]"><SelectValue placeholder="Select week" /></SelectTrigger>
