@@ -16,6 +16,7 @@ import { useLiquidity, LiquidityLineItem } from "@/hooks/useLiquidity";
 import { LiquidityBalanceCards } from "@/components/liquidity/BalanceCards";
 import { LiquidityLineItemTable } from "@/components/liquidity/LineItemTable";
 import { MonthlyPaymentCalendar } from "@/components/liquidity/MonthlyCalendar";
+import { SupplierPaymentDetail } from "@/components/liquidity/SupplierPaymentDetail";
 
 function formatINR(n: number) {
   return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
@@ -35,6 +36,7 @@ export default function LiquidityDashboard() {
   const [editNotes, setEditNotes] = useState("");
   const [editingBalance, setEditingBalance] = useState(false);
   const [balanceInput, setBalanceInput] = useState("");
+  const [detailItem, setDetailItem] = useState<LiquidityLineItem | null>(null);
 
   const handleAddItem = async () => {
     if (!itemDesc.trim() || !itemAmt) return;
@@ -216,6 +218,7 @@ export default function LiquidityDashboard() {
                   onMarkDone={handleMarkDone}
                   onEditActual={(item) => { setEditItem(item); setEditActual(String(item.actual_amount || "")); setEditPaymentDate(undefined); }}
                   onDelete={liq.deleteLineItem}
+                  onItemClick={(item) => setDetailItem(item)}
                 />
               </TabsContent>
             ))}
@@ -252,6 +255,8 @@ export default function LiquidityDashboard() {
               <Button className="w-full" onClick={handleSaveNotes}>Save Notes</Button>
             </DialogContent>
           </Dialog>
+          {/* Supplier Payment Detail */}
+          <SupplierPaymentDetail item={detailItem} open={!!detailItem} onOpenChange={v => { if (!v) setDetailItem(null); }} />
         </>
       )}
     </div>
