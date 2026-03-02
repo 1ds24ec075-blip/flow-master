@@ -32,7 +32,7 @@ export function ReorderHistory() {
           inventory_items (item_name, sku, unit),
           suppliers (name, email)
         `)
-        .order("triggered_at", { ascending: false });
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -98,7 +98,7 @@ export function ReorderHistory() {
                   : "—"}
               </TableCell>
               <TableCell className="text-xs text-muted-foreground">
-                {req.triggered_at ? format(new Date(req.triggered_at), "dd MMM, hh:mm a") : "—"}
+                {req.created_at ? format(new Date(req.created_at), "dd MMM, hh:mm a") : "—"}
               </TableCell>
               <TableCell>
                 <Select
