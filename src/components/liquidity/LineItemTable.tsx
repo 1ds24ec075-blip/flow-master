@@ -15,9 +15,10 @@ interface Props {
   onMarkDone: (item: LiquidityLineItem) => void;
   onEditActual: (item: LiquidityLineItem) => void;
   onDelete: (id: string) => void;
+  onItemClick?: (item: LiquidityLineItem) => void;
 }
 
-export function LiquidityLineItemTable({ items, onMarkDone, onEditActual, onDelete }: Props) {
+export function LiquidityLineItemTable({ items, onMarkDone, onEditActual, onDelete, onItemClick }: Props) {
   if (items.length === 0) return <Card><CardContent className="p-8 text-center text-muted-foreground">No items yet.</CardContent></Card>;
   return (
     <Card>
@@ -37,7 +38,7 @@ export function LiquidityLineItemTable({ items, onMarkDone, onEditActual, onDele
         </TableHeader>
         <TableBody>
           {items.map(item => (
-            <TableRow key={item.id}>
+            <TableRow key={item.id} className={item.item_type === "payment" && item.linked_invoice_type === "supplier" ? "cursor-pointer hover:bg-muted/50" : ""} onClick={() => item.item_type === "payment" && item.linked_invoice_type === "supplier" && onItemClick?.(item)}>
               <TableCell>
                 {item.item_type === "collection" ? (
                   <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400"><ArrowDownCircle className="h-3 w-3 mr-1" />In</Badge>
