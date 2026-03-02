@@ -36,6 +36,7 @@ export interface MonthlyPaymentDay {
   supplierCount: number;
   supplierNames: string[];
   totalAmount: number;
+  items: LiquidityLineItem[];
 }
 
 export function useLiquidity() {
@@ -171,6 +172,7 @@ export function useLiquidity() {
         supplierCount: dayItems.length,
         supplierNames: dayItems.map((i: any) => i.description),
         totalAmount: dayItems.reduce((s: number, i: any) => s + Number(i.expected_amount || 0), 0),
+        items: dayItems as LiquidityLineItem[],
       };
     });
     setMonthlyData(result);
