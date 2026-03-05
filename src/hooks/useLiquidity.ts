@@ -115,7 +115,7 @@ export function useLiquidity() {
     }
   };
 
-  // Auto-ensure current week exists (Sunday to Sunday)
+  // Auto-ensure current week exists (Monday to Sunday) — uses upsert to prevent race conditions
   const ensureCurrentWeek = async () => {
     const today = new Date();
     const weekStart = startOfWeek(today, { weekStartsOn: 1 });
@@ -127,19 +127,23 @@ export function useLiquidity() {
       .eq("week_start_date", weekStartStr)
       .maybeSingle();
 
-    if (!existing) {
-      const { data: newWeek, error } = await supabase
-        .from("weekly_liquidity")
-        .insert({ week_start_date: weekStartStr, opening_balance: 0, alert_threshold: 0 })
-        .select()
-        .single();
+    if (existing) return;
 
-      if (!error && newWeek) {
-        await Promise.all([
-          fetchUnpaidSupplierInvoices(weekStart, newWeek.id),
-          fetchUnpaidCustomerInvoices(weekStart, newWeek.id),
-        ]);
-      }
+    // Use upsert with the unique constraint to avoid race-condition duplicates
+    const { data: newWeek, error } = await supabase
+      .from("weekly_liquidity")
+      .upsert(
+        { week_start_date: weekStartStr, opening_balance: 0, alert_threshold: 0 },
+        { onConflict: "week_start_date", ignoreDuplicates: true }
+      )
+      .select()
+      .maybeSingle();
+
+    if (!error && newWeek) {
+      await Promise.all([
+        fetchUnpaidSupplierInvoices(weekStart, newWeek.id),
+        fetchUnpaidCustomerInvoices(weekStart, newWeek.id),
+      ]);
     }
   };
 
