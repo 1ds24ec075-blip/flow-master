@@ -187,6 +187,19 @@ export default function SupplierDashboard() {
     },
   });
 
+  const deleteInvoiceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      // Also delete linked liquidity line items
+      await supabase.from("liquidity_line_items").delete().eq("linked_invoice_id", id).eq("linked_invoice_type", "supplier");
+      const { error } = await supabase.from("raw_material_invoices").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
+      toast.success("Invoice deleted");
+    },
+  });
+
   // Supplier Mutations
   const createSupplierMutation = useMutation({
     mutationFn: async (data: typeof supplierForm) => {
@@ -507,6 +520,7 @@ export default function SupplierDashboard() {
                             <Button variant="outline" size="sm" onClick={() => rejectMutation.mutate(invoice.id)}><XCircle className="h-4 w-4 mr-1" />Reject</Button>
                           </>
                         )}
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => { if (confirm("Delete this invoice? This will also remove it from the Liquidity Dashboard.")) deleteInvoiceMutation.mutate(invoice.id); }}><Trash2 className="h-4 w-4" /></Button>
                       </TableCell>
                     </TableRow>
                   ))}
