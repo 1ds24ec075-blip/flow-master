@@ -47,7 +47,7 @@ export function useLiquidity() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  // Auto-fetch unpaid supplier invoices for a given week
+  // Auto-fetch unpaid supplier invoices for a given week (deduplicates)
   const fetchUnpaidSupplierInvoices = async (weekStart: Date, weekId: string) => {
     const { data: supplierInvoices } = await supabase
       .from("raw_material_invoices")
@@ -55,21 +55,34 @@ export function useLiquidity() {
       .in("status", ["pending", "awaiting_approval"]);
 
     if (supplierInvoices && supplierInvoices.length > 0) {
-      const items = supplierInvoices.map((inv: any) => ({
-        liquidity_week_id: weekId,
-        item_type: "payment",
-        description: `Supplier: ${inv.suppliers?.name || "Unknown"} — Inv#${inv.invoice_number}`,
-        expected_amount: inv.amount || 0,
-        linked_invoice_id: inv.id,
-        linked_invoice_type: "supplier",
-        status: "pending",
-        due_date: inv.due_date || null,
-      }));
-      await supabase.from("liquidity_line_items").insert(items);
+      // Check which invoices already have line items in ANY week
+      const invoiceIds = supplierInvoices.map((inv: any) => inv.id);
+      const { data: existing } = await supabase
+        .from("liquidity_line_items")
+        .select("linked_invoice_id")
+        .in("linked_invoice_id", invoiceIds)
+        .eq("linked_invoice_type", "supplier");
+
+      const existingIds = new Set((existing || []).map((e: any) => e.linked_invoice_id));
+
+      const newInvoices = supplierInvoices.filter((inv: any) => !existingIds.has(inv.id));
+      if (newInvoices.length > 0) {
+        const items = newInvoices.map((inv: any) => ({
+          liquidity_week_id: weekId,
+          item_type: "payment",
+          description: `Supplier: ${inv.suppliers?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+          expected_amount: inv.amount || 0,
+          linked_invoice_id: inv.id,
+          linked_invoice_type: "supplier",
+          status: "pending",
+          due_date: inv.due_date || null,
+        }));
+        await supabase.from("liquidity_line_items").insert(items);
+      }
     }
   };
 
-  // Auto-fetch unpaid customer invoices for a given week
+  // Auto-fetch unpaid customer invoices for a given week (deduplicates)
   const fetchUnpaidCustomerInvoices = async (weekStart: Date, weekId: string) => {
     const { data: customerInvoices } = await supabase
       .from("client_invoices")
@@ -77,16 +90,28 @@ export function useLiquidity() {
       .in("status", ["pending", "awaiting_approval"]);
 
     if (customerInvoices && customerInvoices.length > 0) {
-      const items = customerInvoices.map((inv: any) => ({
-        liquidity_week_id: weekId,
-        item_type: "collection",
-        description: `Customer: ${inv.clients?.name || "Unknown"} — Inv#${inv.invoice_number}`,
-        expected_amount: inv.amount || 0,
-        linked_invoice_id: inv.id,
-        linked_invoice_type: "customer",
-        status: "pending",
-      }));
-      await supabase.from("liquidity_line_items").insert(items);
+      const invoiceIds = customerInvoices.map((inv: any) => inv.id);
+      const { data: existing } = await supabase
+        .from("liquidity_line_items")
+        .select("linked_invoice_id")
+        .in("linked_invoice_id", invoiceIds)
+        .eq("linked_invoice_type", "customer");
+
+      const existingIds = new Set((existing || []).map((e: any) => e.linked_invoice_id));
+
+      const newInvoices = customerInvoices.filter((inv: any) => !existingIds.has(inv.id));
+      if (newInvoices.length > 0) {
+        const items = newInvoices.map((inv: any) => ({
+          liquidity_week_id: weekId,
+          item_type: "collection",
+          description: `Customer: ${inv.clients?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+          expected_amount: inv.amount || 0,
+          linked_invoice_id: inv.id,
+          linked_invoice_type: "customer",
+          status: "pending",
+        }));
+        await supabase.from("liquidity_line_items").insert(items);
+      }
     }
   };
 
