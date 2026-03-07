@@ -684,6 +684,8 @@ export type Database = {
           item_name: string
           minimum_threshold: number
           preferred_supplier_id: string | null
+          sales_target_period: string | null
+          sales_target_quantity: number | null
           sku: string
           unit: string
           updated_at: string
@@ -698,6 +700,8 @@ export type Database = {
           item_name: string
           minimum_threshold?: number
           preferred_supplier_id?: string | null
+          sales_target_period?: string | null
+          sales_target_quantity?: number | null
           sku: string
           unit?: string
           updated_at?: string
@@ -712,6 +716,8 @@ export type Database = {
           item_name?: string
           minimum_threshold?: number
           preferred_supplier_id?: string | null
+          sales_target_period?: string | null
+          sales_target_quantity?: number | null
           sku?: string
           unit?: string
           updated_at?: string
