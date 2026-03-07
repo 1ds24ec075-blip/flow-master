@@ -70,7 +70,7 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
   }, [editItem, open]);
 
   const set = (key: string, val: string | number) =>
-    setForm((prev) => ({ ...prev, [key]: val }));
+    setForm((prev) => ({ ...prev, [key]: val as any }));
 
   const handleSave = () => {
     onSave({
