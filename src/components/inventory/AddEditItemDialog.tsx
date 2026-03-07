@@ -77,6 +77,8 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
       ...form,
       preferred_supplier_id: form.preferred_supplier_id || null,
       estimated_lead_time_days: form.estimated_lead_time_days || null,
+      sales_target_quantity: form.sales_target_quantity ? Number(form.sales_target_quantity) : null,
+      sales_target_period: form.sales_target_period || null,
     });
   };
 
