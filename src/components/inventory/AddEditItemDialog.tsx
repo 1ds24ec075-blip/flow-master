@@ -25,6 +25,12 @@ interface AddEditItemDialogProps {
 }
 
 const UNITS = ["units", "kg", "g", "litres", "ml", "boxes", "pcs", "rolls", "sheets", "bags"];
+const TARGET_PERIODS = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
+  { value: "financial_year", label: "Financial Year" },
+];
 
 const empty = {
   item_name: "",
@@ -36,10 +42,12 @@ const empty = {
   estimated_lead_time_days: 7,
   preferred_supplier_id: "",
   notes: "",
+  sales_target_quantity: "",
+  sales_target_period: "",
 };
 
 export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, loading }: AddEditItemDialogProps) {
-  const [form, setForm] = useState({ ...empty });
+  const [form, setForm] = useState<Record<string, any>>({ ...empty });
 
   useEffect(() => {
     if (editItem) {
@@ -53,6 +61,8 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
         estimated_lead_time_days: editItem.estimated_lead_time_days ?? 7,
         preferred_supplier_id: editItem.preferred_supplier_id ?? "",
         notes: "",
+        sales_target_quantity: editItem.sales_target_quantity ?? "",
+        sales_target_period: editItem.sales_target_period ?? "",
       });
     } else {
       setForm({ ...empty });
@@ -60,13 +70,15 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
   }, [editItem, open]);
 
   const set = (key: string, val: string | number) =>
-    setForm((prev) => ({ ...prev, [key]: val }));
+    setForm((prev) => ({ ...prev, [key]: val as any }));
 
   const handleSave = () => {
     onSave({
       ...form,
       preferred_supplier_id: form.preferred_supplier_id || null,
       estimated_lead_time_days: form.estimated_lead_time_days || null,
+      sales_target_quantity: form.sales_target_quantity ? Number(form.sales_target_quantity) : null,
+      sales_target_period: form.sales_target_period || null,
     });
   };
 
@@ -158,6 +170,37 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
                 min={0}
                 placeholder="7"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-slate-600">Sales Target (units)</Label>
+              <Input
+                type="number"
+                value={form.sales_target_quantity}
+                onChange={(e) => set("sales_target_quantity", e.target.value)}
+                className="h-8 text-sm mt-1"
+                min={0}
+                placeholder="e.g. 500"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-600">Target Period</Label>
+              <Select
+                value={form.sales_target_period || "none"}
+                onValueChange={(v) => set("sales_target_period", v === "none" ? "" : v)}
+              >
+                <SelectTrigger className="h-8 text-sm mt-1">
+                  <SelectValue placeholder="Select period..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-sm text-muted-foreground">Not set</SelectItem>
+                  {TARGET_PERIODS.map((p) => (
+                    <SelectItem key={p.value} value={p.value} className="text-sm">{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

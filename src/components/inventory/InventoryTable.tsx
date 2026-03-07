@@ -37,6 +37,7 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
             <TableHead className="text-xs font-semibold text-muted-foreground">Item</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">SKU</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Stock Level</TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">Sales Target</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Supplier</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Status</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground text-right">Actions</TableHead>
@@ -45,7 +46,7 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
         <TableBody>
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground text-sm py-10">
+              <TableCell colSpan={7} className="text-center text-muted-foreground text-sm py-10">
                 No inventory items found. Add your first item to get started.
               </TableCell>
             </TableRow>
@@ -81,6 +82,15 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
                       className={`h-1.5 ${item.current_quantity === 0 ? "[&>div]:bg-red-500" : isLow ? "[&>div]:bg-orange-400" : "[&>div]:bg-emerald-500"}`}
                     />
                   </div>
+                </TableCell>
+                <TableCell className="text-sm">
+                  {item.sales_target_quantity && item.sales_target_period ? (
+                    <span className="text-slate-700 font-medium text-xs">
+                      {item.sales_target_quantity} / {item.sales_target_period === "financial_year" ? "FY" : item.sales_target_period}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs italic">—</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm">
                   {item.suppliers ? (

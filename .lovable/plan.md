@@ -1,32 +1,32 @@
 
 
-## Plan: Add Sales Target Feature to Inventory
+## Problem
 
-### What we're building
-A "Sales Target" field on each inventory item where users can set a target number of units to sell within a chosen period (week, month, quarter, or financial year). This will be visible in the inventory table and editable via the Add/Edit dialog.
+When a new PO is processed, it never reaches the Order Lifecycle page. The root cause is in the `process-po` edge function (lines 622-688):
 
-### Database Changes
-Add two columns to `inventory_items`:
-- `sales_target_quantity` (integer, nullable, default null) — the target number of units
-- `sales_target_period` (text, nullable, default null) — one of: `week`, `month`, `quarter`, `financial_year`
+1. **Missing columns on `po_orders`**: The function tries to update `suggested_payment_type`, `suggestion_reason`, and `risk_flag` — none of which exist in the `po_orders` table. This update fails silently, leaving the order stuck in `pending` status.
 
-### Frontend Changes
+2. **Missing columns on `customer_master`**: The function queries `default_payment_mode`, `default_credit_days`, `credit_limit`, `outstanding_amount`, `has_overdue_invoices` — none of which exist. This causes the suggestion engine to fail.
 
-1. **`InventoryItem` type** (`ReorderConfirmDialog.tsx`): Add `sales_target_quantity` and `sales_target_period` to the interface.
+3. **Order Lifecycle filter**: The Order Lifecycle page only shows orders with statuses `UNDER_REVIEW`, `AWAITING_PAYMENT`, `SO_CREATED`, `DISPATCHED`, `INVOICED`, `PAYMENT_PENDING`, `PAYMENT_COMPLETED`. Orders stuck in `pending` never appear.
 
-2. **`AddEditItemDialog.tsx`**: Add two new fields in the form:
-   - A number input for "Sales Target (units)"
-   - A select dropdown for "Target Period" with options: Week, Month, Quarter, Financial Year
-   - Wire these into the form state and `onSave` payload.
+## Plan
 
-3. **`InventoryTable.tsx`**: Add a "Sales Target" column showing the target quantity and period (e.g., "500 / month"). Show a dash or "Not set" if no target is configured.
+### 1. Add missing columns to `po_orders` table
+- `suggested_payment_type` (text, nullable)
+- `suggestion_reason` (text, nullable)
+- `risk_flag` (text, nullable, default `'NONE'`)
 
-4. **`Inventory.tsx`**: Include the new fields in the insert/update payload sent to the database.
+### 2. Add missing columns to `customer_master` table
+- `default_payment_mode` (text, nullable)
+- `default_credit_days` (integer, nullable, default 30)
+- `credit_limit` (numeric, nullable, default 0)
+- `outstanding_amount` (numeric, nullable, default 0)
+- `has_overdue_invoices` (boolean, nullable, default false)
 
-### Summary of files to change
-- **Migration**: Add `sales_target_quantity` and `sales_target_period` columns to `inventory_items`
-- `src/components/inventory/ReorderConfirmDialog.tsx` — update type
-- `src/components/inventory/AddEditItemDialog.tsx` — add form fields
-- `src/components/inventory/InventoryTable.tsx` — add table column
-- `src/pages/Inventory.tsx` — include new fields in mutation payload
+### 3. Fix any existing `pending` orders
+- Run an UPDATE to move any current `pending` orders to `UNDER_REVIEW` so they appear in the lifecycle.
+
+### 4. Update Order Lifecycle page
+- Display `suggested_payment_type`, `suggestion_reason`, and `risk_flag` in the `PaymentDecisionDialog` so reviewers can see the AI suggestion.
 
