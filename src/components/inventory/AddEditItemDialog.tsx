@@ -61,6 +61,8 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
         estimated_lead_time_days: editItem.estimated_lead_time_days ?? 7,
         preferred_supplier_id: editItem.preferred_supplier_id ?? "",
         notes: "",
+        sales_target_quantity: editItem.sales_target_quantity ?? "",
+        sales_target_period: editItem.sales_target_period ?? "",
       });
     } else {
       setForm({ ...empty });
