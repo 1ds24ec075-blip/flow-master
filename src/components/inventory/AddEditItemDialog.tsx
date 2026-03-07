@@ -25,6 +25,12 @@ interface AddEditItemDialogProps {
 }
 
 const UNITS = ["units", "kg", "g", "litres", "ml", "boxes", "pcs", "rolls", "sheets", "bags"];
+const TARGET_PERIODS = [
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
+  { value: "financial_year", label: "Financial Year" },
+];
 
 const empty = {
   item_name: "",
@@ -36,6 +42,8 @@ const empty = {
   estimated_lead_time_days: 7,
   preferred_supplier_id: "",
   notes: "",
+  sales_target_quantity: "",
+  sales_target_period: "",
 };
 
 export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, loading }: AddEditItemDialogProps) {
