@@ -46,7 +46,7 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
         <TableBody>
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground text-sm py-10">
+              <TableCell colSpan={7} className="text-center text-muted-foreground text-sm py-10">
                 No inventory items found. Add your first item to get started.
               </TableCell>
             </TableRow>
