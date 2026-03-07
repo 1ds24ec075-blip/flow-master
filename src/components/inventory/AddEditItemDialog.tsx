@@ -47,7 +47,7 @@ const empty = {
 };
 
 export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, loading }: AddEditItemDialogProps) {
-  const [form, setForm] = useState({ ...empty });
+  const [form, setForm] = useState<Record<string, any>>({ ...empty });
 
   useEffect(() => {
     if (editItem) {
