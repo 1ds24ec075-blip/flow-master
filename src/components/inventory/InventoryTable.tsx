@@ -37,6 +37,7 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
             <TableHead className="text-xs font-semibold text-muted-foreground">Item</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">SKU</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Stock Level</TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">Sales Target</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Supplier</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground">Status</TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground text-right">Actions</TableHead>
