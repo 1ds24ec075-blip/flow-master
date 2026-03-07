@@ -63,6 +63,8 @@ export default function Inventory() {
         unit: data.unit,
         estimated_lead_time_days: data.estimated_lead_time_days,
         preferred_supplier_id: data.preferred_supplier_id || null,
+        sales_target_quantity: data.sales_target_quantity ?? null,
+        sales_target_period: data.sales_target_period ?? null,
       };
       if (editItem) {
         const { error } = await supabase.from("inventory_items").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", editItem.id);

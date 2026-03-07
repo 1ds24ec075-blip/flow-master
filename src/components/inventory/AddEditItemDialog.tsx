@@ -173,6 +173,37 @@ export function AddEditItemDialog({ open, onClose, onSave, suppliers, editItem, 
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-slate-600">Sales Target (units)</Label>
+              <Input
+                type="number"
+                value={form.sales_target_quantity}
+                onChange={(e) => set("sales_target_quantity", e.target.value)}
+                className="h-8 text-sm mt-1"
+                min={0}
+                placeholder="e.g. 500"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-600">Target Period</Label>
+              <Select
+                value={form.sales_target_period || "none"}
+                onValueChange={(v) => set("sales_target_period", v === "none" ? "" : v)}
+              >
+                <SelectTrigger className="h-8 text-sm mt-1">
+                  <SelectValue placeholder="Select period..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-sm text-muted-foreground">Not set</SelectItem>
+                  {TARGET_PERIODS.map((p) => (
+                    <SelectItem key={p.value} value={p.value} className="text-sm">{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div>
             <Label className="text-xs text-slate-600">Preferred Supplier</Label>
             <Select

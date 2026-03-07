@@ -17,6 +17,8 @@ export interface InventoryItem {
   unit: string;
   estimated_lead_time_days: number | null;
   preferred_supplier_id: string | null;
+  sales_target_quantity: number | null;
+  sales_target_period: string | null;
   suppliers?: {
     id: string;
     name: string;

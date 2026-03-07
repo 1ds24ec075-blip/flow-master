@@ -84,6 +84,15 @@ export function InventoryTable({ items, onReorder, onEdit, onDelete }: Inventory
                   </div>
                 </TableCell>
                 <TableCell className="text-sm">
+                  {item.sales_target_quantity && item.sales_target_period ? (
+                    <span className="text-slate-700 font-medium text-xs">
+                      {item.sales_target_quantity} / {item.sales_target_period === "financial_year" ? "FY" : item.sales_target_period}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs italic">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-sm">
                   {item.suppliers ? (
                     <span className="text-slate-600">{item.suppliers.name}</span>
                   ) : (
