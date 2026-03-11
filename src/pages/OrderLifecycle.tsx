@@ -42,7 +42,7 @@ interface CustomerCredit {
 }
 
 const LIFECYCLE_STATUSES = [
-  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED", "DISPATCHED", "PAYMENT_COMPLETED",
+  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
 ];
 
 export default function OrderLifecycle() {
