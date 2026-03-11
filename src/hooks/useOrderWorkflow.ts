@@ -29,25 +29,14 @@ export function useConfirmPaymentDecision() {
         return { orderId, paymentType, piNumber };
       }
 
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + (creditDays || 30));
-
       const { error: updateError } = await supabase
         .from("po_orders")
         .update({
-          status: "SO_CREATED",
+          status: "PAYMENT_PENDING",
           updated_at: now,
         } as any)
         .eq("id", orderId);
       if (updateError) throw updateError;
-
-      try {
-        await supabase.functions.invoke("send-sales-order", {
-          body: { orderId },
-        });
-      } catch {
-        console.error("SO email sending failed but order was processed");
-      }
 
       return { orderId, paymentType };
     },
