@@ -13,7 +13,7 @@ import {
 import { OrderStatusBadge, RiskBadge } from "@/components/order-lifecycle/OrderStatusBadge";
 import { PaymentDecisionDialog } from "@/components/order-lifecycle/PaymentDecisionDialog";
 import {
-  useConfirmPaymentDecision, useConfirmPaymentReceived, useMarkDispatched, useMarkPaymentComplete,
+  useConfirmPaymentDecision, useConfirmPaymentReceived,
 } from "@/hooks/useOrderWorkflow";
 import {
   RefreshCw, ShieldCheck, Search, CreditCard, Banknote, CheckCircle2, Truck, Clock, ArrowLeft, FileCheck,
@@ -42,7 +42,7 @@ interface CustomerCredit {
 }
 
 const LIFECYCLE_STATUSES = [
-  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED", "DISPATCHED", "PAYMENT_COMPLETED",
+  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
 ];
 
 export default function OrderLifecycle() {
@@ -54,8 +54,6 @@ export default function OrderLifecycle() {
 
   const confirmDecision = useConfirmPaymentDecision();
   const confirmPayment = useConfirmPaymentReceived();
-  const markDispatched = useMarkDispatched();
-  const markPaymentComplete = useMarkPaymentComplete();
 
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["order-lifecycle", statusFilter],
@@ -64,8 +62,7 @@ export default function OrderLifecycle() {
         .from("po_orders")
         .select("*")
         .in("status", [
-          "UNDER_REVIEW", "AWAITING_PAYMENT", "SO_CREATED",
-          "DISPATCHED", "INVOICED", "PAYMENT_PENDING", "PAYMENT_COMPLETED",
+          "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
         ])
         .order("updated_at", { ascending: false });
 
@@ -104,8 +101,6 @@ export default function OrderLifecycle() {
     awaitingPayment: orders?.filter((o) => o.status === "AWAITING_PAYMENT").length || 0,
     paymentPending: orders?.filter((o) => o.status === "PAYMENT_PENDING").length || 0,
     soCreated: orders?.filter((o) => o.status === "SO_CREATED").length || 0,
-    dispatched: orders?.filter((o) => o.status === "DISPATCHED").length || 0,
-    completed: orders?.filter((o) => o.status === "PAYMENT_COMPLETED").length || 0,
   };
 
   const handleConfirmDecision = (paymentType: "ADVANCE" | "CREDIT", creditDays?: number) => {
@@ -136,25 +131,13 @@ export default function OrderLifecycle() {
           </Button>
         );
       case "SO_CREATED":
-        return (
-          <Button size="sm" variant="outline" className="text-cyan-700 border-cyan-300 hover:bg-cyan-50" onClick={() => markDispatched.mutate(order.id)} disabled={markDispatched.isPending}>
-            <Truck className="h-3.5 w-3.5 mr-1.5" />Mark Dispatched
-          </Button>
-        );
-      case "DISPATCHED":
-        return (
-          <Button size="sm" variant="outline" className="text-green-700 border-green-300 hover:bg-green-50" onClick={() => markPaymentComplete.mutate(order.id)} disabled={markPaymentComplete.isPending}>
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
-          </Button>
-        );
+        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">SO Sent</Badge>;
       case "PAYMENT_PENDING":
         return (
           <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => confirmPayment.mutate(order.id)} disabled={confirmPayment.isPending}>
             <Banknote className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
           </Button>
         );
-      case "PAYMENT_COMPLETED":
-        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Done</Badge>;
       default:
         return null;
     }
@@ -190,13 +173,11 @@ export default function OrderLifecycle() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard icon={Search} label="Under Review" count={stats.underReview} color="amber" />
         <StatCard icon={CreditCard} label="Awaiting Payment" count={stats.awaitingPayment} color="orange" />
         <StatCard icon={Clock} label="Payment Pending" count={stats.paymentPending} color="yellow" />
         <StatCard icon={FileCheck} label="SO Created" count={stats.soCreated} color="blue" />
-        <StatCard icon={Truck} label="Dispatched" count={stats.dispatched} color="cyan" />
-        <StatCard icon={CheckCircle2} label="Completed" count={stats.completed} color="green" />
       </div>
 
       <Card className="bg-background shadow-sm border">
