@@ -34,9 +34,12 @@ export interface MonthlyPaymentDay {
   date: Date;
   dateStr: string;
   supplierCount: number;
+  collectionCount: number;
   supplierNames: string[];
   totalAmount: number;
+  totalCollectionAmount: number;
   items: LiquidityLineItem[];
+  collectionItems: LiquidityLineItem[];
 }
 
 export function useLiquidity() {
