@@ -46,7 +46,7 @@ export function useConfirmPaymentDecision() {
       if (data.paymentType === "ADVANCE") {
         toast.success("Proforma Invoice generated. Awaiting payment.");
       } else {
-        toast.success("Sales Order created and sent.");
+        toast.success("Credit approved. Awaiting payment before SO is sent.");
       }
     },
     onError: (error: Error) => {
