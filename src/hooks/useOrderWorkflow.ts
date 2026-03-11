@@ -29,6 +29,13 @@ export function useConfirmPaymentDecision() {
         return { orderId, paymentType, piNumber };
       }
 
+      // Fetch order details for liquidity entry
+      const { data: orderData } = await supabase
+        .from("po_orders")
+        .select("po_number, customer_name, total_amount, currency")
+        .eq("id", orderId)
+        .single();
+
       const { error: updateError } = await supabase
         .from("po_orders")
         .update({
@@ -37,6 +44,54 @@ export function useConfirmPaymentDecision() {
         } as any)
         .eq("id", orderId);
       if (updateError) throw updateError;
+
+      // Calculate due date from credit days and create liquidity line item
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + (creditDays || 30));
+      const dueDateStr = dueDate.toISOString().split("T")[0];
+
+      // Find or create the liquidity week that covers the due date
+      const weekStart = new Date(dueDate);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+      const weekStartStr = weekStart.toISOString().split("T")[0];
+
+      let weekId: string | null = null;
+      const { data: existingWeek } = await supabase
+        .from("weekly_liquidity")
+        .select("id")
+        .eq("week_start_date", weekStartStr)
+        .maybeSingle();
+
+      if (existingWeek) {
+        weekId = existingWeek.id;
+      } else {
+        const { data: newWeek } = await supabase
+          .from("weekly_liquidity")
+          .upsert(
+            { week_start_date: weekStartStr, opening_balance: 0, alert_threshold: 0 },
+            { onConflict: "week_start_date", ignoreDuplicates: true }
+          )
+          .select("id")
+          .maybeSingle();
+        weekId = newWeek?.id || null;
+      }
+
+      if (weekId) {
+        const customerName = orderData?.customer_name || "Unknown";
+        const poNumber = orderData?.po_number || orderId.slice(0, 8);
+        const amount = orderData?.total_amount || 0;
+
+        await supabase.from("liquidity_line_items").insert({
+          liquidity_week_id: weekId,
+          item_type: "collection",
+          description: `Customer: ${customerName} — PO#${poNumber} (Credit ${creditDays || 30}d)`,
+          expected_amount: amount,
+          linked_invoice_id: orderId,
+          linked_invoice_type: "customer",
+          status: "pending",
+          due_date: dueDateStr,
+        });
+      }
 
       return { orderId, paymentType };
     },

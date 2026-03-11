@@ -186,25 +186,38 @@ export function useLiquidity() {
     const monthStart = format(startOfMonth(month), "yyyy-MM-dd");
     const monthEnd = format(endOfMonth(month), "yyyy-MM-dd");
 
-    const { data } = await supabase
-      .from("liquidity_line_items")
-      .select("*")
-      .eq("item_type", "payment")
-      .gte("due_date", monthStart)
-      .lte("due_date", monthEnd)
-      .neq("status", "completed");
+    const [{ data: paymentData }, { data: collectionData }] = await Promise.all([
+      supabase
+        .from("liquidity_line_items")
+        .select("*")
+        .eq("item_type", "payment")
+        .gte("due_date", monthStart)
+        .lte("due_date", monthEnd)
+        .neq("status", "completed"),
+      supabase
+        .from("liquidity_line_items")
+        .select("*")
+        .eq("item_type", "collection")
+        .gte("due_date", monthStart)
+        .lte("due_date", monthEnd)
+        .neq("status", "completed"),
+    ]);
 
     const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
     const result: MonthlyPaymentDay[] = days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
-      const dayItems = (data || []).filter((item: any) => item.due_date === dateStr);
+      const dayPayments = (paymentData || []).filter((item: any) => item.due_date === dateStr);
+      const dayCollections = (collectionData || []).filter((item: any) => item.due_date === dateStr);
       return {
         date: day,
         dateStr,
-        supplierCount: dayItems.length,
-        supplierNames: dayItems.map((i: any) => i.description),
-        totalAmount: dayItems.reduce((s: number, i: any) => s + Number(i.expected_amount || 0), 0),
-        items: dayItems as LiquidityLineItem[],
+        supplierCount: dayPayments.length,
+        collectionCount: dayCollections.length,
+        supplierNames: dayPayments.map((i: any) => i.description),
+        totalAmount: dayPayments.reduce((s: number, i: any) => s + Number(i.expected_amount || 0), 0),
+        totalCollectionAmount: dayCollections.reduce((s: number, i: any) => s + Number(i.expected_amount || 0), 0),
+        items: dayPayments as LiquidityLineItem[],
+        collectionItems: dayCollections as LiquidityLineItem[],
       };
     });
     setMonthlyData(result);
