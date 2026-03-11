@@ -64,8 +64,7 @@ export default function OrderLifecycle() {
         .from("po_orders")
         .select("*")
         .in("status", [
-          "UNDER_REVIEW", "AWAITING_PAYMENT", "SO_CREATED",
-          "DISPATCHED", "INVOICED", "PAYMENT_PENDING", "PAYMENT_COMPLETED",
+          "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
         ])
         .order("updated_at", { ascending: false });
 
