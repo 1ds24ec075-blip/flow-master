@@ -261,6 +261,7 @@ function StatCard({ icon: Icon, label, count, color }: { icon: React.ElementType
   const colorMap: Record<string, { bg: string; text: string }> = {
     amber: { bg: "bg-amber-100", text: "text-amber-600" },
     orange: { bg: "bg-orange-100", text: "text-orange-600" },
+    yellow: { bg: "bg-yellow-100", text: "text-yellow-600" },
     blue: { bg: "bg-blue-100", text: "text-blue-600" },
     cyan: { bg: "bg-cyan-100", text: "text-cyan-600" },
     green: { bg: "bg-green-100", text: "text-green-600" },
