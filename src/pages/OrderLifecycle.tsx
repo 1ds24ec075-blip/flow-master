@@ -42,7 +42,7 @@ interface CustomerCredit {
 }
 
 const LIFECYCLE_STATUSES = [
-  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "SO_CREATED", "DISPATCHED", "PAYMENT_PENDING", "PAYMENT_COMPLETED",
+  "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED", "DISPATCHED", "PAYMENT_COMPLETED",
 ];
 
 export default function OrderLifecycle() {
@@ -102,6 +102,7 @@ export default function OrderLifecycle() {
   const stats = {
     underReview: orders?.filter((o) => o.status === "UNDER_REVIEW").length || 0,
     awaitingPayment: orders?.filter((o) => o.status === "AWAITING_PAYMENT").length || 0,
+    paymentPending: orders?.filter((o) => o.status === "PAYMENT_PENDING").length || 0,
     soCreated: orders?.filter((o) => o.status === "SO_CREATED").length || 0,
     dispatched: orders?.filter((o) => o.status === "DISPATCHED").length || 0,
     completed: orders?.filter((o) => o.status === "PAYMENT_COMPLETED").length || 0,
@@ -146,6 +147,12 @@ export default function OrderLifecycle() {
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
           </Button>
         );
+      case "PAYMENT_PENDING":
+        return (
+          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => confirmPayment.mutate(order.id)} disabled={confirmPayment.isPending}>
+            <Banknote className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
+          </Button>
+        );
       case "PAYMENT_COMPLETED":
         return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Done</Badge>;
       default:
@@ -183,9 +190,10 @@ export default function OrderLifecycle() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard icon={Search} label="Under Review" count={stats.underReview} color="amber" />
         <StatCard icon={CreditCard} label="Awaiting Payment" count={stats.awaitingPayment} color="orange" />
+        <StatCard icon={Clock} label="Payment Pending" count={stats.paymentPending} color="yellow" />
         <StatCard icon={FileCheck} label="SO Created" count={stats.soCreated} color="blue" />
         <StatCard icon={Truck} label="Dispatched" count={stats.dispatched} color="cyan" />
         <StatCard icon={CheckCircle2} label="Completed" count={stats.completed} color="green" />
@@ -253,6 +261,7 @@ function StatCard({ icon: Icon, label, count, color }: { icon: React.ElementType
   const colorMap: Record<string, { bg: string; text: string }> = {
     amber: { bg: "bg-amber-100", text: "text-amber-600" },
     orange: { bg: "bg-orange-100", text: "text-orange-600" },
+    yellow: { bg: "bg-yellow-100", text: "text-yellow-600" },
     blue: { bg: "bg-blue-100", text: "text-blue-600" },
     cyan: { bg: "bg-cyan-100", text: "text-cyan-600" },
     green: { bg: "bg-green-100", text: "text-green-600" },

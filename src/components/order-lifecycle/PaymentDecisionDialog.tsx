@@ -126,7 +126,7 @@ export function PaymentDecisionDialog({
                   <CreditCard className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="font-semibold text-sm">Credit</p>
-                    <p className="text-xs text-muted-foreground">SO + AR Entry</p>
+                    <p className="text-xs text-muted-foreground">SO after payment</p>
                   </div>
                 </div>
               </label>
