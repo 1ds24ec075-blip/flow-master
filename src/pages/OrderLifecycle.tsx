@@ -54,8 +54,6 @@ export default function OrderLifecycle() {
 
   const confirmDecision = useConfirmPaymentDecision();
   const confirmPayment = useConfirmPaymentReceived();
-  const markDispatched = useMarkDispatched();
-  const markPaymentComplete = useMarkPaymentComplete();
 
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["order-lifecycle", statusFilter],
