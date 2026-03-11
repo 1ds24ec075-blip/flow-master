@@ -146,6 +146,12 @@ export default function OrderLifecycle() {
             <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
           </Button>
         );
+      case "PAYMENT_PENDING":
+        return (
+          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => confirmPayment.mutate(order.id)} disabled={confirmPayment.isPending}>
+            <Banknote className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
+          </Button>
+        );
       case "PAYMENT_COMPLETED":
         return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Done</Badge>;
       default:
