@@ -133,25 +133,13 @@ export default function OrderLifecycle() {
           </Button>
         );
       case "SO_CREATED":
-        return (
-          <Button size="sm" variant="outline" className="text-cyan-700 border-cyan-300 hover:bg-cyan-50" onClick={() => markDispatched.mutate(order.id)} disabled={markDispatched.isPending}>
-            <Truck className="h-3.5 w-3.5 mr-1.5" />Mark Dispatched
-          </Button>
-        );
-      case "DISPATCHED":
-        return (
-          <Button size="sm" variant="outline" className="text-green-700 border-green-300 hover:bg-green-50" onClick={() => markPaymentComplete.mutate(order.id)} disabled={markPaymentComplete.isPending}>
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
-          </Button>
-        );
+        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">SO Sent</Badge>;
       case "PAYMENT_PENDING":
         return (
           <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => confirmPayment.mutate(order.id)} disabled={confirmPayment.isPending}>
             <Banknote className="h-3.5 w-3.5 mr-1.5" />Confirm Payment
           </Button>
         );
-      case "PAYMENT_COMPLETED":
-        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Done</Badge>;
       default:
         return null;
     }
