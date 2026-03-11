@@ -187,13 +187,11 @@ export default function OrderLifecycle() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard icon={Search} label="Under Review" count={stats.underReview} color="amber" />
         <StatCard icon={CreditCard} label="Awaiting Payment" count={stats.awaitingPayment} color="orange" />
         <StatCard icon={Clock} label="Payment Pending" count={stats.paymentPending} color="yellow" />
         <StatCard icon={FileCheck} label="SO Created" count={stats.soCreated} color="blue" />
-        <StatCard icon={Truck} label="Dispatched" count={stats.dispatched} color="cyan" />
-        <StatCard icon={CheckCircle2} label="Completed" count={stats.completed} color="green" />
       </div>
 
       <Card className="bg-background shadow-sm border">
