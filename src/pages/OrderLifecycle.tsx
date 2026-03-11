@@ -102,6 +102,7 @@ export default function OrderLifecycle() {
   const stats = {
     underReview: orders?.filter((o) => o.status === "UNDER_REVIEW").length || 0,
     awaitingPayment: orders?.filter((o) => o.status === "AWAITING_PAYMENT").length || 0,
+    paymentPending: orders?.filter((o) => o.status === "PAYMENT_PENDING").length || 0,
     soCreated: orders?.filter((o) => o.status === "SO_CREATED").length || 0,
     dispatched: orders?.filter((o) => o.status === "DISPATCHED").length || 0,
     completed: orders?.filter((o) => o.status === "PAYMENT_COMPLETED").length || 0,
