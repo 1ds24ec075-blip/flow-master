@@ -27,12 +27,19 @@ export interface InventoryItem {
   } | null;
 }
 
+interface Supplier {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
 interface ReorderConfirmDialogProps {
   item: InventoryItem | null;
   open: boolean;
   onClose: () => void;
-  onConfirm: (itemId: string, quantity: number, note: string, deliveryDate: string) => void;
+  onConfirm: (itemId: string, quantity: number, note: string, deliveryDate: string, supplierId: string | null) => void;
   loading?: boolean;
+  suppliers?: Supplier[];
 }
 
 export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }: ReorderConfirmDialogProps) {
