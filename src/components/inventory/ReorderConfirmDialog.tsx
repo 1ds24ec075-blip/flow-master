@@ -132,25 +132,14 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-slate-600">Supplier</Label>
-              <Select
-                value={selectedSupplierId || "none"}
-                onValueChange={(v) => setSelectedSupplierId(v === "none" ? null : v)}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select supplier..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" className="text-sm text-muted-foreground">No supplier</SelectItem>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-sm">
-                      {s.name} {s.email ? `(${s.email})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs text-muted-foreground">Supplier</Label>
+              <SupplierCombobox
+                suppliers={suppliers}
+                value={selectedSupplierId}
+                onChange={setSelectedSupplierId}
+              />
               {selectedSupplier && (
-                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border border-slate-200 text-xs text-slate-500">
+                <div className="flex items-center gap-2 p-2 bg-muted rounded border text-xs text-muted-foreground">
                   <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="truncate">{selectedSupplier.email || "No email"}</span>
                   {item.estimated_lead_time_days && (
