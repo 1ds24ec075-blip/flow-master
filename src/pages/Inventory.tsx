@@ -97,8 +97,8 @@ export default function Inventory() {
 
   const reorderMutation = useMutation({
     mutationFn: async ({
-      itemId, quantity, note, deliveryDate,
-    }: { itemId: string; quantity: number; note: string; deliveryDate: string }) => {
+      itemId, quantity, note, deliveryDate, supplierId,
+    }: { itemId: string; quantity: number; note: string; deliveryDate: string; supplierId: string | null }) => {
       const item = items.find((i) => i.id === itemId);
       if (!item) throw new Error("Item not found");
 
@@ -109,7 +109,7 @@ export default function Inventory() {
         .from("reorder_requests")
         .insert({
           inventory_item_id: itemId,
-          supplier_id: item.preferred_supplier_id,
+          supplier_id: supplierId,
           quantity_requested: quantity,
           quantity_at_trigger: item.current_quantity,
           minimum_threshold_at_trigger: item.minimum_threshold,

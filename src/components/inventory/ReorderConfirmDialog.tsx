@@ -221,7 +221,7 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
                 Cancel
               </Button>
               <Button
-                onClick={() => onConfirm(item.id, quantity, note, deliveryDate)}
+                onClick={() => onConfirm(item.id, quantity, note, deliveryDate, selectedSupplierId)}
                 disabled={loading || quantity < 1}
                 className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white"
               >
