@@ -29,6 +29,7 @@ import LiquidityDashboard from "./pages/LiquidityDashboard";
 import SupplierDashboard from "./pages/SupplierDashboard";
 import Inventory from "./pages/Inventory";
 import DataExport from "./pages/DataExport";
+import Reconciliation from "./pages/Reconciliation";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
