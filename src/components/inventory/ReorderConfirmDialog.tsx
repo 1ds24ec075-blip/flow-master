@@ -42,9 +42,10 @@ interface ReorderConfirmDialogProps {
   suppliers?: Supplier[];
 }
 
-export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }: ReorderConfirmDialogProps) {
+export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, suppliers = [] }: ReorderConfirmDialogProps) {
   const [quantity, setQuantity] = useState<number>(0);
   const [note, setNote] = useState("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + (item?.estimated_lead_time_days ?? 7));
@@ -58,8 +59,11 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }
       d.setDate(d.getDate() + (item.estimated_lead_time_days ?? 7));
       setDeliveryDate(d.toISOString().split("T")[0]);
       setNote("");
+      setSelectedSupplierId(item.preferred_supplier_id || null);
     }
   };
+
+  const selectedSupplier = suppliers.find((s) => s.id === selectedSupplierId);
 
   const urgencyLevel = item
     ? item.current_quantity === 0
