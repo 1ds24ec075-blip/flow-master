@@ -44,6 +44,43 @@ interface ReorderConfirmDialogProps {
   suppliers?: Supplier[];
 }
 
+
+function SupplierCombobox({ suppliers, value, onChange }: { suppliers: Supplier[]; value: string | null; onChange: (v: string | null) => void }) {
+  const [comboOpen, setComboOpen] = useState(false);
+  const selected = suppliers.find((s) => s.id === value);
+
+  return (
+    <Popover open={comboOpen} onOpenChange={setComboOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={comboOpen} className="w-full h-9 justify-between text-sm font-normal">
+          {selected ? selected.name : "Select supplier..."}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search suppliers..." />
+          <CommandList>
+            <CommandEmpty>No supplier found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="no-supplier" onSelect={() => { onChange(null); setComboOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                No supplier
+              </CommandItem>
+              {suppliers.map((s) => (
+                <CommandItem key={s.id} value={s.name + " " + (s.email || "")} onSelect={() => { onChange(s.id); setComboOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === s.id ? "opacity-100" : "opacity-0")} />
+                  {s.name} {s.email ? `(${s.email})` : ""}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, suppliers = [] }: ReorderConfirmDialogProps) {
   const [quantity, setQuantity] = useState<number>(0);
   const [note, setNote] = useState("");
