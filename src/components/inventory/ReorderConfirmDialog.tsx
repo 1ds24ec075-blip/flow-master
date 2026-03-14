@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, Package, Truck, Building2 } from "lucide-react";
 
 export interface InventoryItem {
@@ -26,17 +27,25 @@ export interface InventoryItem {
   } | null;
 }
 
+interface Supplier {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
 interface ReorderConfirmDialogProps {
   item: InventoryItem | null;
   open: boolean;
   onClose: () => void;
-  onConfirm: (itemId: string, quantity: number, note: string, deliveryDate: string) => void;
+  onConfirm: (itemId: string, quantity: number, note: string, deliveryDate: string, supplierId: string | null) => void;
   loading?: boolean;
+  suppliers?: Supplier[];
 }
 
-export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }: ReorderConfirmDialogProps) {
+export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, suppliers = [] }: ReorderConfirmDialogProps) {
   const [quantity, setQuantity] = useState<number>(0);
   const [note, setNote] = useState("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + (item?.estimated_lead_time_days ?? 7));
@@ -50,8 +59,11 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }
       d.setDate(d.getDate() + (item.estimated_lead_time_days ?? 7));
       setDeliveryDate(d.toISOString().split("T")[0]);
       setNote("");
+      setSelectedSupplierId(item.preferred_supplier_id || null);
     }
   };
+
+  const selectedSupplier = suppliers.find((s) => s.id === selectedSupplierId);
 
   const urgencyLevel = item
     ? item.current_quantity === 0
@@ -121,24 +133,36 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }
               </div>
             </div>
 
-            {item.suppliers && (
-              <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                <Building2 className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500">Supplier</p>
-                  <p className="text-sm font-medium text-slate-700 truncate">{item.suppliers.name}</p>
-                  {item.suppliers.email && (
-                    <p className="text-xs text-slate-400 truncate">{item.suppliers.email}</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-600">Supplier</Label>
+              <Select
+                value={selectedSupplierId || "none"}
+                onValueChange={(v) => setSelectedSupplierId(v === "none" ? null : v)}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Select supplier..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-sm text-muted-foreground">No supplier</SelectItem>
+                  {suppliers.map((s) => (
+                    <SelectItem key={s.id} value={s.id} className="text-sm">
+                      {s.name} {s.email ? `(${s.email})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedSupplier && (
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border border-slate-200 text-xs text-slate-500">
+                  <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{selectedSupplier.email || "No email"}</span>
+                  {item.estimated_lead_time_days && (
+                    <span className="ml-auto flex items-center gap-1">
+                      <Truck className="h-3 w-3" /> {item.estimated_lead_time_days}d
+                    </span>
                   )}
                 </div>
-                {item.estimated_lead_time_days && (
-                  <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
-                    <Truck className="h-3.5 w-3.5" />
-                    <span>{item.estimated_lead_time_days}d</span>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="space-y-3">
               <div>
@@ -197,7 +221,7 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading }
                 Cancel
               </Button>
               <Button
-                onClick={() => onConfirm(item.id, quantity, note, deliveryDate)}
+                onClick={() => onConfirm(item.id, quantity, note, deliveryDate, selectedSupplierId)}
                 disabled={loading || quantity < 1}
                 className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white"
               >
