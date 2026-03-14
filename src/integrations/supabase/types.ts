@@ -116,6 +116,8 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          matched_status: string
+          reference_number: string | null
           statement_id: string
           transaction_date: string | null
           transaction_type: string | null
@@ -125,6 +127,8 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          matched_status?: string
+          reference_number?: string | null
           statement_id: string
           transaction_date?: string | null
           transaction_type?: string | null
@@ -134,6 +138,8 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          matched_status?: string
+          reference_number?: string | null
           statement_id?: string
           transaction_date?: string | null
           transaction_type?: string | null
@@ -344,6 +350,54 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      customer_aliases: {
+        Row: {
+          alias_name: string
+          confidence_score: number | null
+          created_at: string
+          customer_id: string | null
+          entity_type: string
+          id: string
+          source: string | null
+          supplier_id: string | null
+        }
+        Insert: {
+          alias_name: string
+          confidence_score?: number | null
+          created_at?: string
+          customer_id?: string | null
+          entity_type: string
+          id?: string
+          source?: string | null
+          supplier_id?: string | null
+        }
+        Update: {
+          alias_name?: string
+          confidence_score?: number | null
+          created_at?: string
+          customer_id?: string | null
+          entity_type?: string
+          id?: string
+          source?: string | null
+          supplier_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_aliases_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_aliases_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       customer_master: {
         Row: {
@@ -732,6 +786,48 @@ export type Database = {
           },
         ]
       }
+      ledger_entries: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string | null
+          entity_id: string | null
+          entity_type: string
+          entry_date: string
+          id: string
+          ledger_type: string
+          source_id: string | null
+          source_type: string
+          status: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description?: string | null
+          entity_id?: string | null
+          entity_type: string
+          entry_date: string
+          id?: string
+          ledger_type: string
+          source_id?: string | null
+          source_type: string
+          status?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string | null
+          entity_id?: string | null
+          entity_type?: string
+          entry_date?: string
+          id?: string
+          ledger_type?: string
+          source_id?: string | null
+          source_type?: string
+          status?: string
+        }
+        Relationships: []
+      }
       ledger_master: {
         Row: {
           created_at: string
@@ -846,6 +942,50 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_allocations: {
+        Row: {
+          allocated_amount: number
+          bank_transaction_id: string
+          confirmed_by: string | null
+          created_at: string
+          id: string
+          invoice_id: string
+          invoice_type: string
+          match_method: string | null
+          match_score: number | null
+        }
+        Insert: {
+          allocated_amount: number
+          bank_transaction_id: string
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          invoice_id: string
+          invoice_type: string
+          match_method?: string | null
+          match_score?: number | null
+        }
+        Update: {
+          allocated_amount?: number
+          bank_transaction_id?: string
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          invoice_type?: string
+          match_method?: string | null
+          match_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
             referencedColumns: ["id"]
           },
         ]
