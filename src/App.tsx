@@ -61,6 +61,7 @@ const App = () => (
           <Route path="/liquidity" element={<Layout><LiquidityDashboard /></Layout>} />
           <Route path="/inventory" element={<Layout><Inventory /></Layout>} />
           <Route path="/data-export" element={<Layout><DataExport /></Layout>} />
+          <Route path="/reconciliation" element={<Layout><Reconciliation /></Layout>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

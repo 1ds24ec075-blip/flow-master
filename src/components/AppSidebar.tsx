@@ -35,6 +35,7 @@ const navigationItems = [
   { title: "PO Dashboard", url: "/po-dashboard", icon: ClipboardList },
   { title: "Order Lifecycle", url: "/order-lifecycle", icon: ShieldCheck },
   { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
+  { title: "Reconciliation", url: "/reconciliation", icon: GitCompareArrows },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Supplier Hub", url: "/supplier-hub", icon: Package },
   { title: "Inventory", url: "/inventory", icon: Boxes },
