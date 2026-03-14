@@ -315,10 +315,11 @@ export default function Inventory() {
         item={reorderItem}
         open={!!reorderItem}
         onClose={() => setReorderItem(null)}
-        onConfirm={(itemId, quantity, note, deliveryDate) =>
-          reorderMutation.mutate({ itemId, quantity, note, deliveryDate })
+        onConfirm={(itemId, quantity, note, deliveryDate, supplierId) =>
+          reorderMutation.mutate({ itemId, quantity, note, deliveryDate, supplierId })
         }
         loading={reorderMutation.isPending}
+        suppliers={suppliers}
       />
 
       <AddEditItemDialog
