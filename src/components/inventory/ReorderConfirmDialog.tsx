@@ -133,24 +133,36 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
               </div>
             </div>
 
-            {item.suppliers && (
-              <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                <Building2 className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500">Supplier</p>
-                  <p className="text-sm font-medium text-slate-700 truncate">{item.suppliers.name}</p>
-                  {item.suppliers.email && (
-                    <p className="text-xs text-slate-400 truncate">{item.suppliers.email}</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-600">Supplier</Label>
+              <Select
+                value={selectedSupplierId || "none"}
+                onValueChange={(v) => setSelectedSupplierId(v === "none" ? null : v)}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Select supplier..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-sm text-muted-foreground">No supplier</SelectItem>
+                  {suppliers.map((s) => (
+                    <SelectItem key={s.id} value={s.id} className="text-sm">
+                      {s.name} {s.email ? `(${s.email})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedSupplier && (
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border border-slate-200 text-xs text-slate-500">
+                  <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{selectedSupplier.email || "No email"}</span>
+                  {item.estimated_lead_time_days && (
+                    <span className="ml-auto flex items-center gap-1">
+                      <Truck className="h-3 w-3" /> {item.estimated_lead_time_days}d
+                    </span>
                   )}
                 </div>
-                {item.estimated_lead_time_days && (
-                  <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
-                    <Truck className="h-3.5 w-3.5" />
-                    <span>{item.estimated_lead_time_days}d</span>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="space-y-3">
               <div>
