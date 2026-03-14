@@ -49,7 +49,7 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
   const [deliveryDate, setDeliveryDate] = useState("");
 
   // Initialize state when item/open changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (open && item) {
       setQuantity(item.default_reorder_quantity);
       const d = new Date();
