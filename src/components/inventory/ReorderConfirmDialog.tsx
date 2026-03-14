@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, Package, Truck, Building2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { AlertTriangle, Package, Truck, Building2, ChevronsUpDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export interface InventoryItem {
   id: string;
@@ -40,6 +42,43 @@ interface ReorderConfirmDialogProps {
   onConfirm: (itemId: string, quantity: number, note: string, deliveryDate: string, supplierId: string | null) => void;
   loading?: boolean;
   suppliers?: Supplier[];
+}
+
+
+function SupplierCombobox({ suppliers, value, onChange }: { suppliers: Supplier[]; value: string | null; onChange: (v: string | null) => void }) {
+  const [comboOpen, setComboOpen] = useState(false);
+  const selected = suppliers.find((s) => s.id === value);
+
+  return (
+    <Popover open={comboOpen} onOpenChange={setComboOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={comboOpen} className="w-full h-9 justify-between text-sm font-normal">
+          {selected ? selected.name : "Select supplier..."}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search suppliers..." />
+          <CommandList>
+            <CommandEmpty>No supplier found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem value="no-supplier" onSelect={() => { onChange(null); setComboOpen(false); }}>
+                <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                No supplier
+              </CommandItem>
+              {suppliers.map((s) => (
+                <CommandItem key={s.id} value={s.name + " " + (s.email || "")} onSelect={() => { onChange(s.id); setComboOpen(false); }}>
+                  <Check className={cn("mr-2 h-4 w-4", value === s.id ? "opacity-100" : "opacity-0")} />
+                  {s.name} {s.email ? `(${s.email})` : ""}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, suppliers = [] }: ReorderConfirmDialogProps) {
@@ -130,25 +169,14 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-slate-600">Supplier</Label>
-              <Select
-                value={selectedSupplierId || "none"}
-                onValueChange={(v) => setSelectedSupplierId(v === "none" ? null : v)}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select supplier..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none" className="text-sm text-muted-foreground">No supplier</SelectItem>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-sm">
-                      {s.name} {s.email ? `(${s.email})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs text-muted-foreground">Supplier</Label>
+              <SupplierCombobox
+                suppliers={suppliers}
+                value={selectedSupplierId}
+                onChange={setSelectedSupplierId}
+              />
               {selectedSupplier && (
-                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border border-slate-200 text-xs text-slate-500">
+                <div className="flex items-center gap-2 p-2 bg-muted rounded border text-xs text-muted-foreground">
                   <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="truncate">{selectedSupplier.email || "No email"}</span>
                   {item.estimated_lead_time_days && (
