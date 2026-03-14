@@ -81,7 +81,6 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
       open={open}
       onOpenChange={(v) => {
         if (!v) onClose();
-        else handleOpen();
       }}
     >
       <DialogContent className="max-w-md">
