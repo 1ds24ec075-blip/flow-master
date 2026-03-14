@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,14 +46,11 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
   const [quantity, setQuantity] = useState<number>(0);
   const [note, setNote] = useState("");
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
-  const [deliveryDate, setDeliveryDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + (item?.estimated_lead_time_days ?? 7));
-    return d.toISOString().split("T")[0];
-  });
+  const [deliveryDate, setDeliveryDate] = useState("");
 
-  const handleOpen = () => {
-    if (item) {
+  // Initialize state when item/open changes
+  useEffect(() => {
+    if (open && item) {
       setQuantity(item.default_reorder_quantity);
       const d = new Date();
       d.setDate(d.getDate() + (item.estimated_lead_time_days ?? 7));
@@ -61,7 +58,7 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
       setNote("");
       setSelectedSupplierId(item.preferred_supplier_id || null);
     }
-  };
+  }, [open, item]);
 
   const selectedSupplier = suppliers.find((s) => s.id === selectedSupplierId);
 
@@ -84,7 +81,6 @@ export function ReorderConfirmDialog({ item, open, onClose, onConfirm, loading, 
       open={open}
       onOpenChange={(v) => {
         if (!v) onClose();
-        else handleOpen();
       }}
     >
       <DialogContent className="max-w-md">
