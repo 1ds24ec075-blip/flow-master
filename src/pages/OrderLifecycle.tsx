@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -45,9 +45,27 @@ const LIFECYCLE_STATUSES = [
   "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
 ];
 
+// Select only fields used by this screen to keep payloads small and initial load fast.
+const ORDER_LIFECYCLE_SELECT = `
+  id,
+  po_number,
+  customer_name,
+  customer_master_id,
+  total_amount,
+  currency,
+  status,
+  payment_terms,
+  order_date,
+  created_at,
+  updated_at,
+  suggested_payment_type,
+  suggestion_reason,
+  risk_flag
+`;
+
 export default function OrderLifecycle() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedOrder, setSelectedOrder] = useState<LifecycleOrder | null>(null);
   const [showDecisionDialog, setShowDecisionDialog] = useState(false);
@@ -58,27 +76,25 @@ export default function OrderLifecycle() {
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["order-lifecycle", statusFilter],
     queryFn: async () => {
-      let query = supabase
+      const baseQuery = supabase
         .from("po_orders")
-        .select("*")
-        .in("status", [
-          "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
-        ])
+        .select(ORDER_LIFECYCLE_SELECT)
         .order("updated_at", { ascending: false });
 
-      if (statusFilter !== "ALL") {
-        query = supabase
-          .from("po_orders")
-          .select("*")
-          .eq("status", statusFilter)
-          .order("updated_at", { ascending: false });
-      }
+      const filteredQuery =
+        statusFilter === "ALL"
+          ? baseQuery.in("status", ["UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED"])
+          : baseQuery.eq("status", statusFilter);
 
-      const { data, error } = await query;
+      const { data, error } = await filteredQuery;
       if (error) throw error;
-      return (data || []) as unknown as LifecycleOrder[];
+      return (data || []) as LifecycleOrder[];
     },
-    refetchInterval: 15000,
+    // Keep polling but at a lower frequency; reduces network/CPU churn on this page.
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    // Preserve current rows while changing filters to avoid blank/loading flicker.
+    placeholderData: (previousData) => previousData,
   });
 
   const { data: customerCredit } = useQuery({
@@ -96,12 +112,15 @@ export default function OrderLifecycle() {
     enabled: !!selectedOrder?.customer_master_id,
   });
 
-  const stats = {
-    underReview: orders?.filter((o) => o.status === "UNDER_REVIEW").length || 0,
-    awaitingPayment: orders?.filter((o) => o.status === "AWAITING_PAYMENT").length || 0,
-    paymentPending: orders?.filter((o) => o.status === "PAYMENT_PENDING").length || 0,
-    soCreated: orders?.filter((o) => o.status === "SO_CREATED").length || 0,
-  };
+  const stats = useMemo(
+    () => ({
+      underReview: orders?.filter((o) => o.status === "UNDER_REVIEW").length || 0,
+      awaitingPayment: orders?.filter((o) => o.status === "AWAITING_PAYMENT").length || 0,
+      paymentPending: orders?.filter((o) => o.status === "PAYMENT_PENDING").length || 0,
+      soCreated: orders?.filter((o) => o.status === "SO_CREATED").length || 0,
+    }),
+    [orders]
+  );
 
   const handleConfirmDecision = (paymentType: "ADVANCE" | "CREDIT", creditDays?: number) => {
     if (!selectedOrder) return;
