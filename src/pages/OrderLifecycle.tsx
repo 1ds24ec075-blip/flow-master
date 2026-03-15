@@ -45,6 +45,24 @@ const LIFECYCLE_STATUSES = [
   "ALL", "UNDER_REVIEW", "AWAITING_PAYMENT", "PAYMENT_PENDING", "SO_CREATED",
 ];
 
+// Select only fields used by this screen to keep payloads small and initial load fast.
+const ORDER_LIFECYCLE_SELECT = `
+  id,
+  po_number,
+  customer_name,
+  customer_master_id,
+  total_amount,
+  currency,
+  status,
+  payment_terms,
+  order_date,
+  created_at,
+  updated_at,
+  suggested_payment_type,
+  suggestion_reason,
+  risk_flag
+`;
+
 export default function OrderLifecycle() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
