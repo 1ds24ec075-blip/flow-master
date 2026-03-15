@@ -2269,6 +2269,6 @@ export default function SmartSegregation() {
           </div>
         </div>
       </ScrollArea>
-    </Layout>
+    </>
   );
 }
