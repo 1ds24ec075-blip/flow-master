@@ -1,35 +1,7 @@
-/**
- * useLiquidity.ts — Core hook for the Liquidity Dashboard
- *
- * Manages weekly cash-flow tracking: opening balances, expected collections
- * (customer invoices) and scheduled payments (supplier invoices), with
- * real-time updates via Supabase Realtime.
- *
- * Key concepts:
- *  - LiquidityWeek: a Sunday→Saturday planning window with an opening balance
- *  - LiquidityLineItem: an expected inflow (collection) or outflow (payment)
- *  - MonthlyPaymentDay: aggregated view of a single calendar day
- *
- * Performance notes:
- *  - Unpaid invoices are auto-fetched into new weeks (deduplicating by
- *    linked_invoice_id) so users don't have to add them manually.
- *  - Realtime channel is scoped to the active week to minimise chatter.
- *  - Monthly data is fetched only when lineItems change (via useEffect dep).
- */
-
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import {
-  format,
-  startOfWeek,
-  addDays,
-  startOfMonth,
-  endOfMonth,
-  eachDayOfInterval,
-} from "date-fns";
-
-/* ─── Type definitions ─── */
+import { format, startOfWeek, addDays, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
 
 export interface LiquidityWeek {
   id: string;
@@ -70,8 +42,6 @@ export interface MonthlyPaymentDay {
   collectionItems: LiquidityLineItem[];
 }
 
-/* ─── Hook ─── */
-
 export function useLiquidity() {
   const [weeks, setWeeks] = useState<LiquidityWeek[]>([]);
   const [activeWeek, setActiveWeek] = useState<LiquidityWeek | null>(null);
@@ -80,97 +50,89 @@ export function useLiquidity() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  /* ──────────────────────────────────────────────
-   * Auto-import unpaid supplier invoices into a week
-   * (skips any already linked in ANY week)
-   * ────────────────────────────────────────────── */
-  const fetchUnpaidSupplierInvoices = async (_weekStart: Date, weekId: string) => {
+  // Auto-fetch unpaid supplier invoices for a given week (deduplicates)
+  const fetchUnpaidSupplierInvoices = async (weekStart: Date, weekId: string) => {
     const { data: supplierInvoices } = await supabase
       .from("raw_material_invoices")
       .select("id, invoice_number, amount, supplier_id, due_date, suppliers(name)")
       .in("status", ["pending", "awaiting_approval"]);
 
-    if (!supplierInvoices?.length) return;
+    if (supplierInvoices && supplierInvoices.length > 0) {
+      // Check which invoices already have line items in ANY week
+      const invoiceIds = supplierInvoices.map((inv: any) => inv.id);
+      const { data: existing } = await supabase
+        .from("liquidity_line_items")
+        .select("linked_invoice_id")
+        .in("linked_invoice_id", invoiceIds)
+        .eq("linked_invoice_type", "supplier");
 
-    // Deduplicate — check which invoices already have line items globally
-    const invoiceIds = supplierInvoices.map((inv: any) => inv.id);
-    const { data: existing } = await supabase
-      .from("liquidity_line_items")
-      .select("linked_invoice_id")
-      .in("linked_invoice_id", invoiceIds)
-      .eq("linked_invoice_type", "supplier");
+      const existingIds = new Set((existing || []).map((e: any) => e.linked_invoice_id));
 
-    const existingIds = new Set((existing ?? []).map((e: any) => e.linked_invoice_id));
-    const newInvoices = supplierInvoices.filter((inv: any) => !existingIds.has(inv.id));
-
-    if (newInvoices.length > 0) {
-      const items = newInvoices.map((inv: any) => ({
-        liquidity_week_id: weekId,
-        item_type: "payment",
-        description: `Supplier: ${inv.suppliers?.name || "Unknown"} — Inv#${inv.invoice_number}`,
-        expected_amount: inv.amount || 0,
-        linked_invoice_id: inv.id,
-        linked_invoice_type: "supplier",
-        status: "pending",
-        due_date: inv.due_date || null,
-      }));
-      await supabase.from("liquidity_line_items").insert(items);
+      const newInvoices = supplierInvoices.filter((inv: any) => !existingIds.has(inv.id));
+      if (newInvoices.length > 0) {
+        const items = newInvoices.map((inv: any) => ({
+          liquidity_week_id: weekId,
+          item_type: "payment",
+          description: `Supplier: ${inv.suppliers?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+          expected_amount: inv.amount || 0,
+          linked_invoice_id: inv.id,
+          linked_invoice_type: "supplier",
+          status: "pending",
+          due_date: inv.due_date || null,
+        }));
+        await supabase.from("liquidity_line_items").insert(items);
+      }
     }
   };
 
-  /* ──────────────────────────────────────────────
-   * Auto-import unpaid customer invoices into a week
-   * ────────────────────────────────────────────── */
-  const fetchUnpaidCustomerInvoices = async (_weekStart: Date, weekId: string) => {
+  // Auto-fetch unpaid customer invoices for a given week (deduplicates)
+  const fetchUnpaidCustomerInvoices = async (weekStart: Date, weekId: string) => {
     const { data: customerInvoices } = await supabase
       .from("client_invoices")
       .select("id, invoice_number, amount, client_id, clients(name)")
       .in("status", ["pending", "awaiting_approval"]);
 
-    if (!customerInvoices?.length) return;
+    if (customerInvoices && customerInvoices.length > 0) {
+      const invoiceIds = customerInvoices.map((inv: any) => inv.id);
+      const { data: existing } = await supabase
+        .from("liquidity_line_items")
+        .select("linked_invoice_id")
+        .in("linked_invoice_id", invoiceIds)
+        .eq("linked_invoice_type", "customer");
 
-    const invoiceIds = customerInvoices.map((inv: any) => inv.id);
-    const { data: existing } = await supabase
-      .from("liquidity_line_items")
-      .select("linked_invoice_id")
-      .in("linked_invoice_id", invoiceIds)
-      .eq("linked_invoice_type", "customer");
+      const existingIds = new Set((existing || []).map((e: any) => e.linked_invoice_id));
 
-    const existingIds = new Set((existing ?? []).map((e: any) => e.linked_invoice_id));
-    const newInvoices = customerInvoices.filter((inv: any) => !existingIds.has(inv.id));
-
-    if (newInvoices.length > 0) {
-      const items = newInvoices.map((inv: any) => ({
-        liquidity_week_id: weekId,
-        item_type: "collection",
-        description: `Customer: ${inv.clients?.name || "Unknown"} — Inv#${inv.invoice_number}`,
-        expected_amount: inv.amount || 0,
-        linked_invoice_id: inv.id,
-        linked_invoice_type: "customer",
-        status: "pending",
-      }));
-      await supabase.from("liquidity_line_items").insert(items);
+      const newInvoices = customerInvoices.filter((inv: any) => !existingIds.has(inv.id));
+      if (newInvoices.length > 0) {
+        const items = newInvoices.map((inv: any) => ({
+          liquidity_week_id: weekId,
+          item_type: "collection",
+          description: `Customer: ${inv.clients?.name || "Unknown"} — Inv#${inv.invoice_number}`,
+          expected_amount: inv.amount || 0,
+          linked_invoice_id: inv.id,
+          linked_invoice_type: "customer",
+          status: "pending",
+        }));
+        await supabase.from("liquidity_line_items").insert(items);
+      }
     }
   };
 
-  /* ──────────────────────────────────────────────
-   * Ensure a liquidity week exists for the current calendar week
-   * Uses upsert to safely handle concurrent calls / race conditions
-   * ────────────────────────────────────────────── */
+  // Auto-ensure current week exists (Sunday to Saturday) — uses upsert to prevent race conditions
   const ensureCurrentWeek = async () => {
     const today = new Date();
     const weekStart = startOfWeek(today, { weekStartsOn: 0 });
     const weekStartStr = format(weekStart, "yyyy-MM-dd");
 
-    // Quick check — skip if already exists
     const { data: existing } = await supabase
       .from("weekly_liquidity")
-      .select("id")
+      .select("*")
       .eq("week_start_date", weekStartStr)
       .maybeSingle();
 
     if (existing) return;
 
+    // Use upsert with the unique constraint to avoid race-condition duplicates
     const { data: newWeek, error } = await supabase
       .from("weekly_liquidity")
       .upsert(
@@ -181,7 +143,6 @@ export function useLiquidity() {
       .maybeSingle();
 
     if (!error && newWeek) {
-      // Auto-populate with unpaid invoices
       await Promise.all([
         fetchUnpaidSupplierInvoices(weekStart, newWeek.id),
         fetchUnpaidCustomerInvoices(weekStart, newWeek.id),
@@ -189,38 +150,30 @@ export function useLiquidity() {
     }
   };
 
-  /* ─── Data fetchers ─── */
-
-  /** Load all weeks (most recent first) and auto-select the current one */
   const fetchWeeks = useCallback(async () => {
     const { data, error } = await supabase
       .from("weekly_liquidity")
       .select("*")
       .order("week_start_date", { ascending: false });
-
     if (error) {
       toast({ title: "Error fetching weeks", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setWeeks(data as LiquidityWeek[]);
-
-    // Auto-select current week (or fall back to most recent)
-    if (data.length > 0 && !activeWeek) {
-      const weekStartStr = format(startOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd");
-      const currentWeek = data.find((w: any) => w.week_start_date === weekStartStr);
-      setActiveWeek((currentWeek || data[0]) as LiquidityWeek);
+    } else {
+      setWeeks(data as LiquidityWeek[]);
+      if (data.length > 0 && !activeWeek) {
+        const today = new Date();
+        const weekStartStr = format(startOfWeek(today, { weekStartsOn: 0 }), "yyyy-MM-dd");
+        const currentWeek = data.find((w: any) => w.week_start_date === weekStartStr);
+        setActiveWeek((currentWeek || data[0]) as LiquidityWeek);
+      }
     }
   }, [toast, activeWeek]);
 
-  /** Load line items for a specific week */
   const fetchLineItems = useCallback(async (weekId: string) => {
     const { data, error } = await supabase
       .from("liquidity_line_items")
       .select("*")
       .eq("liquidity_week_id", weekId)
       .order("due_date", { ascending: true });
-
     if (error) {
       toast({ title: "Error fetching items", description: error.message, variant: "destructive" });
     } else {
@@ -228,12 +181,11 @@ export function useLiquidity() {
     }
   }, [toast]);
 
-  /** Build calendar day data for a given month */
+  // Fetch monthly supplier payment data
   const fetchMonthlyData = useCallback(async (month: Date) => {
     const monthStart = format(startOfMonth(month), "yyyy-MM-dd");
     const monthEnd = format(endOfMonth(month), "yyyy-MM-dd");
 
-    // Fetch payments and collections in parallel
     const [{ data: paymentData }, { data: collectionData }] = await Promise.all([
       supabase
         .from("liquidity_line_items")
@@ -252,11 +204,10 @@ export function useLiquidity() {
     ]);
 
     const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
-    const result: MonthlyPaymentDay[] = days.map((day) => {
+    const result: MonthlyPaymentDay[] = days.map(day => {
       const dateStr = format(day, "yyyy-MM-dd");
-      const dayPayments = (paymentData ?? []).filter((item: any) => item.due_date === dateStr);
-      const dayCollections = (collectionData ?? []).filter((item: any) => item.due_date === dateStr);
-
+      const dayPayments = (paymentData || []).filter((item: any) => item.due_date === dateStr);
+      const dayCollections = (collectionData || []).filter((item: any) => item.due_date === dateStr);
       return {
         date: day,
         dateStr,
@@ -269,93 +220,66 @@ export function useLiquidity() {
         collectionItems: dayCollections as LiquidityLineItem[],
       };
     });
-
     setMonthlyData(result);
   }, []);
 
-  /* ─── Effects ─── */
-
-  // Initial load: ensure week exists → fetch weeks list
   useEffect(() => {
     setLoading(true);
-    ensureCurrentWeek()
-      .then(() => fetchWeeks())
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ensureCurrentWeek().then(() => fetchWeeks()).finally(() => setLoading(false));
   }, []);
 
-  // When active week changes, reload its line items
   useEffect(() => {
-    if (activeWeek) fetchLineItems(activeWeek.id);
+    if (activeWeek) {
+      fetchLineItems(activeWeek.id);
+    }
   }, [activeWeek, fetchLineItems]);
 
-  // Refresh monthly calendar whenever line items update
+  // Fetch monthly data on load
   useEffect(() => {
     fetchMonthlyData(new Date());
   }, [fetchMonthlyData, lineItems]);
 
-  // Realtime subscription scoped to the active week's line items
+  // Realtime subscription
   useEffect(() => {
     if (!activeWeek) return;
     const channel = supabase
       .channel("liquidity-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "liquidity_line_items",
-          filter: `liquidity_week_id=eq.${activeWeek.id}`,
-        },
-        () => fetchLineItems(activeWeek.id)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "liquidity_line_items", filter: `liquidity_week_id=eq.${activeWeek.id}` }, () => {
+        fetchLineItems(activeWeek.id);
+      })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [activeWeek, fetchLineItems]);
 
-  /* ─── CRUD operations ─── */
-
-  /** Create a new liquidity week and auto-populate invoices */
   const createWeek = async (weekStartDate: Date, openingBalance: number, alertThreshold: number, notes?: string) => {
     const { data, error } = await supabase
       .from("weekly_liquidity")
-      .insert({
-        week_start_date: format(weekStartDate, "yyyy-MM-dd"),
-        opening_balance: openingBalance,
+      .insert({ 
+        week_start_date: format(weekStartDate, "yyyy-MM-dd"), 
+        opening_balance: openingBalance, 
         alert_threshold: alertThreshold,
         notes: notes || null,
       })
       .select()
       .single();
-
     if (error) {
       toast({ title: "Error creating week", description: error.message, variant: "destructive" });
       return null;
     }
-
+    
     const week = data as LiquidityWeek;
     await Promise.all([
       fetchUnpaidSupplierInvoices(weekStartDate, week.id),
       fetchUnpaidCustomerInvoices(weekStartDate, week.id),
     ]);
-
+    
     toast({ title: "Week created with auto-fetched invoices" });
     await fetchWeeks();
     setActiveWeek(week);
     return week;
   };
 
-  /** Add a manual line item to the active week */
-  const addLineItem = async (item: {
-    item_type: "collection" | "payment";
-    description: string;
-    expected_amount: number;
-    due_date?: string;
-    linked_invoice_type?: string;
-  }) => {
+  const addLineItem = async (item: { item_type: "collection" | "payment"; description: string; expected_amount: number; due_date?: string; linked_invoice_type?: string }) => {
     if (!activeWeek) return;
     const { error } = await supabase.from("liquidity_line_items").insert({
       liquidity_week_id: activeWeek.id,
@@ -370,17 +294,14 @@ export function useLiquidity() {
     }
   };
 
-  /** Update a line item (amount, status, payment date) and sync invoice status */
   const updateLineItem = async (id: string, updates: { actual_amount?: number; status?: string; payment_date?: string }) => {
     const { error } = await supabase.from("liquidity_line_items").update(updates).eq("id", id);
     if (error) {
       toast({ title: "Error updating item", description: error.message, variant: "destructive" });
       return;
     }
-
-    // When marking as completed, also update the linked invoice status
     if (updates.status === "completed") {
-      const item = lineItems.find((i) => i.id === id);
+      const item = lineItems.find(i => i.id === id);
       if (item?.linked_invoice_id && item.linked_invoice_type === "supplier") {
         await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", item.linked_invoice_id);
       }
@@ -390,7 +311,6 @@ export function useLiquidity() {
     }
   };
 
-  /** Delete a line item */
   const deleteLineItem = async (id: string) => {
     const { error } = await supabase.from("liquidity_line_items").delete().eq("id", id);
     if (error) {
@@ -398,7 +318,6 @@ export function useLiquidity() {
     }
   };
 
-  /** Update week settings (opening balance, threshold, notes) */
   const updateWeek = async (id: string, updates: Partial<Pick<LiquidityWeek, "opening_balance" | "alert_threshold" | "notes">>) => {
     const { data, error } = await supabase.from("weekly_liquidity").update(updates).eq("id", id).select().single();
     if (error) {
@@ -409,92 +328,41 @@ export function useLiquidity() {
     }
   };
 
-  /* ─── Computed / memoised values ─── */
-
-  /** Collections (inflows) for the active week */
-  const collections = useMemo(() => lineItems.filter((i) => i.item_type === "collection"), [lineItems]);
-
-  /** Payments (outflows) for the active week */
-  const payments = useMemo(() => lineItems.filter((i) => i.item_type === "payment"), [lineItems]);
-
+  // Computed values
+  const collections = lineItems.filter(i => i.item_type === "collection");
+  const payments = lineItems.filter(i => i.item_type === "payment");
   const openingBalance = activeWeek?.opening_balance || 0;
 
-  // Expected (projected) totals
-  const totalExpectedCollections = useMemo(() => collections.reduce((s, i) => s + Number(i.expected_amount), 0), [collections]);
-  const totalScheduledPayments = useMemo(() => payments.reduce((s, i) => s + Number(i.expected_amount), 0), [payments]);
+  const totalExpectedCollections = collections.reduce((s, i) => s + Number(i.expected_amount), 0);
+  const totalScheduledPayments = payments.reduce((s, i) => s + Number(i.expected_amount), 0);
   const projectedEndBalance = openingBalance + totalExpectedCollections - totalScheduledPayments;
 
-  // Actual totals (amounts entered after payment/receipt)
-  const totalActualCollections = useMemo(() => collections.reduce((s, i) => s + Number(i.actual_amount || 0), 0), [collections]);
-  const totalActualPayments = useMemo(() => payments.reduce((s, i) => s + Number(i.actual_amount || 0), 0), [payments]);
+  const totalActualCollections = collections.reduce((s, i) => s + Number(i.actual_amount || 0), 0);
+  const totalActualPayments = payments.reduce((s, i) => s + Number(i.actual_amount || 0), 0);
   const actualBalance = openingBalance + totalActualCollections - totalActualPayments;
 
-  /* ─── Smart alerts ─── */
+  // Alerts
+  const alerts: { type: "critical" | "warning" | "info"; message: string }[] = [];
+  if (projectedEndBalance < 0) alerts.push({ type: "critical", message: `Projected end-of-week balance is negative: ₹${projectedEndBalance.toLocaleString("en-IN")}` });
+  if (activeWeek && activeWeek.alert_threshold > 0 && actualBalance < activeWeek.alert_threshold) alerts.push({ type: "critical", message: `Actual balance ₹${actualBalance.toLocaleString("en-IN")} is below threshold ₹${activeWeek.alert_threshold.toLocaleString("en-IN")}` });
 
-  const alerts = useMemo(() => {
-    const result: { type: "critical" | "warning" | "info"; message: string }[] = [];
-
-    // Negative projected balance
-    if (projectedEndBalance < 0) {
-      result.push({ type: "critical", message: `Projected end-of-week balance is negative: ₹${projectedEndBalance.toLocaleString("en-IN")}` });
-    }
-
-    // Actual balance below threshold
-    if (activeWeek && activeWeek.alert_threshold > 0 && actualBalance < activeWeek.alert_threshold) {
-      result.push({ type: "critical", message: `Actual balance ₹${actualBalance.toLocaleString("en-IN")} is below threshold ₹${activeWeek.alert_threshold.toLocaleString("en-IN")}` });
-    }
-
-    const now = new Date();
-    const in48h = addDays(now, 2);
-
-    // Payments due within 48 hours
-    payments
-      .filter((p) => p.status === "pending" && p.due_date)
-      .forEach((p) => {
-        const due = new Date(p.due_date!);
-        if (due <= in48h && due >= now) {
-          result.push({ type: "warning", message: `Payment "${p.description}" (₹${Number(p.expected_amount).toLocaleString("en-IN")}) due in next 48 hours` });
-        }
-      });
-
-    // Overdue collections
-    collections
-      .filter((c) => c.status === "pending" && c.due_date)
-      .forEach((c) => {
-        const due = new Date(c.due_date!);
-        if (due < now) {
-          result.push({ type: "warning", message: `Collection "${c.description}" (₹${Number(c.expected_amount).toLocaleString("en-IN")}) is overdue` });
-        }
-      });
-
-    return result;
-  }, [projectedEndBalance, actualBalance, activeWeek, payments, collections]);
-
-  /* ─── Public API ─── */
+  const now = new Date();
+  const in48h = addDays(now, 2);
+  payments.filter(p => p.status === "pending" && p.due_date).forEach(p => {
+    const due = new Date(p.due_date!);
+    if (due <= in48h && due >= now) alerts.push({ type: "warning", message: `Payment "${p.description}" (₹${Number(p.expected_amount).toLocaleString("en-IN")}) due in next 48 hours` });
+  });
+  collections.filter(c => c.status === "pending" && c.due_date).forEach(c => {
+    const due = new Date(c.due_date!);
+    if (due < now) alerts.push({ type: "warning", message: `Collection "${c.description}" (₹${Number(c.expected_amount).toLocaleString("en-IN")}) is overdue` });
+  });
 
   return {
-    weeks,
-    activeWeek,
-    setActiveWeek,
-    lineItems,
-    loading,
-    createWeek,
-    addLineItem,
-    updateLineItem,
-    deleteLineItem,
-    updateWeek,
-    collections,
-    payments,
-    openingBalance,
-    totalExpectedCollections,
-    totalScheduledPayments,
-    projectedEndBalance,
-    totalActualCollections,
-    totalActualPayments,
-    actualBalance,
-    alerts,
-    fetchWeeks,
-    monthlyData,
-    fetchMonthlyData,
+    weeks, activeWeek, setActiveWeek, lineItems, loading,
+    createWeek, addLineItem, updateLineItem, deleteLineItem, updateWeek,
+    collections, payments, openingBalance,
+    totalExpectedCollections, totalScheduledPayments, projectedEndBalance,
+    totalActualCollections, totalActualPayments, actualBalance,
+    alerts, fetchWeeks, monthlyData, fetchMonthlyData,
   };
 }
