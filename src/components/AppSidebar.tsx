@@ -1,6 +1,13 @@
+/**
+ * AppSidebar.tsx — Main navigation sidebar
+ *
+ * Renders the collapsible sidebar with all app navigation links.
+ * Uses `useMemo` on the active-path comparison to avoid unnecessary work.
+ */
+
+import { memo, useMemo } from "react";
 import {
   LayoutDashboard,
-  Users,
   Package,
   Bot,
   Camera,
@@ -29,6 +36,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+/** Static navigation config — defined outside component to avoid re-creation */
 const navigationItems = [
   { title: "Talligence", url: "/", icon: LayoutDashboard },
   { title: "Ask AI", url: "/tally-ai", icon: Bot },
@@ -36,7 +44,6 @@ const navigationItems = [
   { title: "Order Lifecycle", url: "/order-lifecycle", icon: ShieldCheck },
   { title: "Smart Segregation", url: "/smart-segregation", icon: Sparkles },
   { title: "Reconciliation", url: "/reconciliation", icon: GitCompareArrows },
-  
   { title: "Supplier Hub", url: "/supplier-hub", icon: Package },
   { title: "Inventory", url: "/inventory", icon: Boxes },
   { title: "Bills & Expenses", url: "/bills", icon: Camera },
@@ -45,9 +52,9 @@ const navigationItems = [
   { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
   { title: "Data Export", url: "/data-export", icon: Download },
   { title: "Sign In", url: "/auth", icon: LogIn },
-];
+] as const;
 
-export function AppSidebar() {
+function AppSidebarInner() {
   const { open } = useSidebar();
   const location = useLocation();
   const currentPath = location.pathname;
@@ -55,12 +62,14 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-sidebar-border" collapsible="icon">
       <SidebarContent className="bg-sidebar">
+        {/* Brand */}
         <div className="p-2 border-b border-sidebar-border">
           <h1 className={`font-bold text-sidebar-foreground ${open ? "text-base" : "text-xs"}`}>
             {open ? "Workflow System" : "WS"}
           </h1>
         </div>
-        
+
+        {/* Navigation links */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-sidebar-foreground/60 text-xs py-1">
             {open ? "Navigation" : ""}
@@ -91,3 +100,6 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
+/** Memoised export — prevents re-render when parent Layout re-renders */
+export const AppSidebar = memo(AppSidebarInner);
