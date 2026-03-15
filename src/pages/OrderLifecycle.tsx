@@ -65,7 +65,7 @@ const ORDER_LIFECYCLE_SELECT = `
 
 export default function OrderLifecycle() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedOrder, setSelectedOrder] = useState<LifecycleOrder | null>(null);
   const [showDecisionDialog, setShowDecisionDialog] = useState(false);
