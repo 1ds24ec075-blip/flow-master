@@ -83,7 +83,7 @@ const App = () => (
             <Route path="/customer-master" element={<Layout><CustomerMaster /></Layout>} />
             <Route path="/review" element={<Layout><Review /></Layout>} />
             <Route path="/order-lifecycle" element={<Layout><OrderLifecycle /></Layout>} />
-            <Route path="/smart-segregation" element={<SmartSegregation />} />
+            <Route path="/smart-segregation" element={<Layout><SmartSegregation /></Layout>} />
             <Route path="/product-master" element={<Layout><ProductMaster /></Layout>} />
             <Route path="/unmapped-codes" element={<Layout><UnmappedCodes /></Layout>} />
             <Route path="/customer-mapping" element={<Layout><CustomerProductMapping /></Layout>} />

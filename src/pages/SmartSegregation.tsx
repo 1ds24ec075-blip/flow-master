@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Layout } from "@/components/Layout";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1407,7 +1407,7 @@ export default function SmartSegregation() {
   };
 
   return (
-    <Layout>
+    <>
       <ScrollArea className="h-[calc(100vh-4rem)]">
         <div className="space-y-6 p-1">
           <div className="flex justify-between items-center">
@@ -2269,6 +2269,6 @@ export default function SmartSegregation() {
           </div>
         </div>
       </ScrollArea>
-    </Layout>
+    </>
   );
 }
