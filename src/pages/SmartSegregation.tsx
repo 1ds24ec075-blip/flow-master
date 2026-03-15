@@ -1407,7 +1407,7 @@ export default function SmartSegregation() {
   };
 
   return (
-    <Layout>
+    <>
       <ScrollArea className="h-[calc(100vh-4rem)]">
         <div className="space-y-6 p-1">
           <div className="flex justify-between items-center">
