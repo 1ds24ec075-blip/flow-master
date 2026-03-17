@@ -522,32 +522,58 @@ Respond with JSON array only, no explanation:
       }
     }
 
-    // Store transactions in database
-    const transactionsToInsert = classifiedTransactions.map(tx => ({
-      upload_id: uploadId,
-      transaction_date: tx.transaction_date,
-      narration: tx.narration,
-      amount: Math.abs(tx.amount),
-      transaction_type: tx.transaction_type,
-      suggested_category: tx.category,
-      confidence_score: tx.confidence
-    }));
+    // Store transactions in database, skipping cross-upload duplicates via fingerprint
+    let insertedCount = 0;
+    let skippedCount = 0;
 
-    const { error: insertError } = await supabase
-      .from('segregated_transactions')
-      .insert(transactionsToInsert);
+    for (const tx of classifiedTransactions) {
+      const normalizedNarration = (tx.narration || '').toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+      const fingerprint = `${tx.transaction_date}|${Math.abs(tx.amount).toFixed(2)}|${tx.transaction_type}|${normalizedNarration}`;
 
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      throw insertError;
+      // Check if this fingerprint already exists across all uploads
+      const { data: existing } = await supabase
+        .from('segregated_transactions')
+        .select('id')
+        .eq('fingerprint', fingerprint)
+        .maybeSingle();
+
+      if (existing) {
+        skippedCount++;
+        continue;
+      }
+
+      const { error: insertError } = await supabase
+        .from('segregated_transactions')
+        .insert({
+          upload_id: uploadId,
+          transaction_date: tx.transaction_date,
+          narration: tx.narration,
+          amount: Math.abs(tx.amount),
+          transaction_type: tx.transaction_type,
+          suggested_category: tx.category,
+          confidence_score: tx.confidence,
+          fingerprint,
+        });
+
+      if (insertError) {
+        console.error('Insert error for transaction:', insertError);
+        // Skip on unique constraint violation, throw on other errors
+        if (insertError.code === '23505') {
+          skippedCount++;
+          continue;
+        }
+        throw insertError;
+      }
+      insertedCount++;
     }
+    console.log(`Inserted ${insertedCount} new transactions, skipped ${skippedCount} cross-upload duplicates`);
 
-    // Update upload status
+    // Update upload status with actual inserted count
     await supabase
       .from('segregation_uploads')
       .update({ 
         status: 'completed',
-        total_transactions: classifiedTransactions.length
+        total_transactions: insertedCount
       })
       .eq('id', uploadId);
 

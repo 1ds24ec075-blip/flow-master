@@ -115,6 +115,7 @@ export type Database = {
           amount: number | null
           created_at: string
           description: string | null
+          fingerprint: string | null
           id: string
           matched_status: string
           reference_number: string | null
@@ -126,6 +127,7 @@ export type Database = {
           amount?: number | null
           created_at?: string
           description?: string | null
+          fingerprint?: string | null
           id?: string
           matched_status?: string
           reference_number?: string | null
@@ -137,6 +139,7 @@ export type Database = {
           amount?: number | null
           created_at?: string
           description?: string | null
+          fingerprint?: string | null
           id?: string
           matched_status?: string
           reference_number?: string | null
@@ -1645,6 +1648,7 @@ export type Database = {
           confidence_score: number | null
           created_at: string
           final_category: string | null
+          fingerprint: string | null
           id: string
           is_reviewed: boolean | null
           narration: string | null
@@ -1658,6 +1662,7 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           final_category?: string | null
+          fingerprint?: string | null
           id?: string
           is_reviewed?: boolean | null
           narration?: string | null
@@ -1671,6 +1676,7 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           final_category?: string | null
+          fingerprint?: string | null
           id?: string
           is_reviewed?: boolean | null
           narration?: string | null
