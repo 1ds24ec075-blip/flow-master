@@ -568,12 +568,12 @@ Respond with JSON array only, no explanation:
     }
     console.log(`Inserted ${insertedCount} new transactions, skipped ${skippedCount} cross-upload duplicates`);
 
-    // Update upload status
+    // Update upload status with actual inserted count
     await supabase
       .from('segregation_uploads')
       .update({ 
         status: 'completed',
-        total_transactions: classifiedTransactions.length
+        total_transactions: insertedCount
       })
       .eq('id', uploadId);
 
