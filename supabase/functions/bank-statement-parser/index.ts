@@ -321,16 +321,42 @@ Deno.serve(async (req: Request) => {
       const transactions: Transaction[] = extractedData.transactions;
       console.log(`Extracted ${transactions.length} transactions from statement`);
 
-      // Store transactions in database
+      // Helper to generate fingerprint for deduplication
+      const generateFingerprint = (tx: Transaction): string => {
+        const normalizedDesc = (tx.description || '').toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+        return `${tx.date}|${(tx.amount || 0).toFixed(2)}|${tx.type}|${normalizedDesc}`;
+      };
+
+      // Store transactions in database, skipping duplicates via fingerprint
+      let insertedCount = 0;
+      let skippedCount = 0;
       for (const transaction of transactions) {
+        const fingerprint = generateFingerprint(transaction);
+        
+        // Check if this fingerprint already exists
+        const { data: existing } = await supabase
+          .from('bank_transactions')
+          .select('id')
+          .eq('fingerprint', fingerprint)
+          .maybeSingle();
+        
+        if (existing) {
+          skippedCount++;
+          console.log(`Skipping duplicate transaction: ${fingerprint}`);
+          continue;
+        }
+
         await supabase.from('bank_transactions').insert({
           statement_id: statement.id,
           transaction_date: transaction.date,
           description: transaction.description,
           amount: transaction.amount,
           transaction_type: transaction.type,
+          fingerprint,
         });
+        insertedCount++;
       }
+      console.log(`Inserted ${insertedCount} new transactions, skipped ${skippedCount} duplicates`);
 
       // Match bills with transactions
       const verificationResults = matchBillsWithTransactions(bills || [], transactions);
