@@ -1584,7 +1584,14 @@ export default function SmartSegregation() {
                   </div>
                 )}
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    variant="outline"
+                    onClick={() => setShowManualTxDialog(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Manual Transaction
+                  </Button>
                   <Button 
                     onClick={handleUpload} 
                     disabled={isProcessing || !file}
