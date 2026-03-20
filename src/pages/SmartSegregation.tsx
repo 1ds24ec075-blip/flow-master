@@ -1417,6 +1417,99 @@ export default function SmartSegregation() {
     draft: vouchers.filter(v => v.status === 'draft').length,
   };
 
+  // Handle manual transaction add
+  const handleAddManualTransaction = async () => {
+    if (!manualTx.narration.trim() || !manualTx.amount || !manualTx.transaction_date) {
+      toast.error("Please fill in date, narration, and amount");
+      return;
+    }
+
+    const amount = parseFloat(manualTx.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Amount must be a positive number");
+      return;
+    }
+
+    setIsAddingManualTx(true);
+    try {
+      // Create or reuse an upload session for manual entries
+      let uploadId = currentUploadId;
+      if (!uploadId) {
+        const { data: uploadData, error: uploadError } = await supabase
+          .from('segregation_uploads')
+          .insert({
+            business_name: businessName.trim() || 'Default Business',
+            account_name: accountName.trim() || 'Primary Account',
+            file_name: 'Manual Entry',
+            status: 'completed',
+            total_transactions: 0
+          })
+          .select()
+          .single();
+
+        if (uploadError) throw uploadError;
+        uploadId = uploadData.id;
+        setCurrentUploadId(uploadId);
+      }
+
+      // Generate fingerprint for dedup
+      const normalizedNarration = manualTx.narration.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 100);
+      const fingerprint = `${manualTx.transaction_date}|${amount.toFixed(2)}|${manualTx.transaction_type}|${normalizedNarration}`;
+
+      // Check for duplicate
+      const { data: existing } = await supabase
+        .from('segregated_transactions')
+        .select('id')
+        .eq('fingerprint', fingerprint)
+        .maybeSingle();
+
+      if (existing) {
+        toast.error("This transaction already exists (duplicate detected)");
+        setIsAddingManualTx(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase
+        .from('segregated_transactions')
+        .insert({
+          upload_id: uploadId,
+          transaction_date: manualTx.transaction_date,
+          narration: manualTx.narration.trim(),
+          amount,
+          transaction_type: manualTx.transaction_type,
+          suggested_category: manualTx.category,
+          confidence_score: 100,
+          fingerprint,
+        });
+
+      if (insertError) throw insertError;
+
+      // Update upload count
+      await supabase
+        .from('segregation_uploads')
+        .update({ total_transactions: transactions.length + 1 })
+        .eq('id', uploadId);
+
+      toast.success("Transaction added successfully");
+      setShowManualTxDialog(false);
+      setManualTx({
+        transaction_date: new Date().toISOString().split('T')[0],
+        narration: '',
+        amount: '',
+        transaction_type: 'debit',
+        category: 'Unknown'
+      });
+
+      // Refresh
+      await fetchTransactions(uploadId);
+      await fetchUploadHistory();
+    } catch (error: any) {
+      toast.error("Failed to add transaction: " + error.message);
+    } finally {
+      setIsAddingManualTx(false);
+    }
+  };
+
   return (
     <Layout>
       <ScrollArea className="h-[calc(100vh-4rem)]">
