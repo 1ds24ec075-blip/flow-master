@@ -2380,6 +2380,88 @@ export default function SmartSegregation() {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Manual Transaction Dialog */}
+      <Dialog open={showManualTxDialog} onOpenChange={setShowManualTxDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Manual Transaction</DialogTitle>
+            <DialogDescription>
+              Manually add a bank transaction for testing or corrections. Duplicates are automatically detected.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={manualTx.transaction_date}
+                  onChange={(e) => setManualTx(prev => ({ ...prev, transaction_date: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Type</Label>
+                <Select 
+                  value={manualTx.transaction_type} 
+                  onValueChange={(v) => setManualTx(prev => ({ ...prev, transaction_type: v as 'debit' | 'credit' }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="debit">Debit (Expense/Payment)</SelectItem>
+                    <SelectItem value="credit">Credit (Income/Receipt)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Narration / Description</Label>
+              <Input
+                placeholder="e.g. UPI-JOHN DOE-john@upi-HDFC"
+                value={manualTx.narration}
+                onChange={(e) => setManualTx(prev => ({ ...prev, narration: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Amount (₹)</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={manualTx.amount}
+                  onChange={(e) => setManualTx(prev => ({ ...prev, amount: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Category</Label>
+                <Select 
+                  value={manualTx.category} 
+                  onValueChange={(v) => setManualTx(prev => ({ ...prev, category: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowManualTxDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddManualTransaction} disabled={isAddingManualTx}>
+              {isAddingManualTx ? 'Adding...' : 'Add Transaction'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
