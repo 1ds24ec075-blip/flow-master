@@ -157,6 +157,17 @@ export default function SmartSegregation() {
     payment_mode: 'NEFT/RTGS'
   });
 
+  // Manual transaction form state
+  const [showManualTxDialog, setShowManualTxDialog] = useState(false);
+  const [isAddingManualTx, setIsAddingManualTx] = useState(false);
+  const [manualTx, setManualTx] = useState({
+    transaction_date: new Date().toISOString().split('T')[0],
+    narration: '',
+    amount: '',
+    transaction_type: 'debit' as 'debit' | 'credit',
+    category: 'Unknown'
+  });
+
   useEffect(() => {
     fetchUploadHistory();
     fetchLedgers();
