@@ -170,14 +170,12 @@ Deno.serve(async (req: Request) => {
           const reasons: string[] = [];
           const supplierName = (inv.suppliers as any)?.name ?? "";
 
-          // Amount matching
           const amtDiff = Math.abs(txnAmount - remaining) / Math.max(remaining, 1);
           if (amtDiff === 0) { score += 35; reasons.push("Exact amount match"); }
           else if (amtDiff < 0.02) { score += 28; reasons.push("Amount within 2%"); }
           else if (amtDiff < 0.1) { score += 18; reasons.push("Amount within 10%"); }
           else if (amtDiff < 0.3) { score += 8; reasons.push("Partial amount overlap"); }
 
-          // Name matching
           if (supplierName && txnDesc) {
             const nameScore = wordOverlap(supplierName, txnDesc);
             if (nameScore > 0.5) { score += 30; reasons.push("Strong name match"); }
@@ -185,7 +183,6 @@ Deno.serve(async (req: Request) => {
             else if (nameScore > 0) { score += 8; reasons.push("Weak name match"); }
           }
 
-          // Alias matching
           for (const alias of aliases ?? []) {
             if (alias.entity_type === "supplier" && alias.supplier_id === inv.supplier_id) {
               if (normalizeText(txnDesc).includes(normalizeText(alias.alias_name))) {
@@ -196,7 +193,6 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // Date proximity
           if (txnDate && inv.due_date) {
             const daysDiff = Math.abs(
               (new Date(txnDate).getTime() - new Date(inv.due_date).getTime()) / 86400000
@@ -214,6 +210,65 @@ Deno.serve(async (req: Request) => {
               remaining_balance: remaining,
               entity_name: supplierName,
               due_date: inv.due_date,
+              score: Math.min(score, 100),
+              match_reasons: reasons,
+            });
+          }
+        }
+
+        // Also match against bills/expenses
+        const { data: bills } = await supabase
+          .from("bills")
+          .select("id, bill_number, total_amount, bill_date, vendor_name, vendor_gst")
+          .in("payment_status", ["pending", "partial"]);
+
+        for (const bill of bills ?? []) {
+          const billAmount = bill.total_amount ?? 0;
+          const key = `${bill.id}:bill`;
+          const allocated = allocMap.get(key) ?? 0;
+          const remaining = billAmount - allocated;
+          if (remaining <= 0) continue;
+
+          let score = 0;
+          const reasons: string[] = [];
+          const vendorName = bill.vendor_name ?? "";
+
+          const amtDiff = Math.abs(txnAmount - remaining) / Math.max(remaining, 1);
+          if (amtDiff === 0) { score += 35; reasons.push("Exact amount match"); }
+          else if (amtDiff < 0.02) { score += 28; reasons.push("Amount within 2%"); }
+          else if (amtDiff < 0.1) { score += 18; reasons.push("Amount within 10%"); }
+          else if (amtDiff < 0.3) { score += 8; reasons.push("Partial amount overlap"); }
+
+          if (vendorName && txnDesc) {
+            const nameScore = wordOverlap(vendorName, txnDesc);
+            if (nameScore > 0.5) { score += 30; reasons.push("Strong vendor name match"); }
+            else if (nameScore > 0.3) { score += 20; reasons.push("Partial vendor name match"); }
+            else if (nameScore > 0) { score += 8; reasons.push("Weak vendor name match"); }
+          }
+
+          // GST number matching from narration
+          if (bill.vendor_gst && txnDesc && normalizeText(txnDesc).includes(normalizeText(bill.vendor_gst))) {
+            score += 20;
+            reasons.push("GST number match in narration");
+          }
+
+          if (txnDate && bill.bill_date) {
+            const daysDiff = Math.abs(
+              (new Date(txnDate).getTime() - new Date(bill.bill_date).getTime()) / 86400000
+            );
+            if (daysDiff < 7) { score += 10; reasons.push("Within 7 days of bill date"); }
+            else if (daysDiff < 30) { score += 5; reasons.push("Within 30 days of bill date"); }
+          }
+
+          if (score > 10) {
+            matches.push({
+              invoice_id: bill.id,
+              invoice_type: "bill",
+              invoice_number: bill.bill_number ?? `BILL-${bill.id.substring(0, 8)}`,
+              invoice_amount: billAmount,
+              remaining_balance: remaining,
+              entity_name: vendorName,
+              due_date: bill.bill_date,
               score: Math.min(score, 100),
               match_reasons: reasons,
             });
@@ -324,7 +379,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Update invoice statuses based on total allocations
+      // Update invoice/bill statuses based on total allocations
       for (const a of allocations) {
         const { data: totalAllocs } = await supabase
           .from("payment_allocations")
@@ -342,9 +397,9 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
           const invAmount = inv?.amount ?? 0;
-          const newStatus = totalAllocated >= invAmount ? "paid" : "approved"; // partial keeps approved
+          const newStatus = totalAllocated >= invAmount ? "paid" : "approved";
           await supabase.from("client_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
-        } else {
+        } else if (a.invoice_type === "supplier") {
           const { data: inv } = await supabase
             .from("raw_material_invoices")
             .select("amount")
@@ -354,6 +409,16 @@ Deno.serve(async (req: Request) => {
           const invAmount = inv?.amount ?? 0;
           const newStatus = totalAllocated >= invAmount ? "paid" : "pending";
           await supabase.from("raw_material_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
+        } else if (a.invoice_type === "bill") {
+          const { data: bill } = await supabase
+            .from("bills")
+            .select("total_amount")
+            .eq("id", a.invoice_id)
+            .maybeSingle();
+
+          const billAmount = bill?.total_amount ?? 0;
+          const newStatus = totalAllocated >= billAmount ? "paid" : "partial";
+          await supabase.from("bills").update({ payment_status: newStatus }).eq("id", a.invoice_id);
         }
       }
 
