@@ -379,7 +379,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Update invoice statuses based on total allocations
+      // Update invoice/bill statuses based on total allocations
       for (const a of allocations) {
         const { data: totalAllocs } = await supabase
           .from("payment_allocations")
@@ -397,9 +397,9 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
           const invAmount = inv?.amount ?? 0;
-          const newStatus = totalAllocated >= invAmount ? "paid" : "approved"; // partial keeps approved
+          const newStatus = totalAllocated >= invAmount ? "paid" : "approved";
           await supabase.from("client_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
-        } else {
+        } else if (a.invoice_type === "supplier") {
           const { data: inv } = await supabase
             .from("raw_material_invoices")
             .select("amount")
@@ -409,6 +409,16 @@ Deno.serve(async (req: Request) => {
           const invAmount = inv?.amount ?? 0;
           const newStatus = totalAllocated >= invAmount ? "paid" : "pending";
           await supabase.from("raw_material_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
+        } else if (a.invoice_type === "bill") {
+          const { data: bill } = await supabase
+            .from("bills")
+            .select("total_amount")
+            .eq("id", a.invoice_id)
+            .maybeSingle();
+
+          const billAmount = bill?.total_amount ?? 0;
+          const newStatus = totalAllocated >= billAmount ? "paid" : "partial";
+          await supabase.from("bills").update({ payment_status: newStatus }).eq("id", a.invoice_id);
         }
       }
 
