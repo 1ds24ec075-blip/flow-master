@@ -9,7 +9,9 @@ type Status =
   | "processing"
   | "awaiting_approval"
   | "materials_received"
-  | "completed";
+  | "completed"
+  | "paid"
+  | "partial";
 
 const statusConfig: Record<
   Status,
@@ -24,6 +26,8 @@ const statusConfig: Record<
   awaiting_approval: { label: "Awaiting Approval", className: "status-awaiting-approval" },
   materials_received: { label: "Materials Received", className: "status-approved" },
   completed: { label: "Completed", className: "status-approved" },
+  paid: { label: "Paid", className: "status-approved" },
+  partial: { label: "Partial", className: "status-sent" },
 };
 
 export function StatusBadge({ status }: { status: Status }) {
