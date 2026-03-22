@@ -1,0 +1,2 @@
+ALTER TABLE payment_allocations DROP CONSTRAINT payment_allocations_invoice_type_check;
+ALTER TABLE payment_allocations ADD CONSTRAINT payment_allocations_invoice_type_check CHECK (invoice_type = ANY (ARRAY['client'::text, 'supplier'::text, 'bill'::text]));
