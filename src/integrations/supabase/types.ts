@@ -2130,7 +2130,13 @@ export type Database = {
     }
     Enums: {
       approval_status: "pending" | "approved" | "rejected"
-      invoice_status: "pending" | "awaiting_approval" | "approved" | "rejected"
+      invoice_status:
+        | "pending"
+        | "awaiting_approval"
+        | "approved"
+        | "rejected"
+        | "paid"
+        | "partial"
       po_status:
         | "draft"
         | "sent"
@@ -2272,7 +2278,14 @@ export const Constants = {
   public: {
     Enums: {
       approval_status: ["pending", "approved", "rejected"],
-      invoice_status: ["pending", "awaiting_approval", "approved", "rejected"],
+      invoice_status: [
+        "pending",
+        "awaiting_approval",
+        "approved",
+        "rejected",
+        "paid",
+        "partial",
+      ],
       po_status: [
         "draft",
         "sent",

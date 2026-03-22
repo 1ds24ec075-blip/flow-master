@@ -397,7 +397,7 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
           const invAmount = inv?.amount ?? 0;
-          const newStatus = totalAllocated >= invAmount ? "paid" : "approved";
+          const newStatus = totalAllocated >= invAmount ? "paid" : totalAllocated > 0 ? "partial" : "approved";
           await supabase.from("client_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
         } else if (a.invoice_type === "supplier") {
           const { data: inv } = await supabase
@@ -407,7 +407,7 @@ Deno.serve(async (req: Request) => {
             .maybeSingle();
 
           const invAmount = inv?.amount ?? 0;
-          const newStatus = totalAllocated >= invAmount ? "paid" : "pending";
+          const newStatus = totalAllocated >= invAmount ? "paid" : totalAllocated > 0 ? "partial" : "pending";
           await supabase.from("raw_material_invoices").update({ status: newStatus }).eq("id", a.invoice_id);
         } else if (a.invoice_type === "bill") {
           const { data: bill } = await supabase
