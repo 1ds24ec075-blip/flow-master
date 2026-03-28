@@ -18,6 +18,7 @@ import { AIInsightCard } from "@/components/dashboard/AIInsightCard";
 import { AlertCard } from "@/components/dashboard/AlertCard";
 import { InsightsSummary } from "@/components/dashboard/InsightsSummary";
 import { useInsights } from "@/hooks/useInsights";
+import { ValidationAlerts } from "@/components/dashboard/ValidationAlerts";
 import { Link } from "react-router-dom";
 
 export default function Dashboard() {
@@ -98,6 +99,9 @@ export default function Dashboard() {
 
       {/* AI Summary Banner */}
       <InsightsSummary summary={insights?.summary || null} isLoading={insightsLoading} />
+
+      {/* Data Validation Alerts */}
+      <ValidationAlerts />
 
       {/* Alerts Section */}
       {sortedAlerts.length > 0 && (
