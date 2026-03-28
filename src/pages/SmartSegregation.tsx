@@ -270,7 +270,8 @@ export default function SmartSegregation() {
       .from('segregated_transactions')
       .select('*')
       .eq('upload_id', uploadId)
-      .order('transaction_date', { ascending: false });
+      .order('transaction_date', { ascending: false })
+      .limit(1000);
     
     if (data) {
       const typedData = data.map(tx => ({

@@ -10,7 +10,8 @@ export default function ClientInvoices() {
       const { data, error } = await supabase
         .from("client_invoices")
         .select("*, clients(name)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data;
     },
