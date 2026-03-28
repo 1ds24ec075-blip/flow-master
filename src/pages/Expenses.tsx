@@ -111,7 +111,8 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
         .eq("is_verified", true)
         .gte("bill_date", format(startDate, "yyyy-MM-dd"))
         .lte("bill_date", format(endDate, "yyyy-MM-dd"))
-        .order("bill_date", { ascending: false });
+        .order("bill_date", { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return data as unknown as Bill[];

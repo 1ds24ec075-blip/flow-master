@@ -49,7 +49,8 @@ export default function RawMaterialInvoices() {
       const { data, error } = await supabase
         .from("raw_material_invoices")
         .select("*, purchase_orders(po_number), suppliers(name)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data;
     },

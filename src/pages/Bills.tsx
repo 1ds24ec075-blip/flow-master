@@ -82,7 +82,8 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
       const { data, error } = await supabase
         .from("bills" as any)
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return data as unknown as Bill[];

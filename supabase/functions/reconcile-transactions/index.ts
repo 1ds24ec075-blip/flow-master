@@ -276,10 +276,11 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Sort by score desc
+      // Sort by score desc and limit to top 20 matches
       matches.sort((a, b) => b.score - a.score);
+      const topMatches = matches.slice(0, 20);
 
-      return new Response(JSON.stringify({ transaction: txn, matches }), {
+      return new Response(JSON.stringify({ transaction: txn, matches: topMatches, total_matches: matches.length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
