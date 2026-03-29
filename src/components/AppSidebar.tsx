@@ -71,13 +71,13 @@ export function AppSidebar() {
                 const isActive = currentPath === item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isActive}>
+                    <SidebarMenuButton asChild isActive={isActive} className="h-auto min-h-0 py-0 px-0">
                       <NavLink
                         to={item.url}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors hover:bg-sidebar-accent text-sm"
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-colors hover:bg-sidebar-accent text-[13px] leading-tight"
                         activeClassName="bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                       >
-                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                         {open && <span>{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
