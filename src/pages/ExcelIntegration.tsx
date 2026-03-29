@@ -50,7 +50,7 @@ export default function ExcelIntegration() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [syncInterval, setSyncInterval] = useState("3");
   const [lastSyncSummary, setLastSyncSummary] = useState<SyncSummary | null>(null);
-  const autoSyncRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
