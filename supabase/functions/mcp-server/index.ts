@@ -28,7 +28,7 @@ function getDateRange(timeRange: string): { start: string; end: string } {
 const mcp = new McpServer({
   name: "talligence-mcp",
   version: "1.0.0",
-  schemaAdapter: (schema) => z.toJSONSchema(schema as z.ZodType),
+  schemaAdapter: (schema) => zodToJsonSchema(schema as z.ZodType),
 });
 
 mcp.tool("get_system_summary", {
