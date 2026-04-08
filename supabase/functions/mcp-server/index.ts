@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { McpServer, StreamableHttpTransport } from "mcp-lite";
 import { createClient } from "npm:@supabase/supabase-js@2.86.0";
 import { z } from "npm:zod@3.25.76";
+import zodToJsonSchema from "zod-to-json-schema";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
