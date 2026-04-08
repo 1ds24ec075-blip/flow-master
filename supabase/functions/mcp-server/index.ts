@@ -26,24 +26,14 @@ function getDateRange(timeRange: string): { start: string; end: string } {
 }
 
 const app = new Hono();
+const mcpServer = new McpServer({ name: "talligence-mcp", version: "1.0.0" });
 
-const mcpServer = new McpServer({
-  name: "talligence-mcp",
-  version: "1.0.0",
-});
-
-// ===== READ TOOLS =====
-
-mcpServer.tool({
-  name: "get_system_summary",
-  description: "Get a complete overview of all entities: clients, suppliers, invoices, POs, documents, approvals, quotations, inventory, and today's activity.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      include_today: { type: "boolean", description: "Include today's activity summary" },
-    },
-  },
-  handler: async ({ include_today = true }) => {
+// Register tools using positional args: name, description, schema, handler
+mcpServer.tool(
+  "get_system_summary",
+  "Get a complete overview of all entities: clients, suppliers, invoices, POs, documents, approvals, quotations, inventory, and today's activity.",
+  { type: "object" as const, properties: { include_today: { type: "boolean" as const } } },
+  async ({ include_today = true }: { include_today?: boolean }) => {
     const sb = getSupabase();
     const tables = ["clients", "suppliers", "client_invoices", "raw_material_invoices", "purchase_orders", "po_intake_documents", "approvals", "quotations", "bank_statements", "inventory_items"];
     const counts: Record<string, number> = {};
@@ -51,41 +41,39 @@ mcpServer.tool({
       const { count } = await sb.from(t).select("*", { count: "exact", head: true });
       counts[t] = count || 0;
     }));
-
     let todaySummary = null;
     if (include_today) {
       const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
-      const todayTables = ["clients", "client_invoices", "raw_material_invoices", "po_intake_documents", "activity_log"];
-      const todayCounts: Record<string, number> = {};
-      await Promise.all(todayTables.map(async (t) => {
+      const tt = ["clients", "client_invoices", "raw_material_invoices", "po_intake_documents", "activity_log"];
+      const tc: Record<string, number> = {};
+      await Promise.all(tt.map(async (t) => {
         const { count } = await sb.from(t).select("*", { count: "exact", head: true }).gte("created_at", todayStart);
-        todayCounts[t] = count || 0;
+        tc[t] = count || 0;
       }));
-      todaySummary = todayCounts;
+      todaySummary = tc;
     }
+    return { content: [{ type: "text" as const, text: JSON.stringify({ counts, today: todaySummary }, null, 2) }] };
+  }
+);
 
-    return { content: [{ type: "text", text: JSON.stringify({ counts, today: todaySummary }, null, 2) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "get_invoice_stats",
-  description: "Get invoice statistics with filters. Covers both client invoices and raw material (supplier) invoices.",
-  inputSchema: {
-    type: "object",
+mcpServer.tool(
+  "get_invoice_stats",
+  "Get invoice statistics with filters. Covers both client invoices and raw material (supplier) invoices.",
+  {
+    type: "object" as const,
     properties: {
-      invoice_type: { type: "string", enum: ["client", "raw_material", "all"], description: "Type of invoices" },
-      time_range: { type: "string", enum: ["last_hour", "today", "this_week", "this_month", "all_time"] },
-      status_filter: { type: "string", enum: ["pending", "awaiting_approval", "approved", "rejected", "all"] },
-      limit: { type: "number", description: "Max records to return" },
+      invoice_type: { type: "string" as const, enum: ["client", "raw_material", "all"] },
+      time_range: { type: "string" as const, enum: ["last_hour", "today", "this_week", "this_month", "all_time"] },
+      status_filter: { type: "string" as const, enum: ["pending", "awaiting_approval", "approved", "rejected", "all"] },
+      limit: { type: "number" as const }
     },
-    required: ["invoice_type"],
+    required: ["invoice_type"]
   },
-  handler: async ({ invoice_type, time_range = "all_time", status_filter = "all", limit = 5 }) => {
+  async (args: any) => {
+    const { invoice_type, time_range = "all_time", status_filter = "all", limit = 5 } = args;
     const sb = getSupabase();
     const { start } = getDateRange(time_range);
     const result: any = {};
-
     if (invoice_type === "client" || invoice_type === "all") {
       let q = sb.from("client_invoices").select("*, clients(name)").order("created_at", { ascending: false });
       if (time_range !== "all_time") q = q.gte("created_at", start);
@@ -95,7 +83,6 @@ mcpServer.tool({
       const { count: pending } = await sb.from("client_invoices").select("*", { count: "exact", head: true }).eq("status", "pending");
       result.client_invoices = { total: total || 0, pending: pending || 0, recent: data || [] };
     }
-
     if (invoice_type === "raw_material" || invoice_type === "all") {
       let q = sb.from("raw_material_invoices").select("*, suppliers(name)").order("created_at", { ascending: false });
       if (time_range !== "all_time") q = q.gte("created_at", start);
@@ -105,425 +92,254 @@ mcpServer.tool({
       const { count: pending } = await sb.from("raw_material_invoices").select("*", { count: "exact", head: true }).eq("status", "pending");
       result.raw_material_invoices = { total: total || 0, pending: pending || 0, recent: data || [] };
     }
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  }
+);
 
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "get_clients",
-  description: "Get client information. List clients, search by name, or get a specific client by ID.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      client_id: { type: "string", description: "Specific client ID" },
-      search: { type: "string", description: "Search by name" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ client_id, search, limit = 10 }) => {
+mcpServer.tool(
+  "get_clients",
+  "Get client information. List clients, search by name, or get a specific client by ID.",
+  { type: "object" as const, properties: { client_id: { type: "string" as const }, search: { type: "string" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { client_id, search, limit = 10 } = args;
     const sb = getSupabase();
     if (client_id) {
       const { data } = await sb.from("clients").select("*").eq("id", client_id).maybeSingle();
       const { count } = await sb.from("client_invoices").select("*", { count: "exact", head: true }).eq("client_id", client_id);
-      return { content: [{ type: "text", text: JSON.stringify({ client: data, invoice_count: count || 0 }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ client: data, invoice_count: count || 0 }) }] };
     }
     let q = sb.from("clients").select("*").order("created_at", { ascending: false });
     if (search) q = q.ilike("name", `%${search}%`);
     const { data } = await q.limit(limit);
     const { count } = await sb.from("clients").select("*", { count: "exact", head: true });
-    return { content: [{ type: "text", text: JSON.stringify({ clients: data || [], total: count || 0 }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ clients: data || [], total: count || 0 }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_suppliers",
-  description: "Get supplier/vendor information. List, search, or get details.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      supplier_id: { type: "string" },
-      search: { type: "string" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ supplier_id, search, limit = 10 }) => {
+mcpServer.tool(
+  "get_suppliers",
+  "Get supplier/vendor records. List, search, or get details.",
+  { type: "object" as const, properties: { supplier_id: { type: "string" as const }, search: { type: "string" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { supplier_id, search, limit = 10 } = args;
     const sb = getSupabase();
     if (supplier_id) {
       const { data } = await sb.from("suppliers").select("*").eq("id", supplier_id).maybeSingle();
-      return { content: [{ type: "text", text: JSON.stringify({ supplier: data }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ supplier: data }) }] };
     }
     let q = sb.from("suppliers").select("*").order("created_at", { ascending: false });
     if (search) q = q.ilike("name", `%${search}%`);
     const { data } = await q.limit(limit);
     const { count } = await sb.from("suppliers").select("*", { count: "exact", head: true });
-    return { content: [{ type: "text", text: JSON.stringify({ suppliers: data || [], total: count || 0 }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ suppliers: data || [], total: count || 0 }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_purchase_orders",
-  description: "Get purchase order stats and data from both po_orders (PO intake) and purchase_orders tables.",
-  inputSchema: {
-    type: "object",
+mcpServer.tool(
+  "get_purchase_orders",
+  "Get purchase order stats and data from the PO intake pipeline.",
+  {
+    type: "object" as const,
     properties: {
-      status: { type: "string", enum: ["pending", "processed", "converted", "draft", "sent", "all"] },
-      time_range: { type: "string", enum: ["today", "this_week", "this_month", "all_time"] },
-      limit: { type: "number" },
-    },
+      status: { type: "string" as const, enum: ["pending", "processed", "converted", "draft", "sent", "all"] },
+      time_range: { type: "string" as const, enum: ["today", "this_week", "this_month", "all_time"] },
+      limit: { type: "number" as const }
+    }
   },
-  handler: async ({ status = "all", time_range = "all_time", limit = 10 }) => {
+  async (args: any) => {
+    const { status = "all", time_range = "all_time", limit = 10 } = args;
     const sb = getSupabase();
     const { start } = getDateRange(time_range);
-
     let q = sb.from("po_orders").select("*").order("created_at", { ascending: false });
     if (status !== "all") q = q.eq("status", status);
     if (time_range !== "all_time") q = q.gte("created_at", start);
     const { data } = await q.limit(limit);
-
-    const statuses = ["pending", "processed", "converted", "price_mismatch"];
-    const countResults: Record<string, number> = {};
-    await Promise.all(statuses.map(async (s) => {
-      const { count } = await sb.from("po_orders").select("*", { count: "exact", head: true }).eq("status", s);
-      countResults[s] = count || 0;
-    }));
     const { count: total } = await sb.from("po_orders").select("*", { count: "exact", head: true });
+    return { content: [{ type: "text" as const, text: JSON.stringify({ orders: data || [], total: total || 0 }) }] };
+  }
+);
 
-    return { content: [{ type: "text", text: JSON.stringify({ orders: data || [], total: total || 0, by_status: countResults }) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "get_inventory_status",
-  description: "Get inventory items, low stock alerts, and reorder history.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      low_stock_only: { type: "boolean", description: "Only return items below minimum threshold" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ low_stock_only = false, limit = 20 }) => {
+mcpServer.tool(
+  "get_inventory_status",
+  "Get inventory items, low stock alerts, and reorder history.",
+  { type: "object" as const, properties: { low_stock_only: { type: "boolean" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { low_stock_only = false, limit = 20 } = args;
     const sb = getSupabase();
-    let q = sb.from("inventory_items").select("*, suppliers:preferred_supplier_id(name)").eq("is_active", true).order("current_quantity", { ascending: true });
-    const { data: items } = await q.limit(limit);
-
+    const { data: items } = await sb.from("inventory_items").select("*, suppliers:preferred_supplier_id(name)").eq("is_active", true).order("current_quantity").limit(limit);
     const lowStock = (items || []).filter((i: any) => i.current_quantity <= i.minimum_threshold);
-
-    const { data: recentReorders } = await sb.from("reorder_requests").select("*, inventory_items(item_name), suppliers(name)").order("created_at", { ascending: false }).limit(5);
-
+    const { data: reorders } = await sb.from("reorder_requests").select("*, inventory_items(item_name), suppliers(name)").order("created_at", { ascending: false }).limit(5);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          items: low_stock_only ? lowStock : items || [],
-          total_items: items?.length || 0,
-          low_stock_count: lowStock.length,
-          low_stock_items: lowStock.map((i: any) => ({ name: i.item_name, qty: i.current_quantity, threshold: i.minimum_threshold })),
-          recent_reorders: recentReorders || [],
-        })
-      }],
+      content: [{ type: "text" as const, text: JSON.stringify({
+        items: low_stock_only ? lowStock : items || [],
+        low_stock_count: lowStock.length,
+        low_stock_items: lowStock.map((i: any) => ({ name: i.item_name, qty: i.current_quantity, threshold: i.minimum_threshold })),
+        recent_reorders: reorders || [],
+      }) }],
     };
-  },
-});
+  }
+);
 
-mcpServer.tool({
-  name: "get_approvals",
-  description: "Get approval requests and their statuses.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      status: { type: "string", enum: ["pending", "approved", "rejected", "all"] },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ status = "all", limit = 10 }) => {
+mcpServer.tool(
+  "get_approvals",
+  "Get approval requests and their statuses.",
+  { type: "object" as const, properties: { status: { type: "string" as const, enum: ["pending", "approved", "rejected", "all"] }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { status = "all", limit = 10 } = args;
     const sb = getSupabase();
     let q = sb.from("approvals").select("*").order("created_at", { ascending: false });
     if (status !== "all") q = q.eq("status", status);
     const { data } = await q.limit(limit);
     const { count: pending } = await sb.from("approvals").select("*", { count: "exact", head: true }).eq("status", "pending");
-    const { count: total } = await sb.from("approvals").select("*", { count: "exact", head: true });
-    return { content: [{ type: "text", text: JSON.stringify({ approvals: data || [], total: total || 0, pending: pending || 0 }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ approvals: data || [], pending: pending || 0 }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_bank_statements",
-  description: "Get bank statement upload and transaction reconciliation stats.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      include_transactions: { type: "boolean" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ include_transactions = false, limit = 10 }) => {
+mcpServer.tool(
+  "get_bank_statements",
+  "Get bank statement and transaction reconciliation data.",
+  { type: "object" as const, properties: { include_transactions: { type: "boolean" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { include_transactions = false, limit = 10 } = args;
     const sb = getSupabase();
-    const { data: statements } = await sb.from("bank_statements").select("*").order("created_at", { ascending: false }).limit(limit);
-    const { count: total } = await sb.from("bank_statements").select("*", { count: "exact", head: true });
-
-    const result: any = { statements: statements || [], total: total || 0 };
-
+    const { data } = await sb.from("bank_statements").select("*").order("created_at", { ascending: false }).limit(limit);
+    const result: any = { statements: data || [] };
     if (include_transactions) {
       const { data: txns } = await sb.from("bank_transactions").select("*").order("transaction_date", { ascending: false }).limit(20);
-      const { count: matched } = await sb.from("bank_transactions").select("*", { count: "exact", head: true }).neq("matched_status", "unmatched");
-      const { count: totalTxns } = await sb.from("bank_transactions").select("*", { count: "exact", head: true });
       result.transactions = txns || [];
-      result.total_transactions = totalTxns || 0;
-      result.matched = matched || 0;
     }
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  }
+);
 
-    return { content: [{ type: "text", text: JSON.stringify(result) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "get_liquidity_overview",
-  description: "Get weekly liquidity dashboard data including opening balances, inflows, outflows, and line items.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      weeks: { type: "number", description: "Number of weeks to fetch (default 4)" },
-    },
-  },
-  handler: async ({ weeks = 4 }) => {
+mcpServer.tool(
+  "get_liquidity_overview",
+  "Get weekly liquidity dashboard data with cash flow details.",
+  { type: "object" as const, properties: { weeks: { type: "number" as const } } },
+  async (args: any) => {
+    const { weeks = 4 } = args;
     const sb = getSupabase();
-    const { data: weeklyData } = await sb.from("weekly_liquidity").select("*, liquidity_line_items(*)").order("week_start_date", { ascending: false }).limit(weeks);
-    return { content: [{ type: "text", text: JSON.stringify({ weeks: weeklyData || [] }) }] };
-  },
-});
+    const { data } = await sb.from("weekly_liquidity").select("*, liquidity_line_items(*)").order("week_start_date", { ascending: false }).limit(weeks);
+    return { content: [{ type: "text" as const, text: JSON.stringify({ weeks: data || [] }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_products",
-  description: "Get product master data, including HSN codes, GST rates, and pricing.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      search: { type: "string" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ search, limit = 20 }) => {
+mcpServer.tool(
+  "get_products",
+  "Get product master data including HSN codes, GST rates, and pricing.",
+  { type: "object" as const, properties: { search: { type: "string" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { search, limit = 20 } = args;
     const sb = getSupabase();
     let q = sb.from("product_master").select("*").eq("is_active", true).order("name");
     if (search) q = q.ilike("name", `%${search}%`);
     const { data } = await q.limit(limit);
-    const { count } = await sb.from("product_master").select("*", { count: "exact", head: true }).eq("is_active", true);
-    return { content: [{ type: "text", text: JSON.stringify({ products: data || [], total: count || 0 }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ products: data || [] }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_customer_master",
-  description: "Get customer master records with payment terms, credit limits, and outstanding amounts.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      search: { type: "string" },
-      overdue_only: { type: "boolean" },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ search, overdue_only = false, limit = 20 }) => {
+mcpServer.tool(
+  "get_customer_master",
+  "Get customer master records with credit limits, payment terms, outstanding amounts.",
+  { type: "object" as const, properties: { search: { type: "string" as const }, overdue_only: { type: "boolean" as const }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { search, overdue_only = false, limit = 20 } = args;
     const sb = getSupabase();
     let q = sb.from("customer_master").select("*").order("customer_name");
     if (search) q = q.ilike("customer_name", `%${search}%`);
     if (overdue_only) q = q.eq("has_overdue_invoices", true);
     const { data } = await q.limit(limit);
-    return { content: [{ type: "text", text: JSON.stringify({ customers: data || [] }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ customers: data || [] }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_recent_activity",
-  description: "Get recent system activity log entries for audit trail and monitoring.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      activity_type: { type: "string" },
-      time_range: { type: "string", enum: ["last_hour", "today", "this_week", "all_time"] },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ activity_type, time_range = "today", limit = 20 }) => {
+mcpServer.tool(
+  "get_recent_activity",
+  "Get recent system activity log entries for audit trail and monitoring.",
+  { type: "object" as const, properties: { activity_type: { type: "string" as const }, time_range: { type: "string" as const, enum: ["last_hour", "today", "this_week", "all_time"] }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { activity_type, time_range = "today", limit = 20 } = args;
     const sb = getSupabase();
     const { start } = getDateRange(time_range);
     let q = sb.from("activity_log").select("*").order("created_at", { ascending: false });
     if (time_range !== "all_time") q = q.gte("created_at", start);
     if (activity_type) q = q.eq("activity_type", activity_type);
     const { data } = await q.limit(limit);
-    return { content: [{ type: "text", text: JSON.stringify({ activities: data || [] }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ activities: data || [] }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_quotations",
-  description: "Get quotation data with status filtering.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      status: { type: "string", enum: ["draft", "sent", "approved", "rejected", "all"] },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ status = "all", limit = 10 }) => {
+mcpServer.tool(
+  "get_quotations",
+  "Get quotation data with status filtering.",
+  { type: "object" as const, properties: { status: { type: "string" as const, enum: ["draft", "sent", "approved", "rejected", "all"] }, limit: { type: "number" as const } } },
+  async (args: any) => {
+    const { status = "all", limit = 10 } = args;
     const sb = getSupabase();
     let q = sb.from("quotations").select("*, clients(name)").order("created_at", { ascending: false });
     if (status !== "all") q = q.eq("status", status);
     const { data } = await q.limit(limit);
-    const { count } = await sb.from("quotations").select("*", { count: "exact", head: true });
-    return { content: [{ type: "text", text: JSON.stringify({ quotations: data || [], total: count || 0 }) }] };
-  },
-});
+    return { content: [{ type: "text" as const, text: JSON.stringify({ quotations: data || [] }) }] };
+  }
+);
 
-mcpServer.tool({
-  name: "get_segregation_data",
-  description: "Get smart segregation uploads and categorized transactions.",
-  inputSchema: {
-    type: "object",
+mcpServer.tool(
+  "create_reorder_request",
+  "Create a reorder request for an inventory item that is low on stock.",
+  {
+    type: "object" as const,
     properties: {
-      upload_id: { type: "string" },
-      limit: { type: "number" },
+      inventory_item_id: { type: "string" as const },
+      quantity: { type: "number" as const },
+      supplier_id: { type: "string" as const },
+      note: { type: "string" as const }
     },
+    required: ["inventory_item_id", "quantity"]
   },
-  handler: async ({ upload_id, limit = 10 }) => {
+  async (args: any) => {
+    const { inventory_item_id, quantity, supplier_id, note } = args;
     const sb = getSupabase();
-    if (upload_id) {
-      const { data: txns } = await sb.from("segregated_transactions").select("*").eq("upload_id", upload_id).order("transaction_date", { ascending: false });
-      return { content: [{ type: "text", text: JSON.stringify({ transactions: txns || [] }) }] };
-    }
-    const { data: uploads } = await sb.from("segregation_uploads").select("*").order("created_at", { ascending: false }).limit(limit);
-    return { content: [{ type: "text", text: JSON.stringify({ uploads: uploads || [] }) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "get_unmapped_codes",
-  description: "Get unmapped product codes that need resolution.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      status: { type: "string", enum: ["pending", "resolved", "all"] },
-      limit: { type: "number" },
-    },
-  },
-  handler: async ({ status = "pending", limit = 20 }) => {
-    const sb = getSupabase();
-    let q = sb.from("unmapped_product_codes").select("*").order("created_at", { ascending: false });
-    if (status !== "all") q = q.eq("status", status);
-    const { data } = await q.limit(limit);
-    return { content: [{ type: "text", text: JSON.stringify({ unmapped_codes: data || [] }) }] };
-  },
-});
-
-// ===== WRITE/ACTION TOOLS =====
-
-mcpServer.tool({
-  name: "create_reorder_request",
-  description: "Create a reorder request for an inventory item that is low on stock.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      inventory_item_id: { type: "string", description: "ID of the inventory item" },
-      quantity: { type: "number", description: "Quantity to reorder" },
-      supplier_id: { type: "string", description: "Supplier ID (optional, uses preferred)" },
-      note: { type: "string", description: "Internal note" },
-    },
-    required: ["inventory_item_id", "quantity"],
-  },
-  handler: async ({ inventory_item_id, quantity, supplier_id, note }) => {
-    const sb = getSupabase();
-    const { data: item } = await sb.from("inventory_items").select("*, suppliers:preferred_supplier_id(name, id)").eq("id", inventory_item_id).maybeSingle();
-    if (!item) return { content: [{ type: "text", text: JSON.stringify({ error: "Item not found" }) }] };
-
-    const targetSupplier = supplier_id || item.preferred_supplier_id;
+    const { data: item } = await sb.from("inventory_items").select("*").eq("id", inventory_item_id).maybeSingle();
+    if (!item) return { content: [{ type: "text" as const, text: JSON.stringify({ error: "Item not found" }) }] };
     const { data, error } = await sb.from("reorder_requests").insert({
-      inventory_item_id,
-      quantity_requested: quantity,
-      supplier_id: targetSupplier,
+      inventory_item_id, quantity_requested: quantity,
+      supplier_id: supplier_id || item.preferred_supplier_id,
       quantity_at_trigger: item.current_quantity,
       minimum_threshold_at_trigger: item.minimum_threshold,
-      internal_note: note || `Auto-reorder: ${item.item_name} low stock (${item.current_quantity}/${item.minimum_threshold})`,
+      internal_note: note || `Auto-reorder via MCP`,
       status: "sent",
     }).select().single();
+    if (error) return { content: [{ type: "text" as const, text: JSON.stringify({ error: error.message }) }] };
+    await sb.from("activity_log").insert({ activity_type: "mcp_reorder", entity_type: "inventory", entity_id: inventory_item_id, status: "success", metadata: { quantity, item_name: item.item_name } });
+    return { content: [{ type: "text" as const, text: JSON.stringify({ success: true, reorder: data, item_name: item.item_name }) }] };
+  }
+);
 
-    if (error) return { content: [{ type: "text", text: JSON.stringify({ error: error.message }) }] };
-
-    await sb.from("activity_log").insert({
-      activity_type: "reorder_created",
-      entity_type: "inventory",
-      entity_id: inventory_item_id,
-      status: "success",
-      metadata: { reorder_id: data.id, quantity, item_name: item.item_name },
-    });
-
-    return { content: [{ type: "text", text: JSON.stringify({ success: true, reorder: data, item_name: item.item_name }) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "update_approval_status",
-  description: "Approve or reject a pending approval request.",
-  inputSchema: {
-    type: "object",
+mcpServer.tool(
+  "update_approval_status",
+  "Approve or reject a pending approval request.",
+  {
+    type: "object" as const,
     properties: {
-      approval_id: { type: "string" },
-      action: { type: "string", enum: ["approved", "rejected"] },
-      comment: { type: "string" },
+      approval_id: { type: "string" as const },
+      action: { type: "string" as const, enum: ["approved", "rejected"] },
+      comment: { type: "string" as const }
     },
-    required: ["approval_id", "action"],
+    required: ["approval_id", "action"]
   },
-  handler: async ({ approval_id, action, comment }) => {
+  async (args: any) => {
+    const { approval_id, action, comment } = args;
     const sb = getSupabase();
     const { data, error } = await sb.from("approvals").update({
-      status: action,
-      comment: comment || `${action} via MCP agent`,
-      approved_by: "mcp-agent",
-      updated_at: new Date().toISOString(),
+      status: action, comment: comment || `${action} via MCP agent`,
+      approved_by: "mcp-agent", updated_at: new Date().toISOString(),
     }).eq("id", approval_id).select().single();
+    if (error) return { content: [{ type: "text" as const, text: JSON.stringify({ error: error.message }) }] };
+    await sb.from("activity_log").insert({ activity_type: `mcp_approval_${action}`, entity_type: "approval", entity_id: approval_id, status: "success", metadata: { action, comment } });
+    return { content: [{ type: "text" as const, text: JSON.stringify({ success: true, approval: data }) }] };
+  }
+);
 
-    if (error) return { content: [{ type: "text", text: JSON.stringify({ error: error.message }) }] };
-
-    await sb.from("activity_log").insert({
-      activity_type: `approval_${action}`,
-      entity_type: "approval",
-      entity_id: approval_id,
-      status: "success",
-      metadata: { action, comment },
-    });
-
-    return { content: [{ type: "text", text: JSON.stringify({ success: true, approval: data }) }] };
-  },
-});
-
-mcpServer.tool({
-  name: "log_agent_action",
-  description: "Log an agent action to the activity log for audit trail and observability.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      action_type: { type: "string", description: "Type of action performed" },
-      entity_type: { type: "string" },
-      entity_id: { type: "string" },
-      details: { type: "string" },
-    },
-    required: ["action_type", "entity_type"],
-  },
-  handler: async ({ action_type, entity_type, entity_id, details }) => {
-    const sb = getSupabase();
-    await sb.from("activity_log").insert({
-      activity_type: `agent_${action_type}`,
-      entity_type,
-      entity_id: entity_id || null,
-      status: "success",
-      metadata: { details, source: "mcp-agent" },
-    });
-    return { content: [{ type: "text", text: JSON.stringify({ logged: true }) }] };
-  },
-});
-
-// HTTP transport
 const transport = new StreamableHttpTransport();
 
 app.all("/*", async (c) => {
