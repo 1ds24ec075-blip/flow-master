@@ -72,3 +72,6 @@ verify_jwt = false
 
 [functions.supplier-invoice-extract]
 verify_jwt = false
+
+[functions.mcp-server]
+verify_jwt = false
