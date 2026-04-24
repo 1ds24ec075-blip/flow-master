@@ -203,6 +203,40 @@ mcp.tool("update_approval_status", {
   },
 });
 
+mcp.tool("forecast_cash_flow", {
+  description: "Run 30-day cash flow forecast & detect crisis days. Triggers CFO Agent.",
+  inputSchema: z.object({}),
+  handler: async () => {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/cash-crisis-predictor`, {
+      method: "POST", headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" }, body: "{}",
+    });
+    const j = await res.json();
+    return { content: [{ type: "text" as const, text: JSON.stringify(j) }] };
+  },
+});
+
+mcp.tool("generate_morning_brief", {
+  description: "Generate today's AI morning brief covering overnight activity, alerts, and recommendations.",
+  inputSchema: z.object({}),
+  handler: async () => {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/morning-brief`, {
+      method: "POST", headers: { Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "application/json" }, body: "{}",
+    });
+    const j = await res.json();
+    return { content: [{ type: "text" as const, text: JSON.stringify(j) }] };
+  },
+});
+
+mcp.tool("get_agent_activity", {
+  description: "Get the live agent activity feed (recent autonomous actions taken by agents).",
+  inputSchema: z.object({ limit: z.number().optional() }),
+  handler: async ({ limit = 20 }) => {
+    const sb = getSupabase();
+    const { data } = await sb.from("agent_activity_feed").select("*").order("created_at", { ascending: false }).limit(limit);
+    return { content: [{ type: "text" as const, text: JSON.stringify({ activities: data || [] }) }] };
+  },
+});
+
 const transport = new StreamableHttpTransport();
 const httpHandler = transport.bind(mcp);
 
