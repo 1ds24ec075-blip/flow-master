@@ -26,9 +26,19 @@ export function MorningBriefCard() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => { toast.success("Morning brief generated"); qc.invalidateQueries({ queryKey: ["morning-brief"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["morning-brief"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+
+  // Auto-generate if today's brief is missing
+  useEffect(() => {
+    if (isLoading || generate.isPending) return;
+    const today = new Date().toISOString().split("T")[0];
+    if (!brief || brief.brief_date !== today) {
+      generate.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, brief?.brief_date]);
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
@@ -98,9 +108,19 @@ export function CashCrisisCard() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => { toast.success("Cash forecast updated"); qc.invalidateQueries({ queryKey: ["cash-forecast"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cash-forecast"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+
+  // Auto-refresh if today's forecast is missing
+  useEffect(() => {
+    if (isLoading || run.isPending) return;
+    const today = new Date().toISOString().split("T")[0];
+    if (!forecast || forecast.forecast_date !== today) {
+      run.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, forecast?.forecast_date]);
 
   const inr = (n: number) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
   const isCrisis = forecast?.crisis_severity === "critical" || forecast?.crisis_severity === "high";
