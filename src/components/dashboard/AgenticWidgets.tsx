@@ -26,9 +26,19 @@ export function MorningBriefCard() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => { toast.success("Morning brief generated"); qc.invalidateQueries({ queryKey: ["morning-brief"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["morning-brief"] }); qc.invalidateQueries({ queryKey: ["agent-feed"] }); },
     onError: (e: any) => toast.error(e.message),
   });
+
+  // Auto-generate if today's brief is missing
+  useEffect(() => {
+    if (isLoading || generate.isPending) return;
+    const today = new Date().toISOString().split("T")[0];
+    if (!brief || brief.brief_date !== today) {
+      generate.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, brief?.brief_date]);
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
