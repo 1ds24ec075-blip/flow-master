@@ -20,6 +20,7 @@ import { InsightsSummary } from "@/components/dashboard/InsightsSummary";
 import { useInsights } from "@/hooks/useInsights";
 import { ValidationAlerts } from "@/components/dashboard/ValidationAlerts";
 import { Link } from "react-router-dom";
+import { MorningBriefCard, CashCrisisCard, LiveAgentFeed } from "@/components/dashboard/AgenticWidgets";
 
 export default function Dashboard() {
   const { data: stats } = useQuery({
@@ -95,6 +96,13 @@ export default function Dashboard() {
             </Link>
           </Button>
         </div>
+      </div>
+
+      {/* Agentic Layer: Morning Brief + Cash Crisis + Live Feed */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <MorningBriefCard />
+        <CashCrisisCard />
+        <LiveAgentFeed />
       </div>
 
       {/* AI Summary Banner */}
