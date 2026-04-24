@@ -44,6 +44,45 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_activity_feed: {
+        Row: {
+          action: string
+          agent_name: string
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          metadata: Json | null
+          severity: string
+          status: string
+          summary: string
+        }
+        Insert: {
+          action: string
+          agent_name: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          metadata?: Json | null
+          severity?: string
+          status?: string
+          summary: string
+        }
+        Update: {
+          action?: string
+          agent_name?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          metadata?: Json | null
+          severity?: string
+          status?: string
+          summary?: string
+        }
+        Relationships: []
+      }
       approvals: {
         Row: {
           approved_by: string | null
@@ -236,6 +275,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      cash_forecasts: {
+        Row: {
+          ai_recommendation: string | null
+          created_at: string
+          crisis_day: string | null
+          crisis_severity: string
+          daily_breakdown: Json | null
+          forecast_date: string
+          id: string
+          opening_balance: number
+          projected_min_balance: number
+          total_inflows: number
+          total_outflows: number
+        }
+        Insert: {
+          ai_recommendation?: string | null
+          created_at?: string
+          crisis_day?: string | null
+          crisis_severity?: string
+          daily_breakdown?: Json | null
+          forecast_date?: string
+          id?: string
+          opening_balance?: number
+          projected_min_balance?: number
+          total_inflows?: number
+          total_outflows?: number
+        }
+        Update: {
+          ai_recommendation?: string | null
+          created_at?: string
+          crisis_day?: string | null
+          crisis_severity?: string
+          daily_breakdown?: Json | null
+          forecast_date?: string
+          id?: string
+          opening_balance?: number
+          projected_min_balance?: number
+          total_inflows?: number
+          total_outflows?: number
+        }
+        Relationships: []
       }
       client_invoices: {
         Row: {
@@ -948,6 +1029,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      morning_briefs: {
+        Row: {
+          alerts: Json | null
+          brief_date: string
+          created_at: string
+          headline: string
+          highlights: Json | null
+          id: string
+          metrics: Json | null
+          recommendations: Json | null
+          summary: string
+        }
+        Insert: {
+          alerts?: Json | null
+          brief_date?: string
+          created_at?: string
+          headline: string
+          highlights?: Json | null
+          id?: string
+          metrics?: Json | null
+          recommendations?: Json | null
+          summary: string
+        }
+        Update: {
+          alerts?: Json | null
+          brief_date?: string
+          created_at?: string
+          headline?: string
+          highlights?: Json | null
+          id?: string
+          metrics?: Json | null
+          recommendations?: Json | null
+          summary?: string
+        }
+        Relationships: []
       }
       payment_allocations: {
         Row: {
