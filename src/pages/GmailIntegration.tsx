@@ -216,6 +216,32 @@ function setupHourlyTrigger() {
         </AlertDescription>
       </Alert>
 
+      {/* One-click sync via Lovable Gmail connector */}
+      <Card className="border-primary/40 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-primary" />
+            One-Click Gmail Sync
+            <Badge variant="secondary" className="ml-2">Recommended</Badge>
+          </CardTitle>
+          <CardDescription>
+            Gmail is connected via Lovable. Click below to scan the last 7 days for PO emails and import any PDF attachments automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleOneClickSync} disabled={isSyncing} size="lg">
+            {isSyncing ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning Gmail…</>
+            ) : (
+              <><Zap className="h-4 w-4 mr-2" /> Sync POs from Gmail Now</>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground mt-3">
+            Searches: <code className="bg-muted px-1 rounded">subject:(PO OR "purchase order") has:attachment newer_than:7d</code>
+          </p>
+        </CardContent>
+      </Card>
+
       {/* How it works */}
       <Card>
         <CardHeader>
