@@ -15,6 +15,29 @@ const GmailIntegration = () => {
   const [copied, setCopied] = useState<string | null>(null);
   const [testEmail, setTestEmail] = useState("");
   const [isTesting, setIsTesting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleOneClickSync = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-connector-sync", { body: {} });
+      if (error) throw error;
+      const posCreated = data?.posCreated ?? 0;
+      const scanned = data?.scanned ?? 0;
+      toast({
+        title: posCreated > 0 ? `${posCreated} PO(s) imported` : "Sync complete",
+        description: `Scanned ${scanned} emails. ${posCreated} PO(s) created.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: "Sync failed",
+        description: e?.message || "Could not sync from Gmail.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const projectUrl = import.meta.env.VITE_SUPABASE_URL || "https://pskuxhpfohmxlhmupeoz.supabase.co";
   const edgeFunctionUrl = `${projectUrl}/functions/v1/process-po`;
