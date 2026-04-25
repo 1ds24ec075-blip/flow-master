@@ -6,14 +6,38 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Play, Copy, Check, Clock, FileText, ExternalLink, AlertCircle } from "lucide-react";
+import { Mail, Play, Copy, Check, Clock, FileText, ExternalLink, AlertCircle, Zap, Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { supabase } from "@/integrations/supabase/client";
 
 const GmailIntegration = () => {
   const { toast } = useToast();
   const [copied, setCopied] = useState<string | null>(null);
   const [testEmail, setTestEmail] = useState("");
   const [isTesting, setIsTesting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleOneClickSync = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-connector-sync", { body: {} });
+      if (error) throw error;
+      const posCreated = data?.posCreated ?? 0;
+      const scanned = data?.scanned ?? 0;
+      toast({
+        title: posCreated > 0 ? `${posCreated} PO(s) imported` : "Sync complete",
+        description: `Scanned ${scanned} emails. ${posCreated} PO(s) created.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: "Sync failed",
+        description: e?.message || "Could not sync from Gmail.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const projectUrl = import.meta.env.VITE_SUPABASE_URL || "https://pskuxhpfohmxlhmupeoz.supabase.co";
   const edgeFunctionUrl = `${projectUrl}/functions/v1/process-po`;
@@ -191,6 +215,32 @@ function setupHourlyTrigger() {
           This method uses Google Apps Script which runs inside your Gmail - no OAuth consent screens, no 403 errors, just simple copy-paste setup.
         </AlertDescription>
       </Alert>
+
+      {/* One-click sync via Lovable Gmail connector */}
+      <Card className="border-primary/40 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-primary" />
+            One-Click Gmail Sync
+            <Badge variant="secondary" className="ml-2">Recommended</Badge>
+          </CardTitle>
+          <CardDescription>
+            Gmail is connected via Lovable. Click below to scan the last 7 days for PO emails and import any PDF attachments automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleOneClickSync} disabled={isSyncing} size="lg">
+            {isSyncing ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning Gmail…</>
+            ) : (
+              <><Zap className="h-4 w-4 mr-2" /> Sync POs from Gmail Now</>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground mt-3">
+            Searches: <code className="bg-muted px-1 rounded">subject:(PO OR "purchase order") has:attachment newer_than:7d</code>
+          </p>
+        </CardContent>
+      </Card>
 
       {/* How it works */}
       <Card>
