@@ -30,6 +30,8 @@ import SupplierDashboard from "./pages/SupplierDashboard";
 import Inventory from "./pages/Inventory";
 import DataExport from "./pages/DataExport";
 import Reconciliation from "./pages/Reconciliation";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -62,6 +64,8 @@ const App = () => (
           <Route path="/inventory" element={<Layout><Inventory /></Layout>} />
           <Route path="/data-export" element={<Layout><DataExport /></Layout>} />
           <Route path="/reconciliation" element={<Layout><Reconciliation /></Layout>} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

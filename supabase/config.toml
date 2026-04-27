@@ -50,7 +50,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.gmail-auth-start]
-verify_jwt = false
+verify_jwt = true
+
+[functions.gmail-sync]
+verify_jwt = true
 
 [functions.gmail-auth-callback]
 verify_jwt = false
