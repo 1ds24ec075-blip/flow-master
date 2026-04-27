@@ -778,6 +778,7 @@ export type Database = {
           sync_status: string | null
           token_expires_at: string | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           access_token?: string | null
@@ -793,6 +794,7 @@ export type Database = {
           sync_status?: string | null
           token_expires_at?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           access_token?: string | null
@@ -808,6 +810,7 @@ export type Database = {
           sync_status?: string | null
           token_expires_at?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -1392,6 +1395,7 @@ export type Database = {
           status: string | null
           subject: string | null
           thread_id: string | null
+          user_id: string | null
         }
         Insert: {
           attachments_count?: number | null
@@ -1407,6 +1411,7 @@ export type Database = {
           status?: string | null
           subject?: string | null
           thread_id?: string | null
+          user_id?: string | null
         }
         Update: {
           attachments_count?: number | null
@@ -1422,6 +1427,7 @@ export type Database = {
           status?: string | null
           subject?: string | null
           thread_id?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
