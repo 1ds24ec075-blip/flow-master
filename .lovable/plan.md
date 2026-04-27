@@ -1,115 +1,64 @@
+## Multi-tenant per-user Gmail OAuth
 
-# Make Talligence Deeply AI-Native for Indian MSMEs
+Convert the current single-tenant Gmail integration into a per-user OAuth system where each MSME connects their own inbox, production-ready for public launch.
 
-The app already has a solid MCP backbone (14+ tools), an agentic chat, and document extraction. To make it a true "AI-first ERP for Indian MSMEs," the next leap is **proactive intelligence + India-specific automation + voice/vernacular access**. Below is a prioritized roadmap.
+### Phase 1 — Database
 
----
+Migration on `gmail_integrations`:
+- Add `user_id uuid` referencing `auth.users(id) ON DELETE CASCADE` (nullable for now to preserve the existing row).
+- Add unique index on `(user_id, email_address)`.
+- Drop the permissive `Allow all operations` policy.
+- Add strict per-user RLS policies (SELECT/INSERT/UPDATE/DELETE) using `auth.uid() = user_id`.
+- Same treatment on `processed_emails`: add `user_id`, RLS scoped via the parent integration.
 
-## Phase 1 — India-Specific AI Intelligence (Highest MSME Impact)
+### Phase 2 — Edge functions
 
-### 1. GST Intelligence Agent
-- **GSTIN auto-validation** on every supplier/customer entry (15-char regex + checksum).
-- **HSN/SAC auto-suggestion** from product description using Gemini (e.g. "MS Pipe 2 inch" → HSN 7306, GST 18%).
-- **GSTR-1 / GSTR-3B auto-draft**: agent compiles monthly returns from invoices + expenses, flags mismatches, exports JSON for GST portal upload.
-- **2A/2B reconciliation agent**: upload GSTR-2B, agent matches against `raw_material_invoices` and flags missing ITC.
+**`gmail-auth-start`**
+- Require caller JWT, extract `user.id`.
+- Sign a short-lived `state` token (HMAC with a server secret) containing `{ user_id, nonce, exp }` and pass it in the Google OAuth URL.
+- Set `verify_jwt = true` for this function.
 
-### 2. e-Invoice & e-Way Bill AI Helper
-- Detects when invoice value > ₹5L → auto-prompts e-invoice generation.
-- Generates IRN-ready JSON payload for NIC portal.
-- Drafts e-Way Bills for dispatch with vehicle/transporter prediction from past patterns.
+**`gmail-auth-callback`**
+- Verify the `state` HMAC and expiry; reject on mismatch.
+- Exchange code → tokens, fetch userinfo.
+- Upsert by `(user_id, email_address)` instead of by email alone.
+- Redirect back to `/gmail-integration` with success/error.
 
-### 3. TDS / TCS Auto-Detection
-- Agent scans bills, classifies expense (rent, contractor, professional fees), suggests correct TDS section (194C, 194J, 194I) and auto-calculates deduction.
+**`gmail-sync`**
+- Require JWT; load integration by `id` AND `user_id = auth.uid()`.
+- Add token refresh: if `token_expires_at` is past, call Google's token endpoint with `refresh_token`, persist new `access_token` + expiry before listing messages.
+- Same for `gmail-connector-sync` callsites — keep the Lovable connector path untouched but stop using it for end-user inboxes.
 
----
+### Phase 3 — Frontend (`src/pages/GmailIntegration.tsx`)
+- Require auth; redirect to `/auth` if no session.
+- List only the current user's integrations (RLS handles filtering).
+- "Connect Gmail" button calls `gmail-auth-start` with the user's JWT, then follows the redirect.
+- Show connected email, last sync, sync status, and Disconnect.
+- Log connect/disconnect/sync events to `agent_activity_feed`.
 
-## Phase 2 — Proactive Agent (Beyond Chat → Autonomous Daemon)
+### Phase 4 — Auth + legal pages
+- Confirm `src/pages/Auth.tsx` works (email/password + Google) — already in place.
+- Add `/privacy` and `/terms` route stubs with placeholder MSME-appropriate copy you can edit. Required by Google verification.
+- Add a Gmail-specific data-handling disclosure section on `/privacy` (read-only scope, no resale, deletion on disconnect).
 
-### 4. Scheduled Cron Agents (Edge Function + pg_cron)
-Run every morning at 9 AM IST:
-- **Cash Crisis Predictor**: forecasts 30-day liquidity using receivables/payables; sends WhatsApp/email alert if cash dips below threshold.
-- **Overdue Collection Agent**: drafts polite reminder emails in Hindi/English/regional language for overdue customer invoices and queues them for one-click send.
-- **Reorder Watchdog**: detects low stock, auto-drafts PO with last-best supplier price, awaits human approval.
-- **Anomaly Detector**: flags duplicate invoices, unusual payments, GST mismatches, supplier price hikes >10%.
+### Phase 5 — Google Cloud setup doc
+Create `GOOGLE_OAUTH_SETUP.md` covering:
+- OAuth consent screen → External, Production.
+- Required scopes: `gmail.readonly`, `userinfo.email`, `userinfo.profile`.
+- Authorized redirect URI: `https://pskuxhpfohmxlhmupeoz.supabase.co/functions/v1/gmail-auth-callback`.
+- Authorized JavaScript origins: preview + published + custom domains.
+- App homepage, privacy, and terms URLs to paste in.
+- CASA assessment checklist for the restricted `gmail.readonly` scope (4–6 week timeline).
+- How to add pilot MSMEs as Test Users while verification is pending.
 
-### 5. Daily Morning Brief
-A new "Today" card on dashboard generated by agent each morning:
-> *"₹2.3L due to 3 suppliers this week. Stock of MS Pipe runs out in 4 days. Customer ABC is 22 days overdue (₹85K). Suggest collecting before paying Supplier X."*
+### Technical notes
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are already in secrets — no new secrets needed.
+- A new `OAUTH_STATE_SECRET` will be added for HMAC signing of the `state` parameter.
+- The existing single-tenant row in `gmail_integrations` will be left intact with `user_id = null` and excluded from the UI.
+- `processed_emails` will be backfilled with `user_id = null` for the existing row; new rows always carry `user_id`.
 
----
+### Out of scope
+- Gmail push notifications (Pub/Sub watch). Polling stays for now.
+- Per-user per-mailbox subject-filter customization UI (defaults remain).
 
-## Phase 3 — Multilingual Voice & WhatsApp (MSME Reality)
-
-### 6. Voice Input in Hindi/Hinglish/Regional
-- Add mic button to Ask AI page using browser Web Speech API + Gemini for Hinglish understanding.
-- Owner says "Pichle hafte ka payment kitna baki hai?" → agent answers in same language.
-
-### 7. WhatsApp Bot Channel
-- Twilio WhatsApp connector (already in catalog) → owner can ping "stock status" or forward invoice photos directly.
-- Agent extracts, files, replies with confirmation.
-
----
-
-## Phase 4 — Document AI Upgrades
-
-### 8. Multi-Doc Bulk Ingestion
-- Drop 50 bills at once → batch extraction queue with progress UI.
-- Auto-classify: GST invoice, proforma, delivery challan, eway bill, bank advice.
-
-### 9. Handwritten Bill / Kaccha Bill OCR
-- Many MSMEs receive handwritten/thermal-printed bills; tune Gemini Vision with India-specific prompt examples.
-
-### 10. Bank Statement → Auto-Reconciliation Agent
-- Upload PDF/Excel bank statement → agent matches each line to invoice/PO/expense, learns vendor name patterns, asks human only on ambiguous matches.
-
----
-
-## Phase 5 — Negotiation & Decision Intelligence
-
-### 11. Supplier Price Benchmark Agent
-- Tracks every PO's unit price per HSN; warns when a new quote is >X% above 6-month average.
-- Suggests best supplier based on price + delivery + payment-term history.
-
-### 12. Customer Credit Scoring
-- Computes internal credit score per customer from payment history, returns, dispute count.
-- Recommends advance vs credit terms (extends existing `suggestion_reason` engine).
-
-### 13. Quotation Negotiator
-- Customer sends RFQ → agent drafts quotation with price bands (good/better/best), payment-term variants, and predicted close probability.
-
----
-
-## Phase 6 — Demo Wow Moments (Hackathon Polish)
-
-### 14. Live "Agent Activity" Feed
-- Real-time stream on dashboard showing agent decisions: *"🤖 Detected low stock → drafted PO #1234 → awaiting approval"*.
-- Subscribe to `activity_log` via Supabase Realtime.
-
-### 15. Agent Memory (long-term)
-- New `agent_memory` table storing learned facts: *"Supplier ACME always delivers 3 days late," "Customer XYZ pays on day 45 not 30."*
-- Agent injects relevant memories into system prompt per query.
-
-### 16. Multi-Agent Orchestration
-- Specialist agents: `CFO_agent`, `Procurement_agent`, `Compliance_agent`, `Collections_agent`.
-- Router agent dispatches user query to the right specialist; specialists can call each other via MCP. Showcases the "multi-agent coordination" hackathon criterion.
-
----
-
-## Recommended First Build (1-day sprint, max demo impact)
-
-If you want one focused implementation right now, I recommend bundling **#4 (Daily Morning Brief)** + **#5 (Cash Crisis Predictor)** + **#14 (Live Agent Feed)** + **#6 (Hindi voice input)**. Together these make the app feel *alive, intelligent, and unmistakably built for Indian MSMEs* in a 3-minute demo.
-
----
-
-## Technical Notes
-
-- All AI calls continue via Lovable AI Gateway (`google/gemini-2.5-flash` for routine, `gemini-2.5-pro` for reasoning, `gemini-2.5-flash` Vision for documents).
-- Cron via `pg_cron` + `pg_net` calling existing edge functions.
-- Realtime feed via `ALTER PUBLICATION supabase_realtime ADD TABLE activity_log`.
-- WhatsApp via Twilio standard connector.
-- New tables needed: `agent_memory`, `agent_briefings`, `gst_returns_draft`, `tds_classifications`.
-- Extend MCP server with new tools: `forecast_cash_flow`, `draft_gstr1`, `reconcile_gstr2b`, `score_customer_credit`, `benchmark_supplier_price`, `recall_memory`, `store_memory`.
-
----
-
-**Tell me which phase (or specific items) to build first and I'll implement it.**
+Approve and I'll build it.
