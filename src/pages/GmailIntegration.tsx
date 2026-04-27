@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, RefreshCw, Trash2, Loader2, Plug, CheckCircle2, AlertCircle } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Loader2, Plug, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -121,6 +121,9 @@ const GmailIntegration = () => {
 
   return (
     <div className="space-y-6">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="-ml-2">
+        <ArrowLeft className="h-4 w-4 mr-2" /> Back to Dashboard
+      </Button>
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Gmail Integration</h1>
         <p className="text-muted-foreground">
