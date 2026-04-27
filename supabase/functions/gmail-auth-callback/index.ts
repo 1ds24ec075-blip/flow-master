@@ -6,75 +6,96 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function verifyState(token: string, secret: string): Promise<{ uid: string; exp: number } | null> {
+  try {
+    const [body, sig] = token.split(".");
+    if (!body || !sig) return null;
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+    const sigBytes = Uint8Array.from(
+      atob(sig.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+    const ok = await crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(body));
+    if (!ok) return null;
+
+    const payload = JSON.parse(atob(body));
+    if (!payload.uid || !payload.exp) return null;
+    if (Math.floor(Date.now() / 1000) > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const appUrl = Deno.env.get("APP_URL") || "https://id-preview--d9e42d37-c9e3-4eaa-8d50-e3da268f97b7.lovable.app";
+  const redirectPage = `${appUrl}/gmail-integration`;
+
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
-    const error = url.searchParams.get("error");
+    const stateParam = url.searchParams.get("state");
+    const oauthError = url.searchParams.get("error");
     const errorDescription = url.searchParams.get("error_description");
 
-    // Get the app URL to redirect back to
-    // This should be the frontend URL
-    const appUrl = Deno.env.get("APP_URL") || "https://id-preview--d9e42d37-c9e3-4eaa-8d50-e3da268f97b7.lovable.app";
-    const redirectPage = `${appUrl}/gmail-integration`;
-
-    console.log("Gmail OAuth callback received");
-    console.log("Code present:", !!code);
-    console.log("Error:", error);
-
-    if (error) {
-      console.error("OAuth error:", error, errorDescription);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: `${redirectPage}?error=${encodeURIComponent(errorDescription || error)}`,
-        },
-      });
+    if (oauthError) {
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent(errorDescription || oauthError)}`,
+        302,
+      );
     }
-
-    if (!code) {
-      console.error("No authorization code received");
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: `${redirectPage}?error=${encodeURIComponent("No authorization code received")}`,
-        },
-      });
+    if (!code || !stateParam) {
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent("Missing code or state")}`,
+        302,
+      );
     }
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const stateSecret = Deno.env.get("OAUTH_STATE_SECRET");
 
-    if (!clientId || !clientSecret) {
-      console.error("Google OAuth credentials not configured");
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: `${redirectPage}?error=${encodeURIComponent("OAuth not configured")}`,
-        },
-      });
+    if (!clientId || !clientSecret || !supabaseUrl || !supabaseServiceKey || !stateSecret) {
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent("OAuth not configured")}`,
+        302,
+      );
     }
+
+    // Verify state and extract user_id
+    const verified = await verifyState(stateParam, stateSecret);
+    if (!verified) {
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent("Invalid or expired state")}`,
+        302,
+      );
+    }
+    const userId = verified.uid;
 
     const redirectUri = `${supabaseUrl}/functions/v1/gmail-auth-callback`;
 
-    // Exchange the authorization code for tokens
-    console.log("Exchanging code for tokens...");
+    // Exchange code for tokens
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: clientId,
         client_secret: clientSecret,
-        code: code,
+        code,
         grant_type: "authorization_code",
         redirect_uri: redirectUri,
       }),
@@ -83,123 +104,102 @@ serve(async (req) => {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error("Token exchange failed:", errorText);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: `${redirectPage}?error=${encodeURIComponent("Failed to exchange code for tokens")}`,
-        },
-      });
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent("Failed to exchange code for tokens")}`,
+        302,
+      );
     }
 
     const tokens = await tokenResponse.json();
-    console.log("Tokens received successfully");
-    console.log("Access token present:", !!tokens.access_token);
-    console.log("Refresh token present:", !!tokens.refresh_token);
 
-    // Get user info from Google
-    console.log("Fetching user info...");
+    // Get user email from Google
     const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-      },
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
-
     if (!userInfoResponse.ok) {
-      const errorText = await userInfoResponse.text();
-      console.error("Failed to fetch user info:", errorText);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: `${redirectPage}?error=${encodeURIComponent("Failed to fetch user information")}`,
-        },
-      });
+      return Response.redirect(
+        `${redirectPage}?error=${encodeURIComponent("Failed to fetch user info")}`,
+        302,
+      );
     }
-
     const userInfo = await userInfoResponse.json();
-    console.log("User email:", userInfo.email);
 
-    // Calculate token expiry
-    const tokenExpiresAt = new Date(Date.now() + (tokens.expires_in * 1000)).toISOString();
+    const tokenExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Save the integration to the database
-    const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
-
-    // Check if this email is already connected
-    const { data: existingIntegration } = await supabase
+    // Upsert by (user_id, email_address)
+    const { data: existing } = await supabase
       .from("gmail_integrations")
-      .select("id")
+      .select("id, refresh_token")
+      .eq("user_id", userId)
       .eq("email_address", userInfo.email)
-      .single();
+      .maybeSingle();
 
-    if (existingIntegration) {
-      // Update existing integration
-      console.log("Updating existing integration for:", userInfo.email);
+    if (existing) {
       const { error: updateError } = await supabase
         .from("gmail_integrations")
         .update({
           access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token || null,
+          refresh_token: tokens.refresh_token || existing.refresh_token || null,
           token_expires_at: tokenExpiresAt,
           is_active: true,
           sync_status: "active",
           error_message: null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", existingIntegration.id);
+        .eq("id", existing.id);
 
       if (updateError) {
-        console.error("Failed to update integration:", updateError);
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: `${redirectPage}?error=${encodeURIComponent("Failed to update integration")}`,
-          },
-        });
+        console.error("Update failed:", updateError);
+        return Response.redirect(
+          `${redirectPage}?error=${encodeURIComponent("Failed to update integration")}`,
+          302,
+        );
       }
     } else {
-      // Create new integration
-      console.log("Creating new integration for:", userInfo.email);
       const { error: insertError } = await supabase
         .from("gmail_integrations")
         .insert({
+          user_id: userId,
           email_address: userInfo.email,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token || null,
           token_expires_at: tokenExpiresAt,
           is_active: true,
           sync_status: "active",
-          subject_filters: ["invoice", "bill", "receipt", "payment"],
+          subject_filters: ["invoice", "bill", "receipt", "payment", "purchase order", "PO"],
         });
 
       if (insertError) {
-        console.error("Failed to create integration:", insertError);
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: `${redirectPage}?error=${encodeURIComponent("Failed to save integration")}`,
-          },
-        });
+        console.error("Insert failed:", insertError);
+        return Response.redirect(
+          `${redirectPage}?error=${encodeURIComponent("Failed to save integration")}`,
+          302,
+        );
       }
     }
 
-    console.log("Gmail integration saved successfully");
+    // Audit log
+    await supabase.from("agent_activity_feed").insert({
+      agent_name: "gmail-oauth",
+      action: "connect",
+      summary: `Connected Gmail: ${userInfo.email}`,
+      severity: "info",
+      status: "completed",
+      entity_type: "gmail_integration",
+      metadata: { user_id: userId, email: userInfo.email },
+    });
 
-    // Redirect back to the app with success
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: `${redirectPage}?success=true&email=${encodeURIComponent(userInfo.email)}`,
-      },
-    });
+    return Response.redirect(
+      `${redirectPage}?success=true&email=${encodeURIComponent(userInfo.email)}`,
+      302,
+    );
   } catch (error: unknown) {
-    console.error("Error in Gmail OAuth callback:", error);
-    const appUrl = Deno.env.get("APP_URL") || "https://id-preview--d9e42d37-c9e3-4eaa-8d50-e3da268f97b7.lovable.app";
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: `${appUrl}/gmail-integration?error=${encodeURIComponent(errorMessage)}`,
-      },
-    });
+    console.error("gmail-auth-callback error:", errorMessage);
+    return Response.redirect(
+      `${redirectPage}?error=${encodeURIComponent(errorMessage)}`,
+      302,
+    );
   }
 });

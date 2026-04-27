@@ -28,9 +28,6 @@ verify_jwt = false
 [functions.bill-extract]
 verify_jwt = false
 
-[functions.gmail-sync]
-verify_jwt = false
-
 [functions.gmail-webhook]
 verify_jwt = false
 
@@ -50,7 +47,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.gmail-auth-start]
-verify_jwt = false
+verify_jwt = true
+
+[functions.gmail-sync]
+verify_jwt = true
 
 [functions.gmail-auth-callback]
 verify_jwt = false

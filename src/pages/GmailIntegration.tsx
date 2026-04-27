@@ -1,202 +1,122 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Play, Copy, Check, Clock, FileText, ExternalLink, AlertCircle, Zap, Loader2 } from "lucide-react";
+import { Mail, RefreshCw, Trash2, Loader2, Plug, CheckCircle2, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 
+interface GmailIntegrationRow {
+  id: string;
+  email_address: string;
+  is_active: boolean;
+  sync_status: string | null;
+  last_sync_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 const GmailIntegration = () => {
   const { toast } = useToast();
-  const [copied, setCopied] = useState<string | null>(null);
-  const [testEmail, setTestEmail] = useState("");
-  const [isTesting, setIsTesting] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [integrations, setIntegrations] = useState<GmailIntegrationRow[]>([]);
 
-  const handleOneClickSync = async () => {
-    setIsSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("gmail-connector-sync", { body: {} });
-      if (error) throw error;
-      const posCreated = data?.posCreated ?? 0;
-      const scanned = data?.scanned ?? 0;
-      toast({
-        title: posCreated > 0 ? `${posCreated} PO(s) imported` : "Sync complete",
-        description: `Scanned ${scanned} emails. ${posCreated} PO(s) created.`,
-      });
-    } catch (e: any) {
-      toast({
-        title: "Sync failed",
-        description: e?.message || "Could not sync from Gmail.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const projectUrl = import.meta.env.VITE_SUPABASE_URL || "https://pskuxhpfohmxlhmupeoz.supabase.co";
-  const edgeFunctionUrl = `${projectUrl}/functions/v1/process-po`;
-
-  const appsScript = `// Gmail to PO Processor - Google Apps Script
-// This script runs automatically to detect and process Purchase Order emails
-
-// Configuration
-const EDGE_FUNCTION_URL = "${edgeFunctionUrl}";
-const SEARCH_QUERY = 'is:unread subject:(PO OR "purchase order") has:attachment';
-
-function processEmails() {
-  const threads = GmailApp.search(SEARCH_QUERY, 0, 10);
-  
-  if (threads.length === 0) {
-    Logger.log('No matching emails found');
-    return;
-  }
-  
-  Logger.log('Found ' + threads.length + ' threads to process');
-  
-  for (const thread of threads) {
-    const messages = thread.getMessages();
-    
-    for (const message of messages) {
-      if (message.isUnread()) {
-        processMessage(message);
-      }
-    }
-  }
-}
-
-function processMessage(message) {
-  const attachments = message.getAttachments();
-  const pdfAttachments = attachments.filter(att => 
-    att.getContentType() === 'application/pdf' || 
-    att.getName().toLowerCase().endsWith('.pdf')
-  );
-  
-  if (pdfAttachments.length === 0) {
-    Logger.log('No PDF attachments in: ' + message.getSubject());
-    return;
-  }
-  
-  for (const pdf of pdfAttachments) {
-    try {
-      const payload = {
-        fileName: pdf.getName(),
-        fileData: Utilities.base64Encode(pdf.getBytes()),
-        emailSubject: message.getSubject(),
-        emailFrom: message.getFrom(),
-        emailDate: message.getDate().toISOString()
-      };
-      
-      const options = {
-        method: 'POST',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      };
-      
-      const response = UrlFetchApp.fetch(EDGE_FUNCTION_URL, options);
-      const responseCode = response.getResponseCode();
-      
-      if (responseCode === 200) {
-        Logger.log('Successfully processed: ' + pdf.getName());
-        message.markRead();
-      } else {
-        Logger.log('Error processing ' + pdf.getName() + ': ' + response.getContentText());
-      }
-    } catch (error) {
-      Logger.log('Exception processing ' + pdf.getName() + ': ' + error.toString());
-    }
-  }
-}
-
-// Manual trigger function for testing
-function testProcessing() {
-  Logger.log('Starting manual test...');
-  processEmails();
-  Logger.log('Test complete. Check the Logs for details.');
-}
-
-// Function to set up hourly trigger
-function setupHourlyTrigger() {
-  // Remove existing triggers
-  const triggers = ScriptApp.getProjectTriggers();
-  for (const trigger of triggers) {
-    if (trigger.getHandlerFunction() === 'processEmails') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  }
-  
-  // Create new hourly trigger
-  ScriptApp.newTrigger('processEmails')
-    .timeBased()
-    .everyHours(1)
-    .create();
-    
-  Logger.log('Hourly trigger set up successfully!');
-}`;
-
-  const copyToClipboard = async (text: string, id: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-    toast({
-      title: "Copied!",
-      description: "Content copied to clipboard",
+  // Auth gate
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) navigate("/auth");
     });
+  }, [navigate]);
+
+  // Handle OAuth callback query params
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const email = searchParams.get("email");
+    const error = searchParams.get("error");
+    if (success && email) {
+      toast({ title: "Gmail connected", description: email });
+      setSearchParams({});
+    } else if (error) {
+      toast({ title: "Gmail connection failed", description: error, variant: "destructive" });
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, toast]);
+
+  const loadIntegrations = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("gmail_integrations")
+      .select("id, email_address, is_active, sync_status, last_sync_at, error_message, created_at")
+      .order("created_at", { ascending: false });
+    if (error) {
+      toast({ title: "Failed to load integrations", description: error.message, variant: "destructive" });
+    } else {
+      setIntegrations(data || []);
+    }
+    setLoading(false);
   };
 
-  const handleTestConnection = async () => {
-    if (!testEmail) {
-      toast({
-        title: "Error",
-        description: "Please enter a test email address",
-        variant: "destructive",
-      });
-      return;
-    }
+  useEffect(() => {
+    loadIntegrations();
+  }, []);
 
-    setIsTesting(true);
+  const handleConnect = async () => {
+    setConnecting(true);
     try {
-      const response = await fetch(edgeFunctionUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: 'test.pdf',
-          fileData: '',
-          emailSubject: 'Test PO Email',
-          emailFrom: testEmail,
-          emailDate: new Date().toISOString(),
-          isTest: true
-        })
-      });
-
-      if (response.ok) {
-        toast({
-          title: "Connection Successful!",
-          description: "Your edge function is reachable and ready to process PO emails.",
-        });
-      } else {
-        const error = await response.text();
-        toast({
-          title: "Connection Issue",
-          description: error || "Edge function returned an error. Check the logs.",
-          variant: "destructive",
-        });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/auth");
+        return;
       }
-    } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: "Could not reach the edge function. It may not be deployed yet.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsTesting(false);
+      const { data, error } = await supabase.functions.invoke("gmail-auth-start", { body: {} });
+      if (error) throw error;
+      if (!data?.url) throw new Error("No OAuth URL returned");
+      window.location.href = data.url;
+    } catch (e: any) {
+      toast({ title: "Could not start Gmail connection", description: e?.message || "Unknown error", variant: "destructive" });
+      setConnecting(false);
     }
+  };
+
+  const handleSync = async (id: string) => {
+    setSyncingId(id);
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-sync", { body: { integrationId: id } });
+      if (error) throw error;
+      toast({
+        title: "Sync complete",
+        description: `Processed ${data?.processed ?? 0} email(s), created ${data?.billsCreated ?? 0} bill(s).`,
+      });
+      loadIntegrations();
+    } catch (e: any) {
+      toast({ title: "Sync failed", description: e?.message || "Unknown error", variant: "destructive" });
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const handleDisconnect = async (id: string, email: string) => {
+    if (!confirm(`Disconnect ${email}? Stored tokens will be deleted.`)) return;
+    const { error } = await supabase.from("gmail_integrations").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Failed to disconnect", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Disconnected", description: email });
+      loadIntegrations();
+    }
+  };
+
+  const statusBadge = (status: string | null, isActive: boolean) => {
+    if (!isActive) return <Badge variant="outline">Inactive</Badge>;
+    if (status === "active") return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">Active</Badge>;
+    if (status === "error") return <Badge variant="destructive">Error</Badge>;
+    return <Badge variant="secondary">{status || "Pending"}</Badge>;
   };
 
   return (
@@ -204,242 +124,101 @@ function setupHourlyTrigger() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Gmail Integration</h1>
         <p className="text-muted-foreground">
-          Automatically process Purchase Order emails from Gmail using Google Apps Script
+          Connect your Gmail inbox so we can automatically import POs, invoices and bills.
         </p>
       </div>
 
       <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertTitle>No OAuth Required</AlertTitle>
+        <Mail className="h-4 w-4" />
+        <AlertTitle>Per-user, secure connection</AlertTitle>
         <AlertDescription>
-          This method uses Google Apps Script which runs inside your Gmail - no OAuth consent screens, no 403 errors, just simple copy-paste setup.
+          Each user connects their own Gmail. We request read-only access, store tokens encrypted, and delete
+          everything when you disconnect. See our <a href="/privacy" className="underline">privacy policy</a>.
         </AlertDescription>
       </Alert>
 
-      {/* One-click sync via Lovable Gmail connector */}
-      <Card className="border-primary/40 bg-gradient-to-br from-primary/5 to-transparent">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            One-Click Gmail Sync
-            <Badge variant="secondary" className="ml-2">Recommended</Badge>
+            <Plug className="h-5 w-5 text-primary" />
+            Connect a Gmail account
           </CardTitle>
           <CardDescription>
-            Gmail is connected via Lovable. Click below to scan the last 7 days for PO emails and import any PDF attachments automatically.
+            You'll be redirected to Google to grant read-only access to your inbox.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={handleOneClickSync} disabled={isSyncing} size="lg">
-            {isSyncing ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning Gmail…</>
+          <Button onClick={handleConnect} disabled={connecting} size="lg">
+            {connecting ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Redirecting…</>
             ) : (
-              <><Zap className="h-4 w-4 mr-2" /> Sync POs from Gmail Now</>
+              <><Mail className="h-4 w-4 mr-2" /> Connect Gmail</>
             )}
           </Button>
-          <p className="text-xs text-muted-foreground mt-3">
-            Searches: <code className="bg-muted px-1 rounded">subject:(PO OR "purchase order") has:attachment newer_than:7d</code>
-          </p>
         </CardContent>
       </Card>
 
-      {/* How it works */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            How It Works
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="flex flex-col items-center text-center p-4 rounded-lg bg-muted/50">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <Clock className="h-5 w-5 text-primary" />
-              </div>
-              <h3 className="font-medium">1. Automatic Scanning</h3>
-              <p className="text-sm text-muted-foreground">
-                Apps Script runs hourly to find unread PO emails with PDF attachments
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center p-4 rounded-lg bg-muted/50">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-              <h3 className="font-medium">2. PDF Extraction</h3>
-              <p className="text-sm text-muted-foreground">
-                PDFs are extracted and sent to your backend for AI processing
-              </p>
-            </div>
-            <div className="flex flex-col items-center text-center p-4 rounded-lg bg-muted/50">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <Check className="h-5 w-5 text-primary" />
-              </div>
-              <h3 className="font-medium">3. Auto-Import</h3>
-              <p className="text-sm text-muted-foreground">
-                PO data is extracted and saved to your database automatically
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Setup Steps */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Setup Instructions</CardTitle>
-          <CardDescription>
-            Follow these steps to enable automatic Gmail processing (takes ~2 minutes)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Step 1 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="h-6 w-6 rounded-full p-0 flex items-center justify-center">1</Badge>
-              <h3 className="font-medium">Open Google Apps Script</h3>
-            </div>
-            <p className="text-sm text-muted-foreground ml-8">
-              Go to Google Apps Script and create a new project
-            </p>
-            <div className="ml-8">
-              <Button variant="outline" asChild>
-                <a 
-                  href="https://script.google.com/home/start" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Open Google Apps Script
-                </a>
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="h-6 w-6 rounded-full p-0 flex items-center justify-center">2</Badge>
-              <h3 className="font-medium">Create New Project & Paste Script</h3>
-            </div>
-            <p className="text-sm text-muted-foreground ml-8">
-              Click "New Project", delete the default code, and paste the script below
-            </p>
-            <div className="ml-8 relative">
-              <Textarea 
-                value={appsScript}
-                readOnly
-                className="font-mono text-xs h-64 bg-muted"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                className="absolute top-2 right-2"
-                onClick={() => copyToClipboard(appsScript, 'script')}
-              >
-                {copied === 'script' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="h-6 w-6 rounded-full p-0 flex items-center justify-center">3</Badge>
-              <h3 className="font-medium">Save & Authorize</h3>
-            </div>
-            <div className="ml-8 space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Save the project (Ctrl+S), then click the dropdown next to "Run" and select <code className="bg-muted px-1 rounded">testProcessing</code>.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Google will ask you to authorize Gmail access. Click <strong>"Advanced"</strong> → <strong>"Go to [project name] (unsafe)"</strong> → <strong>"Allow"</strong>.
-              </p>
-            </div>
-          </div>
-
-          {/* Step 4 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="h-6 w-6 rounded-full p-0 flex items-center justify-center">4</Badge>
-              <h3 className="font-medium">Set Up Automatic Trigger</h3>
-            </div>
-            <div className="ml-8 space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Run the <code className="bg-muted px-1 rounded">setupHourlyTrigger</code> function to enable automatic hourly processing.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Or go to <strong>Triggers</strong> (clock icon on left sidebar) → <strong>Add Trigger</strong> → Set to run <code>processEmails</code> hourly.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Test Connection */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Test Connection</CardTitle>
-          <CardDescription>
-            Verify that your backend function is reachable
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Backend Function URL</Label>
-            <div className="flex gap-2">
-              <Input 
-                value={edgeFunctionUrl} 
-                readOnly 
-                className="font-mono text-sm bg-muted"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => copyToClipboard(edgeFunctionUrl, 'url')}
-              >
-                {copied === 'url' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Your Email (for test logging)</Label>
-            <div className="flex gap-2">
-              <Input 
-                value={testEmail}
-                onChange={(e) => setTestEmail(e.target.value)}
-                placeholder="your@email.com"
-              />
-              <Button onClick={handleTestConnection} disabled={isTesting}>
-                <Play className="h-4 w-4 mr-2" />
-                {isTesting ? "Testing..." : "Test"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Email Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Email Search Criteria</CardTitle>
-          <CardDescription>
-            The script searches for emails matching these criteria
-          </CardDescription>
+          <CardTitle>Your connected inboxes</CardTitle>
+          <CardDescription>Manage and sync the Gmail accounts linked to your user.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <Label>Gmail Search Query</Label>
-            <Input 
-              value='is:unread subject:(PO OR "purchase order") has:attachment'
-              readOnly
-              className="font-mono text-sm bg-muted"
-            />
-            <p className="text-xs text-muted-foreground">
-              Modify the SEARCH_QUERY variable in the Apps Script to customize which emails are processed
-            </p>
-          </div>
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : integrations.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No Gmail accounts connected yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {integrations.map((it) => (
+                <div
+                  key={it.id}
+                  className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-lg border p-4"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {it.sync_status === "error" ? (
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      )}
+                      <span className="font-medium truncate">{it.email_address}</span>
+                      {statusBadge(it.sync_status, it.is_active)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Last sync: {it.last_sync_at ? new Date(it.last_sync_at).toLocaleString() : "Never"}
+                    </p>
+                    {it.error_message && (
+                      <p className="text-xs text-destructive truncate">{it.error_message}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSync(it.id)}
+                      disabled={syncingId === it.id}
+                    >
+                      {syncingId === it.id ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Syncing…</>
+                      ) : (
+                        <><RefreshCw className="h-4 w-4 mr-2" /> Sync now</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDisconnect(it.id, it.email_address)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" /> Disconnect
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

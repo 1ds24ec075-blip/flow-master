@@ -59,11 +59,60 @@ function isImageMimeType(mimeType: string): boolean {
   return mimeType.startsWith('image/');
 }
 
+async function refreshAccessTokenIfNeeded(
+  supabase: any,
+  integration: any,
+): Promise<string> {
+  const expiresAt = integration.token_expires_at
+    ? new Date(integration.token_expires_at).getTime()
+    : 0;
+  // Refresh if token expires within next 60 seconds
+  if (expiresAt - 60_000 > Date.now()) {
+    return integration.access_token;
+  }
+  if (!integration.refresh_token) {
+    throw new Error('Token expired and no refresh token available. Reconnect Gmail.');
+  }
+
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('Google OAuth not configured');
+
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: integration.refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`Refresh failed: ${t}`);
+  }
+  const tokens = await resp.json();
+  const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+
+  await supabase
+    .from('gmail_integrations')
+    .update({
+      access_token: tokens.access_token,
+      token_expires_at: newExpiresAt,
+    })
+    .eq('id', integration.id);
+
+  integration.access_token = tokens.access_token;
+  integration.token_expires_at = newExpiresAt;
+  return tokens.access_token;
+}
+
 async function processAttachments(
   gmail: any,
   message: GmailMessage,
   supabase: any,
-  processedEmailId: string
+  _processedEmailId: string
 ): Promise<number> {
   let billsCreated = 0;
   const parts = message.payload.parts || [];
@@ -71,8 +120,6 @@ async function processAttachments(
   for (const part of parts) {
     if (part.filename && part.body.attachmentId && isImageMimeType(part.mimeType)) {
       try {
-        console.log('Processing attachment:', part.filename);
-
         const attachmentData = await downloadAttachment(
           gmail,
           message.id,
@@ -82,9 +129,7 @@ async function processAttachments(
         const fileName = `gmail-${Date.now()}-${part.filename}`;
         const { error: uploadError } = await supabase.storage
           .from('bills')
-          .upload(fileName, attachmentData, {
-            contentType: part.mimeType,
-          });
+          .upload(fileName, attachmentData, { contentType: part.mimeType });
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
@@ -123,7 +168,6 @@ async function processAttachments(
 
         if (extractResponse.ok) {
           billsCreated++;
-          console.log('Bill extracted successfully:', bill.id);
         } else {
           console.error('Extraction failed:', await extractResponse.text());
         }
@@ -138,10 +182,7 @@ async function processAttachments(
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   let requestBody: { integrationId?: string } = {};
@@ -150,41 +191,56 @@ Deno.serve(async (req: Request) => {
     requestBody = await req.json();
     const { integrationId } = requestBody;
 
-    if (!integrationId) {
-      throw new Error('integrationId is required');
-    }
+    if (!integrationId) throw new Error('integrationId is required');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-    if (!supabaseUrl || !supabaseKey) {
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    if (!supabaseUrl || !serviceKey || !anonKey) {
       throw new Error('Supabase credentials are missing');
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Authenticate caller
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error('Missing Authorization header');
+
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userError } = await userClient.auth.getUser();
+    if (userError || !userData?.user) throw new Error('Not authenticated');
+    const userId = userData.user.id;
+
+    // Use service role for DB writes, but enforce ownership in the query
+    const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: integration, error: integrationError } = await supabase
       .from('gmail_integrations')
       .select('*')
       .eq('id', integrationId)
+      .eq('user_id', userId)
       .eq('is_active', true)
       .single();
 
-    if (integrationError) throw integrationError;
-
+    if (integrationError || !integration) {
+      throw new Error('Integration not found or not owned by user');
+    }
     if (!integration.access_token) {
       throw new Error('No access token available');
     }
 
+    // Refresh access token if needed
+    const accessToken = await refreshAccessTokenIfNeeded(supabase, integration);
+
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({
-      access_token: integration.access_token,
+      access_token: accessToken,
       refresh_token: integration.refresh_token,
     });
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    const query = integration.subject_filters
+    const query = (integration.subject_filters || ['invoice'])
       .map((filter: string) => `subject:${filter}`)
       .join(' OR ');
 
@@ -195,8 +251,6 @@ Deno.serve(async (req: Request) => {
     });
 
     const messages = response.data.messages || [];
-    console.log(`Found ${messages.length} messages to process`);
-
     let totalBillsCreated = 0;
     let totalProcessed = 0;
 
@@ -209,10 +263,7 @@ Deno.serve(async (req: Request) => {
           .eq('email_id', msg.id)
           .maybeSingle();
 
-        if (existing) {
-          console.log('Email already processed:', msg.id);
-          continue;
-        }
+        if (existing) continue;
 
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
@@ -223,14 +274,12 @@ Deno.serve(async (req: Request) => {
         const subject = getHeader(message, 'subject');
         const sender = getHeader(message, 'from');
 
-        if (!hasInvoiceKeyword(subject, integration.subject_filters)) {
-          console.log('Subject does not match filters:', subject);
-          continue;
-        }
+        if (!hasInvoiceKeyword(subject, integration.subject_filters || [])) continue;
 
         const { data: processedEmail, error: processedError } = await supabase
           .from('processed_emails')
           .insert({
+            user_id: userId,
             integration_id: integrationId,
             email_id: msg.id,
             thread_id: msg.threadId,
@@ -287,18 +336,15 @@ Deno.serve(async (req: Request) => {
         processed: totalProcessed,
         billsCreated: totalBillsCreated,
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
     console.error('Error in gmail-sync:', error);
-
     if (requestBody?.integrationId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL');
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      if (supabaseUrl && supabaseKey) {
-        const supabase = createClient(supabaseUrl, supabaseKey);
+      const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && serviceKey) {
+        const supabase = createClient(supabaseUrl, serviceKey);
         await supabase
           .from('gmail_integrations')
           .update({
@@ -308,7 +354,6 @@ Deno.serve(async (req: Request) => {
           .eq('id', requestBody.integrationId);
       }
     }
-
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
