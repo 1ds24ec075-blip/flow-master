@@ -344,6 +344,17 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', processedEmail.id);
 
+        // Mark email as read in Gmail so it isn't scanned again
+        try {
+          await gmail.users.messages.modify({
+            userId: 'me',
+            id: msg.id!,
+            requestBody: { removeLabelIds: ['UNREAD'] },
+          });
+        } catch (markErr) {
+          console.error('Failed to mark message as read:', markErr);
+        }
+
         totalBillsCreated += billsCreated;
         totalProcessed++;
       } catch (error) {
