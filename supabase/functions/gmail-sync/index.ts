@@ -345,12 +345,22 @@ Deno.serve(async (req: Request) => {
           .eq('id', processedEmail.id);
 
         // Mark email as read in Gmail so it isn't scanned again
+        // Use direct fetch (bypasses googleapis auto-refresh which lacks client creds)
         try {
-          await gmail.users.messages.modify({
-            userId: 'me',
-            id: msg.id!,
-            requestBody: { removeLabelIds: ['UNREAD'] },
-          });
+          const markResp = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+            }
+          );
+          if (!markResp.ok) {
+            console.error('Failed to mark message as read:', markResp.status, await markResp.text());
+          }
         } catch (markErr) {
           console.error('Failed to mark message as read:', markErr);
         }
