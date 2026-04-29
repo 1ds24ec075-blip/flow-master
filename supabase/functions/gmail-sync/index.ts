@@ -305,7 +305,11 @@ Deno.serve(async (req: Request) => {
           .eq('email_id', msg.id)
           .maybeSingle();
 
-        if (existing?.status === 'success' && (existing.bills_created || 0) > 0) continue;
+        if (existing?.status === 'success' && (existing.bills_created || 0) > 0) {
+          await markMessageAsRead(accessToken, msg.id!);
+          totalProcessed++;
+          continue;
+        }
 
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
@@ -318,7 +322,11 @@ Deno.serve(async (req: Request) => {
 
         const subjectMatched = hasInvoiceKeyword(subject, integration.subject_filters || []);
         const attachmentCount = collectAttachmentParts(message.payload.parts || []).length;
-        if (!subjectMatched && attachmentCount === 0) continue;
+        if (!subjectMatched && attachmentCount === 0) {
+          await markMessageAsRead(accessToken, msg.id!);
+          totalProcessed++;
+          continue;
+        }
 
         const processedPayload = {
             user_id: userId,
