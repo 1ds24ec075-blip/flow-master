@@ -83,6 +83,29 @@ function collectAttachmentParts(parts: GmailPart[] = []): GmailPart[] {
   return attachments;
 }
 
+async function markMessageAsRead(accessToken: string, messageId: string): Promise<void> {
+  const markResp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+    }
+  );
+
+  if (!markResp.ok) {
+    const errorText = await markResp.text();
+    console.error('Failed to mark message as read:', markResp.status, errorText);
+    if (markResp.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(errorText)) {
+      throw new Error('Gmail needs to be reconnected with permission to mark processed emails as read.');
+    }
+    throw new Error(`Failed to mark Gmail message as read (${markResp.status})`);
+  }
+}
+
 async function refreshAccessTokenIfNeeded(
   supabase: any,
   integration: any,
