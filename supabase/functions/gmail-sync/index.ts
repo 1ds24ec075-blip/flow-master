@@ -265,7 +265,7 @@ Deno.serve(async (req: Request) => {
 
     const response = await gmail.users.messages.list({
       userId: 'me',
-      q: `has:attachment newer_than:30d`,
+      q: `is:unread has:attachment newer_than:30d`,
       maxResults: 20,
     });
 
