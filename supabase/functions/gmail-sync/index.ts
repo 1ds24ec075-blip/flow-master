@@ -373,6 +373,12 @@ Deno.serve(async (req: Request) => {
         totalProcessed++;
       } catch (error) {
         console.error('Error processing message:', error);
+        if (
+          error instanceof Error &&
+          error.message.includes('Gmail needs to be reconnected')
+        ) {
+          throw error;
+        }
       }
     }
 
