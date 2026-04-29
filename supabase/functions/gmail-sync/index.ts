@@ -83,6 +83,29 @@ function collectAttachmentParts(parts: GmailPart[] = []): GmailPart[] {
   return attachments;
 }
 
+async function markMessageAsRead(accessToken: string, messageId: string): Promise<void> {
+  const markResp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+    }
+  );
+
+  if (!markResp.ok) {
+    const errorText = await markResp.text();
+    console.error('Failed to mark message as read:', markResp.status, errorText);
+    if (markResp.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(errorText)) {
+      throw new Error('Gmail needs to be reconnected with permission to mark processed emails as read.');
+    }
+    throw new Error(`Failed to mark Gmail message as read (${markResp.status})`);
+  }
+}
+
 async function refreshAccessTokenIfNeeded(
   supabase: any,
   integration: any,
@@ -282,7 +305,11 @@ Deno.serve(async (req: Request) => {
           .eq('email_id', msg.id)
           .maybeSingle();
 
-        if (existing?.status === 'success' && (existing.bills_created || 0) > 0) continue;
+        if (existing?.status === 'success' && (existing.bills_created || 0) > 0) {
+          await markMessageAsRead(accessToken, msg.id!);
+          totalProcessed++;
+          continue;
+        }
 
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
@@ -295,7 +322,11 @@ Deno.serve(async (req: Request) => {
 
         const subjectMatched = hasInvoiceKeyword(subject, integration.subject_filters || []);
         const attachmentCount = collectAttachmentParts(message.payload.parts || []).length;
-        if (!subjectMatched && attachmentCount === 0) continue;
+        if (!subjectMatched && attachmentCount === 0) {
+          await markMessageAsRead(accessToken, msg.id!);
+          totalProcessed++;
+          continue;
+        }
 
         const processedPayload = {
             user_id: userId,
@@ -344,31 +375,18 @@ Deno.serve(async (req: Request) => {
           })
           .eq('id', processedEmail.id);
 
-        // Mark email as read in Gmail so it isn't scanned again
-        // Use direct fetch (bypasses googleapis auto-refresh which lacks client creds)
-        try {
-          const markResp = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
-            }
-          );
-          if (!markResp.ok) {
-            console.error('Failed to mark message as read:', markResp.status, await markResp.text());
-          }
-        } catch (markErr) {
-          console.error('Failed to mark message as read:', markErr);
-        }
+        await markMessageAsRead(accessToken, msg.id!);
 
         totalBillsCreated += billsCreated;
         totalProcessed++;
       } catch (error) {
         console.error('Error processing message:', error);
+        if (
+          error instanceof Error &&
+          error.message.includes('Gmail needs to be reconnected')
+        ) {
+          throw error;
+        }
       }
     }
 

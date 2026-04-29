@@ -19,11 +19,11 @@ const Privacy = () => {
 
       <h2>3. Google user data (Gmail integration)</h2>
       <p>
-        When you connect Gmail, we request the <code>gmail.readonly</code> scope to
-        scan your inbox for purchase orders, invoices and bills. We:
+        When you connect Gmail, we request Gmail access to scan unread messages for
+        purchase orders, invoices and bills, then mark processed messages as read. We:
       </p>
       <ul>
-        <li>Only read messages matching your configured subject filters.</li>
+        <li>Only process unread messages with relevant attachments.</li>
         <li>Store relevant attachments and extracted data in your account.</li>
         <li>Never sell, share, or use your Gmail data for advertising.</li>
         <li>Delete stored Gmail tokens and processed-email records on disconnect.</li>
