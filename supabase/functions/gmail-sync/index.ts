@@ -23,6 +23,8 @@ interface GmailMessage {
   internalDate: string;
 }
 
+type GmailPart = NonNullable<GmailMessage['payload']['parts']>[number];
+
 function getHeader(message: GmailMessage, headerName: string): string {
   const header = message.payload.headers.find(
     (h) => h.name.toLowerCase() === headerName.toLowerCase()
@@ -57,6 +59,28 @@ async function downloadAttachment(
 
 function isImageMimeType(mimeType: string): boolean {
   return mimeType.startsWith('image/');
+}
+
+function isSupportedAttachment(part: GmailPart): boolean {
+  const fileName = (part.filename || '').toLowerCase();
+  return (
+    isImageMimeType(part.mimeType || '') ||
+    part.mimeType === 'application/pdf' ||
+    /\.(jpe?g|png|webp|pdf)$/i.test(fileName)
+  );
+}
+
+function collectAttachmentParts(parts: GmailPart[] = []): GmailPart[] {
+  const attachments: GmailPart[] = [];
+  for (const part of parts) {
+    if (part.filename && part.body?.attachmentId && isSupportedAttachment(part)) {
+      attachments.push(part);
+    }
+    if (part.parts?.length) {
+      attachments.push(...collectAttachmentParts(part.parts));
+    }
+  }
+  return attachments;
 }
 
 async function refreshAccessTokenIfNeeded(
@@ -115,21 +139,21 @@ async function processAttachments(
   _processedEmailId: string
 ): Promise<number> {
   let billsCreated = 0;
-  const parts = message.payload.parts || [];
+  const attachmentParts = collectAttachmentParts(message.payload.parts || []);
 
-  for (const part of parts) {
-    if (part.filename && part.body.attachmentId && isImageMimeType(part.mimeType)) {
+  for (const part of attachmentParts) {
       try {
         const attachmentData = await downloadAttachment(
           gmail,
           message.id,
-          part.body.attachmentId
+          part.body.attachmentId!
         );
 
         const fileName = `gmail-${Date.now()}-${part.filename}`;
+        const contentType = part.mimeType || (part.filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
         const { error: uploadError } = await supabase.storage
           .from('bills')
-          .upload(fileName, attachmentData, { contentType: part.mimeType });
+          .upload(fileName, attachmentData, { contentType });
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
@@ -174,7 +198,6 @@ async function processAttachments(
       } catch (error) {
         console.error('Error processing attachment:', error);
       }
-    }
   }
 
   return billsCreated;
@@ -240,13 +263,9 @@ Deno.serve(async (req: Request) => {
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    const query = (integration.subject_filters || ['invoice'])
-      .map((filter: string) => `subject:${filter}`)
-      .join(' OR ');
-
     const response = await gmail.users.messages.list({
       userId: 'me',
-      q: `${query} has:attachment newer_than:7d`,
+      q: `has:attachment newer_than:30d`,
       maxResults: 20,
     });
 
@@ -258,12 +277,12 @@ Deno.serve(async (req: Request) => {
       try {
         const { data: existing } = await supabase
           .from('processed_emails')
-          .select('id')
+          .select('id, status, bills_created')
           .eq('integration_id', integrationId)
           .eq('email_id', msg.id)
           .maybeSingle();
 
-        if (existing) continue;
+        if (existing?.status === 'success' && (existing.bills_created || 0) > 0) continue;
 
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
@@ -274,11 +293,11 @@ Deno.serve(async (req: Request) => {
         const subject = getHeader(message, 'subject');
         const sender = getHeader(message, 'from');
 
-        if (!hasInvoiceKeyword(subject, integration.subject_filters || [])) continue;
+        const subjectMatched = hasInvoiceKeyword(subject, integration.subject_filters || []);
+        const attachmentCount = collectAttachmentParts(message.payload.parts || []).length;
+        if (!subjectMatched && attachmentCount === 0) continue;
 
-        const { data: processedEmail, error: processedError } = await supabase
-          .from('processed_emails')
-          .insert({
+        const processedPayload = {
             user_id: userId,
             integration_id: integrationId,
             email_id: msg.id,
@@ -287,8 +306,19 @@ Deno.serve(async (req: Request) => {
             sender,
             received_at: new Date(parseInt(message.internalDate)).toISOString(),
             status: 'pending',
-            attachments_count: message.payload.parts?.filter((p) => p.filename).length || 0,
-          })
+            attachments_count: attachmentCount,
+        };
+
+        const { data: processedEmail, error: processedError } = existing
+          ? await supabase
+              .from('processed_emails')
+              .update(processedPayload)
+              .eq('id', existing.id)
+              .select()
+              .single()
+          : await supabase
+          .from('processed_emails')
+          .insert(processedPayload)
           .select()
           .single();
 
