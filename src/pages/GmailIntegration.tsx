@@ -135,8 +135,8 @@ const GmailIntegration = () => {
         <Mail className="h-4 w-4" />
         <AlertTitle>Per-user, secure connection</AlertTitle>
         <AlertDescription>
-          Each user connects their own Gmail. We request read-only access, store tokens encrypted, and delete
-          everything when you disconnect. See our <a href="/privacy" className="underline">privacy policy</a>.
+          Each user connects their own Gmail. We request inbox access to import attachments and mark processed
+          emails as read. See our <a href="/privacy" className="underline">privacy policy</a>.
         </AlertDescription>
       </Alert>
 
@@ -147,7 +147,7 @@ const GmailIntegration = () => {
             Connect a Gmail account
           </CardTitle>
           <CardDescription>
-            You'll be redirected to Google to grant read-only access to your inbox.
+            You'll be redirected to Google to grant access for importing attachments and marking processed emails as read.
           </CardDescription>
         </CardHeader>
         <CardContent>
