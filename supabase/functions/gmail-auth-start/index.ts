@@ -76,7 +76,7 @@ serve(async (req) => {
     );
 
     const scopes = [
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
     ].join(" ");
@@ -88,6 +88,7 @@ serve(async (req) => {
     authUrl.searchParams.set("scope", scopes);
     authUrl.searchParams.set("access_type", "offline");
     authUrl.searchParams.set("prompt", "consent");
+    authUrl.searchParams.set("include_granted_scopes", "true");
     authUrl.searchParams.set("state", state);
 
     // Return URL as JSON so the SPA can navigate top-level (avoids CORS on 302)
