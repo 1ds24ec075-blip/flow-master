@@ -6,6 +6,70 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function parseAmount(value: string): number | null {
+  const normalized = value.replace(/[^0-9,.-]/g, '');
+  if (!normalized) return null;
+  const parsed = Number(normalized.replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOcrDate(rawValue: string): string | null {
+  const match = rawValue.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (!match) return null;
+  let day = Number(match[1]);
+  let month = Number(match[2]);
+  let year = Number(match[3]);
+  if (year < 100) year += year >= 50 ? 1900 : 2000;
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function extractTransactionsFromText(ocrText: string): ParsedTransaction[] {
+  const lines = ocrText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const transactions: ParsedTransaction[] = [];
+
+  for (const line of lines) {
+    // Try to find a date in the line
+    const dateMatch = line.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/);
+    if (!dateMatch) continue;
+    const date = parseOcrDate(dateMatch[1]);
+    if (!date) continue;
+
+    // Try to find amounts (two possibilities: debit/credit columns or single amount with DR/CR)
+    const amountMatches = [...line.matchAll(/(?:-|\b)([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\b/g)];
+    if (amountMatches.length === 0) continue;
+
+    // Use the last numeric value as transaction amount
+    const rawAmount = amountMatches[amountMatches.length - 1][1];
+    const amount = parseAmount(rawAmount);
+    if (amount === null) continue;
+
+    // Determine type: look for DR/CR or credit keywords
+    const lower = line.toLowerCase();
+    let txType: 'debit' | 'credit' = 'debit';
+    if (/\b(cr|credit|deposit|cr\b)/i.test(line) && !/\b(dr|debit|withdrawal|dr\b)/i.test(line)) {
+      txType = 'credit';
+    } else if (/\b(dr|debit|withdrawal|debited)\b/i.test(line)) {
+      txType = 'debit';
+    } else if (/cr\b/i.test(line) && !/dr\b/i.test(line)) {
+      txType = 'credit';
+    }
+
+    // Narration is the line with date and amount removed
+    const narration = line.replace(dateMatch[1], '').replace(rawAmount, '').replace(/\b(dr|cr|debit|credit|debited|credited)\b/ig, '').replace(/\s+/g, ' ').trim();
+
+    transactions.push({
+      transaction_date: date,
+      narration: narration || line,
+      amount: Math.abs(amount),
+      transaction_type: txType,
+    });
+  }
+
+  return transactions;
+}
+
 interface ParsedTransaction {
   transaction_date: string;
   narration: string;
@@ -58,151 +122,66 @@ serve(async (req) => {
       });
     }
 
-    // Use AI Vision to extract transactions from PDF
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    
-    if (!LOVABLE_API_KEY) {
+    const visionApiKey = Deno.env.get('GOOGLE_VISION_API_KEY') || Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('VISION_API_KEY');
+
+    if (!visionApiKey) {
       return new Response(JSON.stringify({ 
-        error: 'AI service not configured',
-        code: 'AI_NOT_CONFIGURED'
+        error: 'Vision API not configured',
+        code: 'VISION_NOT_CONFIGURED'
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Use Gemini to extract transaction data from PDF
-    const extractionPrompt = `You are a bank statement parser. Analyze this bank statement PDF and extract all transactions.
-
-For each transaction, extract:
-1. Date (in YYYY-MM-DD format if possible, otherwise keep original format)
-2. Description/Narration (the transaction description)
-3. Amount (numeric value only, no currency symbols)
-4. Type: "debit" for withdrawals/expenses OR "credit" for deposits/income
-
-Return ONLY a valid JSON array with this exact structure:
-[
-  {
-    "transaction_date": "2024-01-15",
-    "narration": "NEFT-ABCD CORP-Ref123",
-    "amount": 15000.00,
-    "transaction_type": "credit"
-  }
-]
-
-Important rules:
-- Extract ALL transactions visible in the statement
-- For amounts with Dr/Cr suffix: Dr = debit, Cr = credit
-- If debit and credit are in separate columns, use the column with value
-- Skip header rows, summary rows, and balance rows
-- Only include actual transactions
-- Return empty array [] if no transactions found
-
-Return ONLY the JSON array, no explanations.`;
-
-    console.log('Sending PDF to AI for extraction...');
-
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Send PDF to Google Vision for OCR
+    console.log('Sending PDF to Google Vision for OCR...');
+    const visionResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { 
-            role: 'user', 
-            content: [
-              { type: 'text', text: extractionPrompt },
-              { 
-                type: 'image_url', 
-                image_url: { 
-                  url: `data:application/pdf;base64,${pdfBase64}` 
-                } 
-              }
-            ]
+        requests: [
+          {
+            image: { content: pdfBase64 },
+            features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }]
           }
-        ],
-      }),
+        ]
+      })
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
-      
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ 
-          error: 'Rate limit exceeded. Please try again in a moment.',
-          code: 'RATE_LIMITED'
-        }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    if (!visionResponse.ok) {
+      const errorText = await visionResponse.text();
+      console.error('Google Vision error response:', errorText);
+      if (visionResponse.status === 429) {
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.', code: 'RATE_LIMITED' }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      
-      if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: 'AI credits exhausted. Please add credits.',
-          code: 'PAYMENT_REQUIRED'
-        }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      // Check if error is about encrypted/unreadable PDF
-      if (errorText.includes('no pages') || errorText.includes('encrypted') || errorText.includes('password')) {
-        return new Response(JSON.stringify({ 
-          error: 'Cannot read this PDF. It may be encrypted or corrupted. Please try downloading an unprotected version or Excel/CSV format from your bank.',
-          code: 'PDF_UNREADABLE',
-          isPasswordProtected: true
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      throw new Error(`AI service error: ${aiResponse.status}`);
+      return new Response(JSON.stringify({ error: `Vision API error: ${visionResponse.status}`, code: 'VISION_ERROR' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content || '[]';
-    
-    console.log('AI response received, parsing transactions...');
-    console.log('Raw response length:', content.length);
+    const visionData = await visionResponse.json();
+    const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
 
-    // Extract JSON from response
-    let transactions: ParsedTransaction[] = [];
-    try {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        transactions = JSON.parse(jsonMatch[0]);
-      }
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.log('Raw AI response:', content.substring(0, 500));
+    if (!ocrText) {
+      return new Response(JSON.stringify({ error: 'Unable to extract text from PDF', code: 'NO_OCR_TEXT' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Validate and clean transactions
+    console.log('OCR text length:', ocrText.length);
+
+    let transactions = extractTransactionsFromText(ocrText);
+
+    // Filter and normalize
     const validTransactions = transactions
-      .filter((tx: ParsedTransaction) => tx.narration && tx.amount > 0)
-      .map((tx: ParsedTransaction) => ({
+      .filter((tx) => tx.narration && tx.amount > 0)
+      .map((tx) => ({
         transaction_date: tx.transaction_date || '',
         narration: String(tx.narration).trim(),
         amount: Math.abs(Number(tx.amount) || 0),
-        transaction_type: tx.transaction_type === 'credit' ? 'credit' : 'debit' as 'debit' | 'credit'
+        transaction_type: tx.transaction_type === 'credit' ? 'credit' : 'debit'
       }));
 
-    console.log(`Extracted ${validTransactions.length} valid transactions from PDF`);
+    console.log(`Extracted ${validTransactions.length} valid transactions from OCR`);
 
-    return new Response(JSON.stringify({
-      success: true,
-      transactions: validTransactions,
-      message: `Successfully extracted ${validTransactions.length} transactions`
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(JSON.stringify({ success: true, transactions: validTransactions, message: `Successfully extracted ${validTransactions.length} transactions` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
     console.error('Parse PDF statement error:', error);

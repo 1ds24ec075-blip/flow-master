@@ -71,6 +71,8 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [lineItems, setLineItems] = useState<any[] | null>(null);
+  const [lineItemsLoading, setLineItemsLoading] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedBill, setEditedBill] = useState<EditableBill | null>(null);
@@ -213,11 +215,11 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
         if (file.size > 10 * 1024 * 1024) {
           toast.error(`${file.name}: File size must be less than 10MB`);
           continue;
-        }
-        if (!file.type.startsWith("image/")) {
-          toast.error(`${file.name}: Only image files are allowed`);
-          continue;
-        }
+          }
+          if (!file.type.startsWith("image/") && file.type !== 'application/pdf') {
+            toast.error(`${file.name}: Only image or PDF files are allowed`);
+            continue;
+          }
         validFiles.push(file);
       }
       setSelectedFiles(validFiles);
@@ -260,6 +262,25 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
     setIsEditing(false);
     setEditedBill(null);
     setViewDialogOpen(true);
+    // fetch line items for the bill
+    (async () => {
+      try {
+        setLineItemsLoading(true);
+        const { data: items, error } = await supabase
+          .from('expense_line_items' as any)
+          .select('*')
+          .eq('bill_id', bill.id)
+          .order('id', { ascending: true });
+
+        if (error) throw error;
+        setLineItems(items || []);
+      } catch (err) {
+        console.error('Failed to load line items', err);
+        setLineItems([]);
+      } finally {
+        setLineItemsLoading(false);
+      }
+    })();
   };
 
   const handleStartEdit = () => {
@@ -326,7 +347,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
             <Input
               id="bill-upload"
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf"
               multiple
               onChange={handleFileSelect}
               disabled={uploading}
@@ -659,13 +680,51 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
               {selectedBill.image_url && (
                 <div>
                   <Label>Bill Image</Label>
-                  <img
-                    src={getImageUrl(selectedBill.image_url)}
-                    alt="Bill"
-                    className="mt-2 rounded-lg border max-w-full h-auto"
-                  />
+                  {selectedBill.image_url.toLowerCase().endsWith('.pdf') ? (
+                    <div className="mt-2">
+                      <a href={getImageUrl(selectedBill.image_url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">View PDF</a>
+                    </div>
+                  ) : (
+                    <img
+                      src={getImageUrl(selectedBill.image_url)}
+                      alt="Bill"
+                      className="mt-2 rounded-lg border max-w-full h-auto"
+                    />
+                  )}
                 </div>
               )}
+              {/* Line items extracted from OCR */}
+              <div>
+                <Label>Line Items</Label>
+                {lineItemsLoading ? (
+                  <div className="py-4">Loading line items...</div>
+                ) : lineItems && lineItems.length > 0 ? (
+                  <div className="rounded-md border mt-2 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Description</TableHead>
+                          <TableHead className="text-right">Quantity</TableHead>
+                          <TableHead className="text-right">Unit Price</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {lineItems.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{item.item_description}</TableCell>
+                            <TableCell className="text-right">{item.quantity}</TableCell>
+                            <TableCell className="text-right">₹{(item.unit_price || 0).toFixed(2)}</TableCell>
+                            <TableCell className="text-right">₹{(item.amount || 0).toFixed(2)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground mt-2">No line items extracted.</p>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>

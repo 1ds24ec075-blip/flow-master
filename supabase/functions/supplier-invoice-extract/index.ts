@@ -5,6 +5,281 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+function cleanText(text: string): string {
+  return text.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function parseAmount(value: string): number | null {
+  const normalized = value.replace(/[^0-9,.-]/g, '');
+  if (!normalized) return null;
+
+  const parsed = Number(normalized.replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOcrDate(rawValue: string): string | null {
+  const match = rawValue.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (!match) return null;
+
+  let first = Number(match[1]);
+  let second = Number(match[2]);
+  let year = Number(match[3]);
+
+  if (year < 100) {
+    year += year >= 50 ? 1900 : 2000;
+  }
+
+  let day = first;
+  let month = second;
+
+  if (first > 12 && second <= 12) {
+    day = first;
+    month = second;
+  } else if (second > 12 && first <= 12) {
+    day = second;
+    month = first;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
+function extractDateFromText(text: string): string | null {
+  const keywordPatterns = [
+    /invoice\s*date\s*[:\-]?\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/i,
+    /bill\s*date\s*[:\-]?\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/i,
+    /date\s*[:\-]?\s*(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})/i,
+  ];
+
+  for (const pattern of keywordPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const parsed = parseOcrDate(match[1]);
+      if (parsed) return parsed;
+    }
+  }
+
+  const fallbackMatch = text.match(/\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})\b/);
+  if (fallbackMatch?.[1]) {
+    return parseOcrDate(fallbackMatch[1]);
+  }
+
+  return null;
+}
+
+function extractBillNumber(lines: string[]): string | null {
+  const patterns = [
+    /tax\s*invoice\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9\/\-_.]+)/i,
+    /invoice\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9\/\-_.]+)/i,
+    /bill\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9\/\-_.]+)/i,
+    /receipt\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9\/\-_.]+)/i,
+    /(?:^|\b)(?:no\.?|invoice\s*#|bill\s*#)\s*[:\-]?\s*([A-Z0-9\/\-_.]+)/i,
+  ];
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (match?.[1]) {
+        return cleanText(match[1]).replace(/[.,;:]+$/, '');
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractVendorName(lines: string[]): string | null {
+  const stopWords = [
+    'invoice',
+    'bill',
+    'receipt',
+    'tax invoice',
+    'gst',
+    'tin',
+    'date',
+    'customer',
+    'copy',
+    'original',
+  ];
+
+  for (const line of lines.slice(0, 8)) {
+    const normalized = line.toLowerCase();
+    const hasDigits = /\d/.test(line);
+    const isStopLine = stopWords.some((word) => normalized.includes(word));
+
+    if (!hasDigits && !isStopLine && line.length > 2) {
+      return cleanText(line);
+    }
+  }
+
+  return lines[0] ? cleanText(lines[0]) : null;
+}
+
+function extractGstNumber(text: string): string | null {
+  const match = text.toUpperCase().match(/\b\d{2}[A-Z]{5}\d{4}[A-Z0-9]Z[A-Z0-9]\b/);
+  return match?.[0] || null;
+}
+
+function extractTinNumber(text: string): string | null {
+  const tinKeywordMatch = text.match(/TIN(?:\s*NO\.?|\s*#|\s*:)?\s*(\d{11})/i);
+  if (tinKeywordMatch?.[1]) {
+    return tinKeywordMatch[1];
+  }
+
+  return null;
+}
+
+function extractAmountForKeywords(lines: string[], keywords: RegExp[]): number | null {
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    if (!keywords.some((pattern) => pattern.test(lowerLine))) {
+      continue;
+    }
+
+    const amountMatches = [...line.matchAll(/(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi)];
+    if (amountMatches.length > 0) {
+      for (let index = amountMatches.length - 1; index >= 0; index -= 1) {
+        const parsed = parseAmount(amountMatches[index][1]);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractTaxAmount(lines: string[]): number | null {
+  let totalTax = 0;
+  let foundTax = false;
+
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    if (!/(cgst|sgst|igst|gst\s*amount|tax\s*amount|tax)/i.test(lowerLine)) {
+      continue;
+    }
+
+    const amountMatches = [...line.matchAll(/(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi)];
+    if (amountMatches.length > 0) {
+      const parsed = parseAmount(amountMatches[amountMatches.length - 1][1]);
+      if (parsed !== null) {
+        totalTax += parsed;
+        foundTax = true;
+      }
+    }
+  }
+
+  return foundTax ? totalTax : null;
+}
+
+function extractSubtotal(lines: string[]): number | null {
+  return extractAmountForKeywords(lines, [/subtotal/i, /sub\s*total/i, /taxable\s*amount/i]);
+}
+
+function extractTotalAmount(lines: string[]): number | null {
+  return extractAmountForKeywords(lines, [
+    /grand\s*total/i,
+    /net\s*total/i,
+    /amount\s*due/i,
+    /balance\s*due/i,
+    /total\s*payable/i,
+    /invoice\s*total/i,
+    /bill\s*total/i,
+    /^total$/i,
+    /\btotal\b/i,
+  ]);
+}
+
+function extractItems(lines: string[]): Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> {
+  const items: Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> = [];
+
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    if (
+      /(subtotal|grand total|net total|amount due|balance due|total payable|invoice total|bill total|cgst|sgst|igst|gst|tax|invoice no|bill no|receipt no|date|thank you|terms|round off)/i.test(lowerLine)
+    ) {
+      continue;
+    }
+
+    const numbers = [...line.matchAll(/(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi)]
+      .map((match) => parseAmount(match[1]))
+      .filter((value): value is number => value !== null);
+
+    if (numbers.length < 2) {
+      continue;
+    }
+
+    const description = cleanText(
+      line.replace(/(?:₹|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/gi, ' ').replace(/\s+/g, ' '),
+    );
+
+    if (!description || description.length < 2) {
+      continue;
+    }
+
+    const amount = numbers[numbers.length - 1];
+    const unitPrice = numbers.length >= 3 ? numbers[1] : amount;
+    const quantity = numbers.length >= 3 ? numbers[0] : 1;
+
+    items.push({
+      item_description: description,
+      quantity,
+      unit_price: unitPrice,
+      tax_rate: 0,
+      amount,
+    });
+
+    if (items.length >= 20) {
+      break;
+    }
+  }
+
+  return items;
+}
+
+function parseBillFromOcrText(ocrText: string) {
+  const lines = ocrText
+    .split(/\r?\n/)
+    .map((line) => cleanText(line))
+    .filter(Boolean);
+
+  const billNumber = extractBillNumber(lines);
+  const vendorName = extractVendorName(lines);
+  const billDate = extractDateFromText(ocrText);
+  const vendorGst = extractGstNumber(ocrText);
+  const vendorTin = extractTinNumber(ocrText);
+  const subtotal = extractSubtotal(lines);
+  const taxAmount = extractTaxAmount(lines);
+  const totalAmount = extractTotalAmount(lines) ?? taxAmount ?? subtotal ?? null;
+  const paymentMethod = /upi|card|debit|credit|cash|bank transfer|neft|rtgs|imps/i.test(ocrText) ? (ocrText.match(/upi|card|debit|credit|cash|bank transfer|neft|rtgs|imps/i)?.[0] || null) : null;
+  const items = extractItems(lines);
+
+  return {
+    invoice_number: billNumber,
+    vendor_name: vendorName,
+    vendor_gst: vendorGst,
+    vendor_tin: vendorTin,
+    invoice_date: billDate,
+    subtotal: subtotal ?? 0,
+    tax_amount: taxAmount ?? 0,
+    amount: totalAmount ?? 0,
+    currency: 'INR',
+    payment_method: paymentMethod,
+    items,
+    confidence: items.length > 0 ? 80 : 70,
+    extraction_notes: 'Extracted from Google Vision OCR text.',
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -14,12 +289,12 @@ Deno.serve(async (req: Request) => {
     const { filePath } = await req.json();
     if (!filePath) throw new Error('filePath is required');
 
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const visionApiKey = Deno.env.get('GOOGLE_VISION_API_KEY') || Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('VISION_API_KEY');
 
-    if (!lovableApiKey) throw new Error('LOVABLE_API_KEY is not configured');
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials missing');
+    if (!visionApiKey) throw new Error('GOOGLE_VISION_API_KEY is not configured');
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -41,107 +316,50 @@ Deno.serve(async (req: Request) => {
     const mimeType = fileData.type || (filePath.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
     const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    console.log('Running AI extraction for supplier invoice...');
+    console.log('Running Google Vision OCR extraction for supplier invoice...');
 
-    const extractionPrompt = `You are an expert document extraction specialist for supplier/vendor invoices. Extract ALL data from this invoice document.
-
-CRITICAL FIELDS TO EXTRACT:
-1. **Invoice Number** - The invoice/bill number
-2. **Invoice Date** - When the invoice was issued
-3. **Due Date / Payment Due Date** - When payment is due. Look for:
-   - "Due Date", "Payment Due", "Due By", "Pay By", "Payment Terms" fields
-   - "Net 30", "Net 60" etc. - calculate due date from invoice date
-   - Any date that indicates when payment should be made
-4. **Total Amount** - The total payable amount (including taxes)
-5. **Supplier/Vendor Name** - Who issued the invoice
-6. **GST Number** - Supplier's GSTIN (15-char format)
-7. **Line Items** - All items with description, quantity, unit price, amount
-
-DATE PARSING RULES:
-- Convert ALL dates to YYYY-MM-DD format
-- Handle DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, MM/DD/YYYY formats
-- For Indian invoices, assume DD/MM/YYYY format
-- If only payment terms like "Net 30" are given and invoice_date is available, calculate due_date = invoice_date + 30 days
-
-Return ONLY valid JSON:
-{
-  "invoice_number": "string or null",
-  "invoice_date": "YYYY-MM-DD or null",
-  "due_date": "YYYY-MM-DD or null",
-  "amount": 0,
-  "vendor_name": "string or null",
-  "vendor_gst": "15-char GSTIN or null",
-  "payment_terms": "string description or null",
-  "items": [
-    {
-      "description": "string",
-      "quantity": 1,
-      "unit_price": 0,
-      "amount": 0
-    }
-  ],
-  "confidence": 90,
-  "extraction_notes": "brief notes about extraction quality"
-}
-
-IMPORTANT:
-- Extract ALL visible dates, especially the due date
-- For handwritten invoices, read carefully character by character
-- If due date is not explicitly shown but payment terms are (e.g. "Net 30"), calculate it from invoice date
-- Return ONLY valid JSON, no markdown, no explanation`;
-
-    // Use inline_data for PDFs, image_url for images
-    let messageContent: any[];
-    if (mimeType === 'application/pdf') {
-      messageContent = [
-        { type: 'text', text: extractionPrompt },
-        {
-          type: 'image_url',
-          image_url: { url: dataUrl }
-        }
-      ];
-    } else {
-      messageContent = [
-        { type: 'text', text: extractionPrompt },
-        { type: 'image_url', image_url: { url: dataUrl } }
-      ];
-    }
-
-    const extractResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
-        'Content-Type': 'application/json',
+    const visionResponse = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              image: { content: base64 },
+              features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }],
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [{
-          role: 'user',
-          content: messageContent,
-        }],
-      }),
-    });
+    );
 
-    if (!extractResponse.ok) {
-      const errorText = await extractResponse.text();
-      console.error('AI error:', extractResponse.status, errorText);
-      if (extractResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
-      if (extractResponse.status === 402) throw new Error('API credits exhausted.');
-      throw new Error(`AI returned ${extractResponse.status}: ${errorText}`);
+    if (!visionResponse.ok) {
+      const errorText = await visionResponse.text();
+      console.error('Google Vision error response:', errorText);
+      if (visionResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
+      throw new Error(`Google Vision returned ${visionResponse.status}: ${errorText}`);
     }
 
-    const extractData = await extractResponse.json();
-    let structuredData = extractData.choices?.[0]?.message?.content || '{}';
-    structuredData = structuredData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const visionData = await visionResponse.json();
+    const visionError = visionData.responses?.[0]?.error;
+    if (visionError) {
+      throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
+    }
 
-    console.log('Raw extraction:', structuredData.substring(0, 500));
+    const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
 
-    const extracted = JSON.parse(structuredData);
+    if (!ocrText) {
+      throw new Error('Google Vision did not return readable text for this invoice');
+    }
+
+    const extracted = parseBillFromOcrText(ocrText);
 
     console.log('Extraction complete:', {
       invoice_number: extracted.invoice_number,
       amount: extracted.amount,
-      due_date: extracted.due_date,
       invoice_date: extracted.invoice_date,
       vendor: extracted.vendor_name,
       confidence: extracted.confidence,
