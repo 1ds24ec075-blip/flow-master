@@ -159,33 +159,67 @@ function assertValidTallyVoucherXml(xml: string) {
   if (/<(LEDGERNAME|STOCKITEMNAME|VOUCHERTYPENAME|PARTYLEDGERNAME)>\s*<\/\1>/.test(voucherBody)) {
     throw new Error("Generated Tally XML contains an empty required master field");
   }
+}
 
-  const tagPattern = /<\??\/?([A-Z0-9.]+)\b[^>]*>/g;
-  const stack: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = tagPattern.exec(xml)) !== null) {
-    const fullTag = match[0];
-    if (fullTag.startsWith("<?") || fullTag.startsWith("<!")) continue;
+function buildMasterMessages(
+  ledgers: TallyLedgerDefinition[],
+  stockItems: TallyStockItemDefinition[],
+): string {
+  const messages: string[] = [];
+  const seenLedgers = new Set<string>();
+  const seenStock = new Set<string>();
 
-    const tagName = match[1];
-    const isClosing = fullTag.startsWith("</");
-    const isSelfClosing = fullTag.endsWith("/>");
+  if (stockItems.length > 0) {
+    messages.push(`        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <UNIT NAME="${escapeXml(DEFAULT_STOCK_UNIT)}" ACTION="Create">
+            <NAME>${escapeXml(DEFAULT_STOCK_UNIT)}</NAME>
+            <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
+            <SYMBOL>${escapeXml(DEFAULT_STOCK_UNIT)}</SYMBOL>
+            <FORMALNAME>Numbers</FORMALNAME>
+            <NUMBEROFDECIMALPLACES>0</NUMBEROFDECIMALPLACES>
+          </UNIT>
+        </TALLYMESSAGE>`);
 
-    if (isClosing) {
-      while (stack.length && stack[stack.length - 1] !== tagName) stack.pop();
-      if (stack[stack.length - 1] === tagName) stack.pop();
-      continue;
-    }
-
-    if (tagName === "ALLINVENTORYENTRIES.LIST" || tagName === "LEDGERENTRIES.LIST") {
-      const parent = stack[stack.length - 1];
-      if (parent !== "VOUCHER") {
-        throw new Error(`${tagName} must be a direct child of VOUCHER`);
-      }
-    }
-
-    if (!isSelfClosing) stack.push(tagName);
+    messages.push(`        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKGROUP NAME="${escapeXml(BILL_STOCK_GROUP_NAME)}" ACTION="Create">
+            <NAME>${escapeXml(BILL_STOCK_GROUP_NAME)}</NAME>
+            <ISADDABLE>Yes</ISADDABLE>
+          </STOCKGROUP>
+        </TALLYMESSAGE>`);
   }
+
+  for (const ledger of ledgers) {
+    const name = ledger.name?.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seenLedgers.has(key)) continue;
+    seenLedgers.add(key);
+    messages.push(`        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="${escapeXml(name)}" ACTION="Create">
+            <NAME>${escapeXml(name)}</NAME>
+            <PARENT>${escapeXml(ledger.parent)}</PARENT>
+            <ISBILLWISEON>${ledger.isBillWiseOn ? "Yes" : "No"}</ISBILLWISEON>
+            <ISCOSTCENTRESON>No</ISCOSTCENTRESON>${ledger.gstApplicable ? "\n            <GSTAPPLICABLE>Applicable</GSTAPPLICABLE>" : ""}${ledger.taxType ? `\n            <TAXTYPE>${escapeXml(ledger.taxType)}</TAXTYPE>` : ""}${ledger.gstDutyHead ? `\n            <GSTDUTYHEAD>${escapeXml(ledger.gstDutyHead)}</GSTDUTYHEAD>` : ""}${ledger.gstin ? `\n            <GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>\n            <PARTYGSTIN>${escapeXml(ledger.gstin)}</PARTYGSTIN>` : ""}
+          </LEDGER>
+        </TALLYMESSAGE>`);
+  }
+
+  for (const item of stockItems) {
+    const name = item.name?.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seenStock.has(key)) continue;
+    seenStock.add(key);
+    messages.push(`        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <STOCKITEM NAME="${escapeXml(name)}" ACTION="Create">
+            <NAME>${escapeXml(name)}</NAME>
+            <PARENT>${escapeXml(BILL_STOCK_GROUP_NAME)}</PARENT>
+            <BASEUNITS>${escapeXml(item.unit || DEFAULT_STOCK_UNIT)}</BASEUNITS>${item.gstApplicable ? "\n            <GSTAPPLICABLE>Applicable</GSTAPPLICABLE>\n            <GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>" : ""}
+          </STOCKITEM>
+        </TALLYMESSAGE>`);
+  }
+
+  return messages.join("\n");
 }
 
 function inferPurchaseLedger(bill: Bill): string {
