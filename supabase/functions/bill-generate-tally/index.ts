@@ -456,6 +456,23 @@ function generateTallyXML(bill: Bill, items: ExpenseLineItem[]): string {
             </LEDGERENTRIES.LIST>`
     : "";
 
+  const masterLedgers: TallyLedgerDefinition[] = [
+    { name: purchaseLedger, parent: "Purchase Accounts", gstApplicable: true },
+  ];
+  if (gstTotal > 0) {
+    masterLedgers.push({ name: INPUT_CGST_LEDGER_NAME, parent: "Duties & Taxes", taxType: "GST", gstDutyHead: "Central Tax" });
+    masterLedgers.push({ name: INPUT_SGST_LEDGER_NAME, parent: "Duties & Taxes", taxType: "GST", gstDutyHead: "State Tax" });
+  }
+  masterLedgers.push({ name: partyLedger, parent: "Sundry Creditors", isBillWiseOn: true, gstin: bill.vendor_gst });
+
+  const masterStockItems: TallyStockItemDefinition[] = validItems.map((item, index) => ({
+    name: getStockItemName(item, index),
+    unit: DEFAULT_STOCK_UNIT,
+    gstApplicable: true,
+  }));
+
+  const masterMessages = buildMasterMessages(masterLedgers, masterStockItems);
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
@@ -464,14 +481,15 @@ function generateTallyXML(bill: Bill, items: ExpenseLineItem[]): string {
   <BODY>
     <IMPORTDATA>
       <REQUESTDESC>
-        <REPORTNAME>Vouchers</REPORTNAME>
+        <REPORTNAME>All Masters</REPORTNAME>
         <STATICVARIABLES>
           <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
         </STATICVARIABLES>
       </REQUESTDESC>
       <REQUESTDATA>
+${masterMessages}
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <VOUCHER DATE="${voucherDate}" VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">
+          <VOUCHER VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">
             <DATE>${voucherDate}</DATE>
             <EFFECTIVEDATE>${voucherDate}</EFFECTIVEDATE>
             <GUID>${escapeXml(voucherGuid)}</GUID>
