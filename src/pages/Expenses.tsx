@@ -47,6 +47,7 @@ interface Bill {
   id: string;
   bill_number: string;
   vendor_name: string;
+  vendor_gst?: string | null;
   bill_date: string;
   total_amount: number;
   payment_status: string;
@@ -485,6 +486,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
                     <TableRow>
                       <TableHead>Date</TableHead>
                       <TableHead>Vendor</TableHead>
+                      <TableHead>GST</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -498,6 +500,9 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
                         </TableCell>
                         <TableCell className="font-medium">
                           {bill.vendor_name}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {bill.vendor_gst || 'N/A'}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -560,6 +565,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Vendor</TableHead>
+                    <TableHead>GST</TableHead>
                     <TableHead>Bill Number</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Status</TableHead>
@@ -576,6 +582,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
                       <TableCell className="font-medium">
                         {bill.vendor_name}
                       </TableCell>
+                      <TableCell className="text-sm">{bill.vendor_gst || 'N/A'}</TableCell>
                       <TableCell>{bill.bill_number || "N/A"}</TableCell>
                       <TableCell>
                         {editingBill === bill.id ? (

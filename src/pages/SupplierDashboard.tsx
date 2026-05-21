@@ -34,6 +34,7 @@ export default function SupplierDashboard() {
   const [formData, setFormData] = useState({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
   const [isExtracting, setIsExtracting] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [extractedInvoiceData, setExtractedInvoiceData] = useState<any | null>(null);
   const [supplierForm, setSupplierForm] = useState({
     name: "", email: "", gst_number: "", material_type: "", payment_terms: "",
     notes: "", bank_account: "", bank_name: "", upi_payment_patterns: "",
@@ -77,6 +78,9 @@ export default function SupplierDashboard() {
           invoice_date: extractedData.invoice_date || prev.invoice_date,
           due_date: extractedData.due_date || prev.due_date,
         }));
+
+        // store extracted data (including GST) for later saving
+        setExtractedInvoiceData(extractedData);
 
         if (extractedData.vendor_name && suppliers) {
           const vendorLower = extractedData.vendor_name.toLowerCase();
@@ -141,6 +145,7 @@ export default function SupplierDashboard() {
         supplier_id: data.supplier_id || null,
         po_id: data.po_id || null,
         invoice_file,
+        extracted_data: extractedInvoiceData || null,
         due_date: data.due_date || null,
       };
 
@@ -153,6 +158,7 @@ export default function SupplierDashboard() {
       setInvoiceDialogOpen(false);
       setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
       setInvoiceFile(null);
+      setExtractedInvoiceData(null);
     },
     onError: (err: any) => {
       toast.error(err.message || "Failed to upload invoice");
