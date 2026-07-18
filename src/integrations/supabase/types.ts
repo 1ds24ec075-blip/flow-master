@@ -1986,6 +1986,107 @@ export type Database = {
         }
         Relationships: []
       }
+      tally_bridges: {
+        Row: {
+          api_key: string
+          created_at: string
+          id: string
+          is_active: boolean
+          last_ip: string | null
+          last_seen_at: string | null
+          name: string
+          tally_url: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_ip?: string | null
+          last_seen_at?: string | null
+          name: string
+          tally_url?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_ip?: string | null
+          last_seen_at?: string | null
+          name?: string
+          tally_url?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tally_push_jobs: {
+        Row: {
+          attempts: number
+          bridge_id: string | null
+          completed_at: string | null
+          created_at: string
+          id: string
+          label: string | null
+          last_error: string | null
+          payload_xml: string
+          picked_at: string | null
+          source_id: string | null
+          source_type: string
+          status: string
+          tally_response: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          bridge_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_error?: string | null
+          payload_xml: string
+          picked_at?: string | null
+          source_id?: string | null
+          source_type: string
+          status?: string
+          tally_response?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          bridge_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          last_error?: string | null
+          payload_xml?: string
+          picked_at?: string | null
+          source_id?: string | null
+          source_type?: string
+          status?: string
+          tally_response?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tally_push_jobs_bridge_id_fkey"
+            columns: ["bridge_id"]
+            isOneToOne: false
+            referencedRelation: "tally_bridges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tally_vouchers: {
         Row: {
           amount: number

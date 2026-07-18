@@ -78,3 +78,12 @@ verify_jwt = false
 
 [functions.gmail-connector-sync]
 verify_jwt = false
+
+[functions.tally-bridge-enqueue]
+verify_jwt = true
+
+[functions.tally-bridge-poll]
+verify_jwt = false
+
+[functions.tally-bridge-report]
+verify_jwt = false
