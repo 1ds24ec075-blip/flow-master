@@ -1372,9 +1372,18 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
                             size="sm"
                             onClick={() => handleSendToTally(bill)}
                             disabled={tallyProcessingId === bill.id || bill.is_duplicate}
-                            title="Send to Tally"
+                            title="Send to Tally (direct, same machine)"
                           >
                             <Send className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePushViaBridge(bill)}
+                            disabled={tallyProcessingId === bill.id || bill.is_duplicate}
+                            title="Push via Tally Bridge (cloud → local agent)"
+                          >
+                            <Plug className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="outline"
