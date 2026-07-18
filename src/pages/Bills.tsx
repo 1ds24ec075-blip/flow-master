@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X, AlertTriangle, Copy, Download, Send, FileSpreadsheet } from "lucide-react";
+import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X, AlertTriangle, Copy, Download, Send, FileSpreadsheet, Plug } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   Table,
@@ -1119,6 +1119,59 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const handleSendToTally = (bill: Bill) => {
     generateTallyMutation.mutate({ bill, sendToTally: true });
   };
+
+  const pushViaBridgeMutation = useMutation({
+    mutationFn: async (bill: Bill) => {
+      if (bill.is_duplicate) throw new Error("Duplicate bills cannot be sent to Tally");
+      if (!bill.vendor_name || bill.vendor_name === "Processing...") throw new Error("Bill extraction is not complete");
+      if (!bill.total_amount || bill.total_amount <= 0) throw new Error("Bill has no valid amount");
+
+      setTallyProcessingId(bill.id);
+      const { data: items } = await supabase
+        .from("expense_line_items" as any)
+        .select("item_description, quantity, unit_price, tax_rate, amount")
+        .eq("bill_id", bill.id)
+        .order("created_at", { ascending: true });
+
+      const tallyXml = buildBillTallyXml(bill, (items || []) as ExpenseLineItem[]);
+
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session) throw new Error("Please sign in to push to Tally.");
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${supabaseUrl}/functions/v1/tally-bridge-enqueue`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sess.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source_type: "bill",
+          source_id: bill.id,
+          label: bill.bill_number || `BILL-${bill.id.slice(0, 8)}`,
+          payload_xml: tallyXml,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Enqueue failed (${res.status})`);
+
+      await supabase
+        .from("bills" as any)
+        .update({ tally_xml: tallyXml, tally_status: "queued", tally_error: null } as any)
+        .eq("id", bill.id);
+
+      return json.job;
+    },
+    onSuccess: () => {
+      toast.success("Queued for local Tally bridge — check Tally Bridge page for status.");
+      queryClient.invalidateQueries({ queryKey: ["bills"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => setTallyProcessingId(null),
+  });
+
+  const handlePushViaBridge = (bill: Bill) => pushViaBridgeMutation.mutate(bill);
+
 
   return (
     <div className="space-y-6">
