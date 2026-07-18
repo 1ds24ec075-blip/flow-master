@@ -1,0 +1,11 @@
+{
+  "name": "talligence-tally-bridge",
+  "version": "1.0.0",
+  "description": "Local agent that forwards queued vouchers from Talligence to Tally.",
+  "main": "index.js",
+  "bin": { "talligence-tally-bridge": "index.js" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": { "node": ">=18" }
+}
