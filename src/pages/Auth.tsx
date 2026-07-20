@@ -1,40 +1,59 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  try {
+    const decoded = decodeURIComponent(raw);
+    // Only accept same-origin relative paths
+    if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
+  } catch {}
+  return "/";
+}
+
 const Auth = () => {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if already authenticated
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        navigate("/");
+        if (next.startsWith("/.lovable/")) {
+          window.location.href = next;
+        } else {
+          navigate(next);
+        }
       }
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        navigate("/");
+        if (next.startsWith("/.lovable/")) {
+          window.location.href = next;
+        } else {
+          navigate(next);
+        }
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, next]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
+      const redirectTarget = `${window.location.origin}/auth?next=${encodeURIComponent(next)}`;
       const { error } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+        redirect_uri: redirectTarget,
       });
-      
+
       if (error) {
         toast.error("Failed to sign in with Google");
         console.error("Google sign-in error:", error);
