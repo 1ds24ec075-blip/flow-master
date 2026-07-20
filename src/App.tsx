@@ -33,6 +33,7 @@ import Reconciliation from "./pages/Reconciliation";
 import TallyBridge from "./pages/TallyBridge";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -68,6 +69,7 @@ const App = () => (
           <Route path="/tally-bridge" element={<Layout><TallyBridge /></Layout>} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
