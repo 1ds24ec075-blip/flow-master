@@ -32,6 +32,7 @@ import DataExport from "./pages/DataExport";
 import Reconciliation from "./pages/Reconciliation";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -66,6 +67,7 @@ const App = () => (
           <Route path="/reconciliation" element={<Layout><Reconciliation /></Layout>} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

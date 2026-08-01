@@ -1,3 +1,4 @@
+
 -- Fix function search path security issue
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
