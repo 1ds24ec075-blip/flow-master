@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -566,10 +566,27 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
     });
   };
 
-  const getImageUrl = (path: string) => {
-    const { data } = supabase.storage.from("bills").getPublicUrl(path);
-    return data.publicUrl;
-  };
+  // The bills bucket is private, so previews use a short-lived signed URL
+  // instead of a permanent public link that anyone could share or guess.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const path = selectedBill?.image_url;
+    if (!path) {
+      setPreviewUrl(null);
+      return;
+    }
+    supabase.storage
+      .from("bills")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (active) setPreviewUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedBill?.image_url]);
 
   const fetchBillLineItems = async (billId: string) => {
     const { data: items, error } = await supabase
@@ -1137,13 +1154,15 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
               {selectedBill.image_url && (
                 <div>
                   <Label>Bill Image</Label>
-                  {selectedBill.image_url.toLowerCase().endsWith('.pdf') ? (
+                  {!previewUrl ? (
+                    <p className="mt-2 text-xs text-muted-foreground">Preparing secure preview…</p>
+                  ) : selectedBill.image_url.toLowerCase().endsWith('.pdf') ? (
                     <div className="mt-2">
-                      <a href={getImageUrl(selectedBill.image_url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">View PDF</a>
+                      <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">View PDF</a>
                     </div>
                   ) : (
                     <img
-                      src={getImageUrl(selectedBill.image_url)}
+                      src={previewUrl}
                       alt="Bill"
                       className="mt-2 rounded-lg border max-w-full h-auto"
                     />

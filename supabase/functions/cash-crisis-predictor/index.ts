@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.86.0";
 
+import { requireUserOrService } from "../_shared/agent-auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -11,6 +12,19 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Security gate: reject anything that is not a signed-in user or an
+  // internal service-role call. verify_jwt alone is satisfied by the public
+  // anon key, so the token must resolve to a real user.
+  try {
+    await requireUserOrService(req);
+  } catch {
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
 
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
