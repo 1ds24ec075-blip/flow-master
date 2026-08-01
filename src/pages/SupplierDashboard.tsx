@@ -134,8 +134,9 @@ export default function SupplierDashboard() {
         const filePath = `supplier-invoices/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
         const { error: uploadError } = await supabase.storage.from("bills").upload(filePath, invoiceFile);
         if (uploadError) throw uploadError;
-        const { data: urlData } = supabase.storage.from("bills").getPublicUrl(filePath);
-        invoice_file = urlData.publicUrl;
+        // Store the storage path, not a public URL — the bucket is private and
+        // access is granted through short-lived signed URLs on demand.
+        invoice_file = filePath;
       }
 
       const insertData: any = {

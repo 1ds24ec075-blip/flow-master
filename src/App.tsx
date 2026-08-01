@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import BillsExpenses from "./pages/BillsExpenses";
 import Clients from "./pages/Clients";
@@ -46,27 +47,27 @@ const App = () => (
         <Sonner />
         <Routes>
           <Route path="/auth" element={<Auth />} />
-          <Route path="/" element={<Layout><Dashboard /></Layout>} />
-          <Route path="/clients" element={<Layout><Clients /></Layout>} />
-          <Route path="/supplier-hub" element={<Layout><SupplierDashboard /></Layout>} />
-          <Route path="/tally-ai" element={<Layout><TallyAI /></Layout>} />
+          <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
+          <Route path="/clients" element={<ProtectedRoute><Layout><Clients /></Layout></ProtectedRoute>} />
+          <Route path="/supplier-hub" element={<ProtectedRoute><Layout><SupplierDashboard /></Layout></ProtectedRoute>} />
+          <Route path="/tally-ai" element={<ProtectedRoute><Layout><TallyAI /></Layout></ProtectedRoute>} />
           
-          <Route path="/bills" element={<Layout><BillsExpenses /></Layout>} />
-          <Route path="/gmail-integration" element={<Layout><GmailIntegration /></Layout>} />
-          <Route path="/excel-integration" element={<Layout><ExcelIntegration /></Layout>} />
-          <Route path="/po-dashboard" element={<Layout><PODashboard /></Layout>} />
-          <Route path="/customer-master" element={<Layout><CustomerMaster /></Layout>} />
-          <Route path="/review" element={<Layout><Review /></Layout>} />
-          <Route path="/order-lifecycle" element={<Layout><OrderLifecycle /></Layout>} />
-          <Route path="/smart-segregation" element={<SmartSegregation />} />
-          <Route path="/product-master" element={<Layout><ProductMaster /></Layout>} />
-          <Route path="/unmapped-codes" element={<Layout><UnmappedCodes /></Layout>} />
-          <Route path="/customer-mapping" element={<Layout><CustomerProductMapping /></Layout>} />
-          <Route path="/liquidity" element={<Layout><LiquidityDashboard /></Layout>} />
-          <Route path="/inventory" element={<Layout><Inventory /></Layout>} />
-          <Route path="/data-export" element={<Layout><DataExport /></Layout>} />
-          <Route path="/reconciliation" element={<Layout><Reconciliation /></Layout>} />
-          <Route path="/tally-sync" element={<Layout><TallySync /></Layout>} />
+          <Route path="/bills" element={<ProtectedRoute><Layout><BillsExpenses /></Layout></ProtectedRoute>} />
+          <Route path="/gmail-integration" element={<ProtectedRoute><Layout><GmailIntegration /></Layout></ProtectedRoute>} />
+          <Route path="/excel-integration" element={<ProtectedRoute><Layout><ExcelIntegration /></Layout></ProtectedRoute>} />
+          <Route path="/po-dashboard" element={<ProtectedRoute><Layout><PODashboard /></Layout></ProtectedRoute>} />
+          <Route path="/customer-master" element={<ProtectedRoute><Layout><CustomerMaster /></Layout></ProtectedRoute>} />
+          <Route path="/review" element={<ProtectedRoute><Layout><Review /></Layout></ProtectedRoute>} />
+          <Route path="/order-lifecycle" element={<ProtectedRoute><Layout><OrderLifecycle /></Layout></ProtectedRoute>} />
+          <Route path="/smart-segregation" element={<ProtectedRoute><SmartSegregation /></ProtectedRoute>} />
+          <Route path="/product-master" element={<ProtectedRoute><Layout><ProductMaster /></Layout></ProtectedRoute>} />
+          <Route path="/unmapped-codes" element={<ProtectedRoute><Layout><UnmappedCodes /></Layout></ProtectedRoute>} />
+          <Route path="/customer-mapping" element={<ProtectedRoute><Layout><CustomerProductMapping /></Layout></ProtectedRoute>} />
+          <Route path="/liquidity" element={<ProtectedRoute><Layout><LiquidityDashboard /></Layout></ProtectedRoute>} />
+          <Route path="/inventory" element={<ProtectedRoute><Layout><Inventory /></Layout></ProtectedRoute>} />
+          <Route path="/data-export" element={<ProtectedRoute><Layout><DataExport /></Layout></ProtectedRoute>} />
+          <Route path="/reconciliation" element={<ProtectedRoute><Layout><Reconciliation /></Layout></ProtectedRoute>} />
+          <Route path="/tally-sync" element={<ProtectedRoute><Layout><TallySync /></Layout></ProtectedRoute>} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />

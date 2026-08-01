@@ -1,3 +1,4 @@
+import { requireUserOrService } from "../_shared/agent-auth.ts";
 // One-click Gmail PO sync via Lovable connector gateway
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,6 +42,19 @@ function collectPdfParts(payload: any, out: Array<{ filename: string; attachment
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Security gate: reject anything that is not a signed-in user or an
+  // internal service-role call. verify_jwt alone is satisfied by the public
+  // anon key, so the token must resolve to a real user.
+  try {
+    await requireUserOrService(req);
+  } catch {
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
