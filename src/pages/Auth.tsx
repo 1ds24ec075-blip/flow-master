@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -21,6 +23,9 @@ const Auth = () => {
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -66,6 +71,44 @@ const Auth = () => {
     }
   };
 
+  // Google OAuth redirects through oauth.lovable.app, which only accepts origins
+  // registered for the deployed app — so it cannot complete from localhost.
+  // Email sign-in talks to Supabase directly and works from any origin.
+  const handleEmailAuth = async (mode: "signin" | "signup") => {
+    if (!email.trim() || !password) {
+      toast.error("Enter both an email and a password");
+      return;
+    }
+    setEmailLoading(true);
+    try {
+      if (mode === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) throw error;
+        // The onAuthStateChange subscription above handles the redirect.
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/auth` },
+      });
+      if (error) throw error;
+
+      // Signup returns a user but no session when confirmation is required.
+      if (data.user && !data.session) {
+        toast.success("Check your email to confirm the account, then sign in.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
@@ -100,6 +143,59 @@ const Auth = () => {
             </svg>
             {loading ? "Signing in..." : "Continue with Google"}
           </Button>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleEmailAuth("signin");
+                }}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => handleEmailAuth("signin")}
+                disabled={emailLoading}
+              >
+                {emailLoading ? "Working…" : "Sign in"}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => handleEmailAuth("signup")}
+                disabled={emailLoading}
+              >
+                Create account
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
