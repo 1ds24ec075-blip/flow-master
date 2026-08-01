@@ -9,7 +9,7 @@ import {
   ClipboardList,
   Sparkles,
   FileSpreadsheet,
-  LogIn,
+  LogOut,
   Boxes,
   ShieldCheck,
   Download,
@@ -17,7 +17,8 @@ import {
   Plug,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Sidebar,
   SidebarContent,
@@ -46,13 +47,18 @@ const navigationItems = [
   { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
   { title: "Data Export", url: "/data-export", icon: Download },
   { title: "Tally Sync", url: "/tally-sync", icon: Plug },
-  { title: "Sign In", url: "/auth", icon: LogIn },
 ];
 
 export function AppSidebar() {
   const { open } = useSidebar();
   const location = useLocation();
+  const navigate = useNavigate();
   const currentPath = location.pathname;
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth", { replace: true });
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border" collapsible="icon">
@@ -86,6 +92,16 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={handleSignOut}
+                  className="h-auto min-h-0 gap-2 px-2.5 py-1.5 text-[13px] leading-tight hover:bg-sidebar-accent"
+                  tooltip="Sign out"
+                >
+                  <LogOut className="h-3.5 w-3.5 flex-shrink-0" />
+                  {open && <span>Sign Out</span>}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
