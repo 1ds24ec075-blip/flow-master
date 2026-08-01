@@ -2513,6 +2513,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      is_admin: { Args: { _email: string }; Returns: boolean }
       reap_stale_tally_jobs: {
         Args: { p_older_than?: string }
         Returns: number
