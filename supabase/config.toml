@@ -78,3 +78,20 @@ verify_jwt = false
 
 [functions.gmail-connector-sync]
 verify_jwt = false
+
+# Callable by the browser (anon key) and by bill-generate-tally (service-role key).
+# Both are valid JWTs, so this stays on — without it anyone can queue a voucher
+# knowing only a billId.
+[functions.tally-enqueue]
+verify_jwt = true
+
+# The agent authenticates with its own per-installation token, not a user JWT.
+[functions.tally-agent-poll]
+verify_jwt = false
+
+[functions.tally-agent-report]
+verify_jwt = false
+
+# Minting agent tokens must be behind a signed-in user.
+[functions.tally-agents]
+verify_jwt = true

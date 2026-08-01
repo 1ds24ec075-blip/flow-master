@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The Tally serializer is shared verbatim with the edge functions and the
+      // desktop agent. It lives under supabase/functions/_shared so Deno can
+      // import it without a build step; this alias lets the web app in too.
+      "@tally": path.resolve(__dirname, "./supabase/functions/_shared/tally"),
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime"],
   },

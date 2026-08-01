@@ -32,6 +32,12 @@ import {
 } from "@/components/ui/select";
 import { format } from "date-fns";
 
+import { buildBillSyncJobs, stockItemNameFor, DEFAULT_STOCK_UNIT } from "@tally/jobs";
+import { serializeVoucherToXML } from "@tally/serializer";
+
+// Display-only. The agent gets the authoritative company name from the cloud.
+const TALLY_COMPANY_NAME = "Guhanesh";
+
 interface DuplicateMatchDetails {
   matched_bill_id: string;
   matched_bill_number: string | null;
@@ -79,22 +85,6 @@ interface ExpenseLineItem {
   amount?: number | null;
 }
 
-interface TallyLedgerDefinition {
-  name: string;
-  parent: string;
-  isBillWiseOn?: boolean;
-  gstin?: string | null;
-  gstApplicable?: boolean;
-  taxType?: string;
-  gstDutyHead?: string;
-}
-
-interface TallyStockItemDefinition {
-  name: string;
-  unit?: string;
-  gstApplicable?: boolean;
-}
-
 interface TallyImportRow {
   Date: string;
   "Voucher Type": string;
@@ -110,56 +100,27 @@ interface TallyImportRow {
   Narration: string;
 }
 
-const escapeXml = (value: unknown) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-
-const parseTallyDate = (dateValue?: string | null) => {
-  const rawDate = String(dateValue ?? "").trim();
-  if (!rawDate) return null;
-
-  const isoMatch = rawDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) return `${isoMatch[1]}${isoMatch[2]}${isoMatch[3]}`;
-
-  const numericMatch = rawDate.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (numericMatch) {
-    const [, day, month, year] = numericMatch;
-    return `${year}${month.padStart(2, "0")}${day.padStart(2, "0")}`;
-  }
-
-  const textMatch = rawDate.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
-  if (textMatch) {
-    const [, day, monthName, year] = textMatch;
-    const monthIndex = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-      .findIndex((month) => monthName.toLowerCase().startsWith(month));
-    if (monthIndex >= 0) return `${year}${String(monthIndex + 1).padStart(2, "0")}${day.padStart(2, "0")}`;
-  }
-
-  const date = new Date(rawDate);
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}${month}${day}`;
-};
-
 const normalizeAmount = (value?: number | null) => Number(Number(value ?? 0).toFixed(2));
 
-const PURCHASE_LEDGER_NAME = "Purchase Account";
-const INPUT_CGST_LEDGER_NAME = "Input CGST";
-const INPUT_SGST_LEDGER_NAME = "Input SGST";
-const DEFAULT_STOCK_UNIT = "Nos";
-const BILL_STOCK_GROUP_NAME = "Bill Items";
-const TALLY_COMPANY_NAME = "Guhanesh";
-const TALLY_FY_START = "20260401";
-const TALLY_FY_END = "20270331";
+const tallyStatusVariant = (status?: string | null) => {
+  if (status === "sent") return "default" as const;
+  if (status === "failed") return "destructive" as const;
+  if (status === "queued" || status === "ready") return "secondary" as const;
+  return "outline" as const;
+};
 
-const getStockItemName = (item: ExpenseLineItem, index: number) =>
-  (item.item_description || `Bill Item ${index + 1}`).trim();
+const tallyStatusHint = (status?: string | null) => {
+  switch (status) {
+    case "queued":
+      return "Waiting for the desktop agent to push it — it syncs whenever Tally is open.";
+    case "sent":
+      return "Booked in Tally.";
+    case "failed":
+      return "Tally rejected this voucher. Fix the underlying data and queue it again.";
+    default:
+      return "Not queued yet.";
+  }
+};
 
 const getItemQuantity = (item: ExpenseLineItem) => {
   const quantity = normalizeAmount(item.quantity);
@@ -167,16 +128,6 @@ const getItemQuantity = (item: ExpenseLineItem) => {
 };
 
 const getItemAmount = (item: ExpenseLineItem) => normalizeAmount(item.amount ?? item.unit_price ?? 0);
-
-const getItemRate = (item: ExpenseLineItem) => {
-  const quantity = getItemQuantity(item);
-  const amount = getItemAmount(item);
-  const explicitRate = normalizeAmount(item.unit_price);
-  return explicitRate > 0 ? explicitRate : normalizeAmount(amount / quantity);
-};
-
-const sumItemAmounts = (items: ExpenseLineItem[]) =>
-  normalizeAmount(items.reduce((sum, item) => sum + getItemAmount(item), 0));
 
 const formatTallyImportDate = (dateValue?: string | null) => {
   if (!dateValue) return null;
@@ -207,6 +158,7 @@ const allocateCurrencyShares = (total: number, baseAmounts: number[]) => {
   return shares;
 };
 
+/** Rows for the spreadsheet export, which is a different shape from the voucher. */
 const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
   const referenceNumber = (bill.bill_number || `BILL-${bill.id.slice(0, 8)}`).trim();
   const partyLedger = bill.vendor_name?.trim();
@@ -217,14 +169,16 @@ const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
 
   const validItems = items
     .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => getStockItemName(item, index) && getItemAmount(item) > 0);
+    .filter(({ item, index }) => stockItemNameFor(item, index) && getItemAmount(item) > 0);
 
   if (validItems.length === 0) {
     throw new Error(`No valid line items found for bill ${referenceNumber}`);
   }
 
   const totalAmount = normalizeAmount(bill.total_amount);
-  const inventoryTotal = sumItemAmounts(validItems.map(({ item }) => item));
+  const inventoryTotal = normalizeAmount(
+    validItems.reduce((sum, { item }) => sum + getItemAmount(item), 0),
+  );
   const gstTotal = normalizeAmount(totalAmount - inventoryTotal);
 
   if (gstTotal < 0) {
@@ -238,7 +192,7 @@ const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
   const sgstShares = allocateCurrencyShares(sgstTotal, rowAmounts);
 
   return validItems.map(({ item, index }, rowIndex) => {
-    const itemName = getStockItemName(item, index);
+    const itemName = stockItemNameFor(item, index);
     const quantity = getItemQuantity(item);
     const amount = getItemAmount(item);
     const rate = quantity > 0 ? amount / quantity : amount;
@@ -260,370 +214,17 @@ const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
   });
 };
 
-const buildVoucherGuid = (bill: Bill) => `FLOW-BILL-${bill.id}`;
-
-const assertDateInActiveFinancialYear = (voucherDate: string) => {
-  if (voucherDate < TALLY_FY_START || voucherDate > TALLY_FY_END) {
-    throw new Error("Bill date is outside the active Tally FY 2026-27. Use a date from 01 Apr 2026 to 31 Mar 2027.");
-  }
-};
-
-const assertValidTallyVoucherXml = (xml: string) => {
-  const xmlHeaderCount = (xml.match(/<\?xml\b/g) || []).length;
-  if (xmlHeaderCount !== 1) throw new Error("Generated Tally XML must contain exactly one XML header");
-
-  const voucherOpenMatches = [...xml.matchAll(/<VOUCHER\b[^>]*>/g)];
-  const voucherCloseMatches = [...xml.matchAll(/<\/VOUCHER>/g)];
-  if (voucherOpenMatches.length !== 1 || voucherCloseMatches.length !== 1) {
-    throw new Error("Generated Tally XML must contain exactly one VOUCHER");
-  }
-
-  const voucherOpen = voucherOpenMatches[0];
-  const voucherOpenEnd = (voucherOpen.index || 0) + voucherOpen[0].length;
-  const voucherCloseStart = voucherCloseMatches[0].index || 0;
-  if (voucherCloseStart <= voucherOpenEnd) throw new Error("Generated Tally XML has an invalid VOUCHER block");
-
-  const voucherBody = xml.slice(voucherOpenEnd, voucherCloseStart);
-  if (!/<DATE>\d{8}<\/DATE>/.test(voucherBody)) {
-    throw new Error("Generated Tally XML is missing DATE directly inside VOUCHER");
-  }
-  if (!/<GUID>[^<]+<\/GUID>/.test(voucherBody)) {
-    throw new Error("Generated Tally XML is missing a unique GUID inside VOUCHER");
-  }
-  if (!/<ISINVOICE>Yes<\/ISINVOICE>/.test(voucherBody)) {
-    throw new Error("Generated Tally XML is missing ISINVOICE inside VOUCHER");
-  }
-  if (!/<PERSISTEDVIEW>Invoice Voucher View<\/PERSISTEDVIEW>/.test(voucherBody)) {
-    throw new Error("Generated Tally XML is missing Invoice Voucher View inside VOUCHER");
-  }
-  if (/<(LEDGERNAME|STOCKITEMNAME|VOUCHERTYPENAME|PARTYLEDGERNAME)>\s*<\/\1>/.test(voucherBody)) {
-    throw new Error("Generated Tally XML contains an empty required master field");
-  }
-
-  const tagPattern = /<\??\/?([A-Z0-9.]+)\b[^>]*>/g;
-  const stack: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = tagPattern.exec(xml)) !== null) {
-    const fullTag = match[0];
-    if (fullTag.startsWith("<?") || fullTag.startsWith("<!")) continue;
-
-    const tagName = match[1];
-    const isClosing = fullTag.startsWith("</");
-    const isSelfClosing = fullTag.endsWith("/>");
-
-    if (isClosing) {
-      while (stack.length && stack[stack.length - 1] !== tagName) stack.pop();
-      if (stack[stack.length - 1] === tagName) stack.pop();
-      continue;
-    }
-
-    if (tagName === "ALLINVENTORYENTRIES.LIST" || tagName === "LEDGERENTRIES.LIST") {
-      const parent = stack[stack.length - 1];
-      if (parent !== "VOUCHER") {
-        throw new Error(`${tagName} must be a direct child of VOUCHER`);
-      }
-    }
-
-    if (!isSelfClosing) stack.push(tagName);
-  }
-};
-
-const buildTallyLedgerXml = (ledger: TallyLedgerDefinition) => `<?xml version="1.0" encoding="UTF-8"?>
-<ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>All Masters</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <LEDGER NAME="${escapeXml(ledger.name)}" ACTION="Create">
-            <NAME>${escapeXml(ledger.name)}</NAME>
-            <PARENT>${escapeXml(ledger.parent)}</PARENT>
-            <ISBILLWISEON>${ledger.isBillWiseOn ? "Yes" : "No"}</ISBILLWISEON>
-            <ISCOSTCENTRESON>No</ISCOSTCENTRESON>
-            ${ledger.gstApplicable ? "<GSTAPPLICABLE>Applicable</GSTAPPLICABLE>" : ""}
-            ${ledger.taxType ? `<TAXTYPE>${escapeXml(ledger.taxType)}</TAXTYPE>` : ""}
-            ${ledger.gstDutyHead ? `<GSTDUTYHEAD>${escapeXml(ledger.gstDutyHead)}</GSTDUTYHEAD>` : ""}
-            ${ledger.gstin ? `<GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE><PARTYGSTIN>${escapeXml(ledger.gstin)}</PARTYGSTIN>` : ""}
-          </LEDGER>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
-</ENVELOPE>`;
-
-const buildTallyStockItemXml = (item: TallyStockItemDefinition) => `<?xml version="1.0" encoding="UTF-8"?>
-<ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>All Masters</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <STOCKITEM NAME="${escapeXml(item.name)}" ACTION="Create">
-            <NAME>${escapeXml(item.name)}</NAME>
-            <PARENT>${escapeXml(BILL_STOCK_GROUP_NAME)}</PARENT>
-            <BASEUNITS>${escapeXml(item.unit || DEFAULT_STOCK_UNIT)}</BASEUNITS>
-            ${item.gstApplicable ? "<GSTAPPLICABLE>Applicable</GSTAPPLICABLE><GSTTYPEOFSUPPLY>Goods</GSTTYPEOFSUPPLY>" : ""}
-          </STOCKITEM>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
-</ENVELOPE>`;
-
-const buildTallyStockGroupXml = (name: string) => `<?xml version="1.0" encoding="UTF-8"?>
-<ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>All Masters</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <STOCKGROUP NAME="${escapeXml(name)}" ACTION="Create">
-            <NAME>${escapeXml(name)}</NAME>
-            <ISADDABLE>Yes</ISADDABLE>
-          </STOCKGROUP>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
-</ENVELOPE>`;
-
-const buildTallyUnitXml = (symbol: string) => `<?xml version="1.0" encoding="UTF-8"?>
-<ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>All Masters</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <UNIT NAME="${escapeXml(symbol)}" ACTION="Create">
-            <NAME>${escapeXml(symbol)}</NAME>
-            <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
-            <SYMBOL>${escapeXml(symbol)}</SYMBOL>
-            <FORMALNAME>Numbers</FORMALNAME>
-            <NUMBEROFDECIMALPLACES>0</NUMBEROFDECIMALPLACES>
-          </UNIT>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
-</ENVELOPE>`;
-
-const buildInventoryEntriesXml = (items: ExpenseLineItem[], purchaseLedger: string) =>
-  items.map((item, index) => {
-    const stockItemName = getStockItemName(item, index);
-    const quantity = getItemQuantity(item);
-    const rate = getItemRate(item);
-    const amount = getItemAmount(item);
-
-    return `            <ALLINVENTORYENTRIES.LIST>
-              <STOCKITEMNAME>${escapeXml(stockItemName)}</STOCKITEMNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <RATE>${rate}/${DEFAULT_STOCK_UNIT}</RATE>
-              <AMOUNT>${amount}</AMOUNT>
-              <ACTUALQTY>${quantity} ${DEFAULT_STOCK_UNIT}</ACTUALQTY>
-              <BILLEDQTY>${quantity} ${DEFAULT_STOCK_UNIT}</BILLEDQTY>
-              <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(purchaseLedger)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${amount}</AMOUNT>
-              </ACCOUNTINGALLOCATIONS.LIST>
-            </ALLINVENTORYENTRIES.LIST>`;
-  }).join("\n");
-
+/**
+ * Renders the voucher for the manual-download path only.
+ *
+ * The sync path never calls this — it enqueues JSON and the desktop agent
+ * renders the XML at send time through this same serializer.
+ */
 const buildBillTallyXml = (bill: Bill, items: ExpenseLineItem[]) => {
-  const totalAmount = normalizeAmount(bill.total_amount);
-  const referenceNumber = bill.bill_number || `BILL-${bill.id.slice(0, 8)}`;
-  const partyLedger = bill.vendor_name?.trim();
-  if (!partyLedger) throw new Error("Supplier ledger name is missing. Please edit the vendor before sending to Tally.");
-  const purchaseLedger = PURCHASE_LEDGER_NAME;
-  const voucherDate = parseTallyDate(bill.bill_date);
-  if (!voucherDate) throw new Error("Bill date is missing or invalid. Please edit the bill date before sending to Tally.");
-  assertDateInActiveFinancialYear(voucherDate);
-  const voucherGuid = buildVoucherGuid(bill);
-  const narration = `Bill ${referenceNumber} from ${partyLedger}`;
-  const validItems = items.filter((item, index) => getStockItemName(item, index) && getItemAmount(item) > 0);
-  const inventoryTotal = sumItemAmounts(validItems);
-  const gstTotal = normalizeAmount(totalAmount - inventoryTotal);
-  if (gstTotal < 0) throw new Error("Bill line item total is greater than supplier total. Fix bill amounts before sending to Tally.");
-  const cgstAmount = gstTotal > 0 ? normalizeAmount(gstTotal / 2) : 0;
-  const sgstAmount = gstTotal > 0 ? normalizeAmount(gstTotal - cgstAmount) : 0;
-  const balancedDebitTotal = normalizeAmount(inventoryTotal + cgstAmount + sgstAmount);
-  if (Math.abs(normalizeAmount(balancedDebitTotal - totalAmount)) > 0.01) {
-    throw new Error("Tally voucher is not balanced. Fix bill item/GST amounts before sending to Tally.");
-  }
-  const itemDetails = items.length > 0
-    ? items.map((item) => `${item.item_description || "Expense"} (${normalizeAmount(item.amount)})`).join(", ")
-    : "";
-  const purchaseEntries = validItems.length > 0
-    ? buildInventoryEntriesXml(validItems, purchaseLedger)
-    : `            <LEDGERENTRIES.LIST>
-              <LEDGERNAME>${escapeXml(purchaseLedger)}</LEDGERNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <ISPARTYLEDGER>No</ISPARTYLEDGER>
-              <AMOUNT>${totalAmount}</AMOUNT>
-            </LEDGERENTRIES.LIST>`;
-  const gstEntries = gstTotal > 0
-    ? `            <LEDGERENTRIES.LIST>
-              <LEDGERNAME>${INPUT_CGST_LEDGER_NAME}</LEDGERNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <ISPARTYLEDGER>No</ISPARTYLEDGER>
-              <AMOUNT>${cgstAmount}</AMOUNT>
-            </LEDGERENTRIES.LIST>
-            <LEDGERENTRIES.LIST>
-              <LEDGERNAME>${INPUT_SGST_LEDGER_NAME}</LEDGERNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <ISPARTYLEDGER>No</ISPARTYLEDGER>
-              <AMOUNT>${sgstAmount}</AMOUNT>
-            </LEDGERENTRIES.LIST>`
-    : "";
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>Vouchers</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>${escapeXml(TALLY_COMPANY_NAME)}</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <VOUCHER DATE="${voucherDate}" VCHTYPE="Purchase" ACTION="Create" OBJVIEW="Invoice Voucher View">
-            <DATE>${voucherDate}</DATE>
-            <EFFECTIVEDATE>${voucherDate}</EFFECTIVEDATE>
-            <GUID>${escapeXml(voucherGuid)}</GUID>
-            <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
-            <VOUCHERNUMBER>${escapeXml(referenceNumber)}</VOUCHERNUMBER>
-            <REFERENCE>${escapeXml(referenceNumber)}</REFERENCE>
-            <PARTYLEDGERNAME>${escapeXml(partyLedger)}</PARTYLEDGERNAME>
-            <ISINVOICE>Yes</ISINVOICE>
-            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
-            <NARRATION>${escapeXml(itemDetails ? `${narration}. Items: ${itemDetails}` : narration)}</NARRATION>
-${purchaseEntries}
-${gstEntries ? `${gstEntries}\n` : ""}            <LEDGERENTRIES.LIST>
-              <LEDGERNAME>${escapeXml(partyLedger)}</LEDGERNAME>
-              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
-              <AMOUNT>-${totalAmount}</AMOUNT>
-              ${bill.vendor_gst ? `<GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE><PARTYGSTIN>${escapeXml(bill.vendor_gst)}</PARTYGSTIN>` : ""}
-            </LEDGERENTRIES.LIST>
-          </VOUCHER>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
-</ENVELOPE>`;
-
-  assertValidTallyVoucherXml(xml);
-  return xml;
+  const { voucher } = buildBillSyncJobs(bill, items);
+  return serializeVoucherToXML(voucher, TALLY_COMPANY_NAME);
 };
 
-const extractTallyLineError = (responseText: string) => {
-  const match = responseText.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/i);
-  return match
-    ? match[1]
-        .replace(/&apos;/g, "'")
-        .replace(/&quot;/g, "\"")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-    : null;
-};
-
-const isAlreadyExistsTallyError = (message: string | null) =>
-  !!message && /already exists|exists already|name already exists/i.test(message);
-
-const postXmlToLocalTally = async (xml: string) => {
-  const response = await fetch("/tally-local", {
-    method: "POST",
-    headers: { "Content-Type": "text/xml" },
-    body: xml,
-  });
-
-  const responseText = await response.text();
-  const lineError = extractTallyLineError(responseText);
-
-  return { response, responseText, lineError };
-};
-
-const ensureTallyLedgers = async (ledgers: TallyLedgerDefinition[]) => {
-  const uniqueLedgers = Array.from(
-    new Map(
-      ledgers
-        .filter((ledger) => ledger.name.trim())
-        .map((ledger) => [ledger.name.trim().toLowerCase(), { ...ledger, name: ledger.name.trim() }])
-    ).values()
-  );
-
-  for (const ledger of uniqueLedgers) {
-    const { response, lineError } = await postXmlToLocalTally(buildTallyLedgerXml(ledger));
-    if ((!response.ok || lineError) && !isAlreadyExistsTallyError(lineError)) {
-      throw new Error(lineError || `Tally returned ${response.status} while creating ledger ${ledger.name}`);
-    }
-  }
-};
-
-const ensureTallyStockItems = async (items: TallyStockItemDefinition[]) => {
-  const stockGroupResult = await postXmlToLocalTally(buildTallyStockGroupXml(BILL_STOCK_GROUP_NAME));
-  if ((!stockGroupResult.response.ok || stockGroupResult.lineError) && !isAlreadyExistsTallyError(stockGroupResult.lineError)) {
-    throw new Error(stockGroupResult.lineError || `Tally returned ${stockGroupResult.response.status} while creating stock group ${BILL_STOCK_GROUP_NAME}`);
-  }
-
-  const unitResult = await postXmlToLocalTally(buildTallyUnitXml(DEFAULT_STOCK_UNIT));
-  if ((!unitResult.response.ok || unitResult.lineError) && !isAlreadyExistsTallyError(unitResult.lineError)) {
-    throw new Error(unitResult.lineError || `Tally returned ${unitResult.response.status} while creating unit ${DEFAULT_STOCK_UNIT}`);
-  }
-
-  const uniqueItems = Array.from(
-    new Map(
-      items
-        .filter((item) => item.name.trim())
-        .map((item) => [item.name.trim().toLowerCase(), { ...item, name: item.name.trim() }])
-    ).values()
-  );
-
-  for (const item of uniqueItems) {
-    const { response, lineError } = await postXmlToLocalTally(buildTallyStockItemXml(item));
-    if ((!response.ok || lineError) && !isAlreadyExistsTallyError(lineError)) {
-      throw new Error(lineError || `Tally returned ${response.status} while creating item ${item.name}`);
-    }
-  }
-};
 
 export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -792,6 +393,30 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
       if (!bill.vendor_name || bill.vendor_name === "Processing...") throw new Error("Bill extraction is not complete");
       if (!bill.total_amount || bill.total_amount <= 0) throw new Error("Bill has no valid amount");
 
+      // Queue it. The desktop agent renders the XML and pushes it the next time
+      // Tally is up, so this no longer needs the browser to reach localhost:9000.
+      if (sendToTally) {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey =
+          import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/tally-enqueue`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${supabaseKey}`,
+            apikey: supabaseKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ billId: bill.id }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload?.error || `Could not queue the bill (HTTP ${response.status})`);
+
+        return { queued: true as const, jobs: payload.queued ?? 0, tally_xml: null };
+      }
+
+      // Download path: render locally through the same serializer the agent uses.
       const { data: items, error: itemsError } = await supabase
         .from("expense_line_items" as any)
         .select("item_description, quantity, unit_price, tax_rate, amount")
@@ -800,84 +425,20 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
       if (itemsError) throw itemsError;
 
-      const expenseItems = (items || []) as ExpenseLineItem[];
-      const tallyXml = buildBillTallyXml(bill, expenseItems);
-      const partyLedger = bill.vendor_name.trim();
-      let tallyStatus: "ready" | "sent" | "failed" = "ready";
-      let tallyError: string | null = null;
-
-      if (sendToTally) {
-        try {
-          await ensureTallyLedgers([
-            { name: PURCHASE_LEDGER_NAME, parent: "Purchase Accounts", gstApplicable: true },
-            { name: INPUT_CGST_LEDGER_NAME, parent: "Duties & Taxes", taxType: "GST", gstDutyHead: "Central Tax" },
-            { name: INPUT_SGST_LEDGER_NAME, parent: "Duties & Taxes", taxType: "GST", gstDutyHead: "State Tax" },
-            { name: partyLedger, parent: "Sundry Creditors", isBillWiseOn: true, gstin: bill.vendor_gst },
-          ]);
-          await ensureTallyStockItems(
-            expenseItems
-              .filter((item, index) => getStockItemName(item, index) && getItemAmount(item) > 0)
-              .map((item, index) => ({ name: getStockItemName(item, index), unit: DEFAULT_STOCK_UNIT, gstApplicable: true }))
-        );
-
-          const { response, lineError } = await postXmlToLocalTally(tallyXml);
-          if (!response.ok || lineError) {
-            tallyStatus = "failed";
-            tallyError = lineError || `Tally returned ${response.status}`;
-          } else {
-            tallyStatus = "sent";
-          }
-        } catch (error) {
-          tallyStatus = "failed";
-          tallyError = error instanceof Error ? error.message : "Unknown Tally error";
-        }
-      }
-
-      try {
-        await supabase
-          .from("bills" as any)
-          .update({
-            tally_xml: tallyXml,
-            tally_json: {
-              source: "bills",
-              source_id: bill.id,
-              voucher_type: "Purchase",
-              voucher_date: bill.bill_date,
-              reference_number: bill.bill_number || `BILL-${bill.id.slice(0, 8)}`,
-              party_ledger: bill.vendor_name,
-              purchase_ledger: PURCHASE_LEDGER_NAME,
-              total_amount: bill.total_amount,
-            },
-            tally_status: tallyStatus,
-            tally_uploaded_at: tallyStatus === "sent" ? new Date().toISOString() : null,
-            tally_error: tallyError,
-          } as any)
-          .eq("id", bill.id);
-      } catch (error) {
-        console.warn("Could not persist Tally status on bill", error);
-      }
-
-      if (tallyError) throw new Error(tallyError);
-
-      return {
-        tally_xml: tallyXml,
-        tally_status: tallyStatus,
-        tally_error: tallyError,
-      };
+      const tallyXml = buildBillTallyXml(bill, (items || []) as ExpenseLineItem[]);
+      return { queued: false as const, jobs: 0, tally_xml: tallyXml };
     },
     onSuccess: (payload, variables) => {
       queryClient.invalidateQueries({ queryKey: ["bills"] });
 
-      if (variables.sendToTally) {
-        if (payload.tally_status === "sent") {
-          toast.success("Bill sent to Tally successfully");
-        } else {
-          toast.error(payload.tally_error || "Tally rejected the voucher");
-        }
+      if (payload.queued) {
+        toast.success(`Queued for Tally (${payload.jobs} job${payload.jobs === 1 ? "" : "s"})`, {
+          description: "The desktop agent will push it the next time Tally is open.",
+        });
         return;
       }
 
-      downloadTallyXml(variables.bill.id, payload.tally_xml);
+      downloadTallyXml(variables.bill.id, payload.tally_xml!);
       toast.success("Tally XML generated");
     },
     onError: (error: Error) => {
@@ -1263,16 +824,8 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={
-                            bill.tally_status === "sent"
-                              ? "default"
-                              : bill.tally_status === "failed"
-                              ? "destructive"
-                              : bill.tally_status === "ready"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          title={bill.tally_error || undefined}
+                          variant={tallyStatusVariant(bill.tally_status)}
+                          title={bill.tally_error || tallyStatusHint(bill.tally_status)}
                         >
                           {bill.tally_status || "not_generated"}
                         </Badge>
@@ -1563,21 +1116,15 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
                 <div className="space-y-2">
                   <Label>Tally Status</Label>
                   <div className="space-y-1">
-                    <Badge
-                      variant={
-                        selectedBill.tally_status === "sent"
-                          ? "default"
-                          : selectedBill.tally_status === "failed"
-                          ? "destructive"
-                          : selectedBill.tally_status === "ready"
-                          ? "secondary"
-                          : "outline"
-                      }
-                    >
+                    <Badge variant={tallyStatusVariant(selectedBill.tally_status)}>
                       {selectedBill.tally_status || "not_generated"}
                     </Badge>
-                    {selectedBill.tally_error && (
+                    {selectedBill.tally_error ? (
                       <p className="text-xs text-destructive">{selectedBill.tally_error}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {tallyStatusHint(selectedBill.tally_status)}
+                      </p>
                     )}
                   </div>
                 </div>

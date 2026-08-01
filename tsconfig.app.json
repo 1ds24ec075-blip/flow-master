@@ -19,6 +19,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@tally/*": [
+        "./supabase/functions/_shared/tally/*"
       ]
     },
     "skipLibCheck": true,
