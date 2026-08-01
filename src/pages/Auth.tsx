@@ -54,16 +54,37 @@ const Auth = () => {
       if (session) go();
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        go();
-      } else {
-        setChecking(false);
+    (async () => {
+      // The OAuth broker can return tokens on a full-page redirect. Consume them
+      // explicitly (hash or query) so the session is established either way.
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const query = new URLSearchParams(window.location.search);
+      const access_token = hash.get("access_token") || query.get("access_token");
+      const refresh_token = hash.get("refresh_token") || query.get("refresh_token");
+      const oauthError = hash.get("error_description") || query.get("error_description");
+
+      if (oauthError) {
+        toast.error(oauthError);
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (access_token && refresh_token) {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+        window.history.replaceState({}, "", window.location.pathname);
+        if (error) {
+          toast.error(error.message || "Could not complete sign-in");
+        } else {
+          go();
+          return;
+        }
       }
-    });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) go();
+      else setChecking(false);
+    })();
 
     return () => subscription.unsubscribe();
   }, [navigate]);
+
 
   const handleGoogleSignIn = async () => {
     setLoading("google");
