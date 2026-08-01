@@ -566,10 +566,27 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
     });
   };
 
-  const getImageUrl = (path: string) => {
-    const { data } = supabase.storage.from("bills").getPublicUrl(path);
-    return data.publicUrl;
-  };
+  // The bills bucket is private, so previews use a short-lived signed URL
+  // instead of a permanent public link that anyone could share or guess.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const path = selectedBill?.image_url;
+    if (!path) {
+      setPreviewUrl(null);
+      return;
+    }
+    supabase.storage
+      .from("bills")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (active) setPreviewUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedBill?.image_url]);
 
   const fetchBillLineItems = async (billId: string) => {
     const { data: items, error } = await supabase
