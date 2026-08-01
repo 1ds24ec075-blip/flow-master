@@ -1154,13 +1154,15 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
               {selectedBill.image_url && (
                 <div>
                   <Label>Bill Image</Label>
-                  {selectedBill.image_url.toLowerCase().endsWith('.pdf') ? (
+                  {!previewUrl ? (
+                    <p className="mt-2 text-xs text-muted-foreground">Preparing secure preview…</p>
+                  ) : selectedBill.image_url.toLowerCase().endsWith('.pdf') ? (
                     <div className="mt-2">
-                      <a href={getImageUrl(selectedBill.image_url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">View PDF</a>
+                      <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">View PDF</a>
                     </div>
                   ) : (
                     <img
-                      src={getImageUrl(selectedBill.image_url)}
+                      src={previewUrl}
                       alt="Bill"
                       className="mt-2 rounded-lg border max-w-full h-auto"
                     />
