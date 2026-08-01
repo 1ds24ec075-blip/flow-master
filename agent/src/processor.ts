@@ -21,7 +21,7 @@ import {
 } from "./db.ts";
 import { pollCloud, reportResults } from "./cloud.ts";
 import { ensureStockPrerequisites, fetchExistingMasterNames, pushJob, verifyCompanyLoaded } from "./tally-client.ts";
-import { ensureTallyReady, isTallyRunning } from "./tally-process.ts";
+import { ensureTallyReady, isTallyReachable, isTallyRunning } from "./tally-process.ts";
 import { log } from "./logger.ts";
 import {
   BILL_STOCK_GROUP_NAME,
@@ -139,6 +139,13 @@ export async function flush(config: AgentConfig, reason: string): Promise<void> 
 
     const pending = readyJobs(config.maxAttempts);
     if (pending.length === 0) {
+      // An idle queue is the normal state, and it used to leave companyLoaded
+      // stuck at its initial false — the status page then reported a company
+      // problem that did not exist. Refresh it while Tally is already up, but
+      // never launch Tally just to answer a status question.
+      if (state.tallyRunning && (await isTallyReachable(tallyUrl))) {
+        state.companyLoaded = !(await verifyCompanyLoaded(tallyUrl, companyName));
+      }
       await drainReports(config);
       state.lastError = cloudError;
       return;
