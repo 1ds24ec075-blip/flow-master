@@ -212,6 +212,12 @@ export type Database = {
           is_duplicate: boolean | null
           is_verified: boolean | null
           payment_status: string
+          tally_error: string | null
+          tally_json: Json | null
+          tally_queued_at: string | null
+          tally_status: string | null
+          tally_uploaded_at: string | null
+          tally_xml: string | null
           total_amount: number
           updated_at: string
           vendor_gst: string | null
@@ -235,6 +241,12 @@ export type Database = {
           is_duplicate?: boolean | null
           is_verified?: boolean | null
           payment_status?: string
+          tally_error?: string | null
+          tally_json?: Json | null
+          tally_queued_at?: string | null
+          tally_status?: string | null
+          tally_uploaded_at?: string | null
+          tally_xml?: string | null
           total_amount?: number
           updated_at?: string
           vendor_gst?: string | null
@@ -258,6 +270,12 @@ export type Database = {
           is_duplicate?: boolean | null
           is_verified?: boolean | null
           payment_status?: string
+          tally_error?: string | null
+          tally_json?: Json | null
+          tally_queued_at?: string | null
+          tally_status?: string | null
+          tally_uploaded_at?: string | null
+          tally_xml?: string | null
           total_amount?: number
           updated_at?: string
           vendor_gst?: string | null
@@ -1986,6 +2004,51 @@ export type Database = {
         }
         Relationships: []
       }
+      tally_agents: {
+        Row: {
+          agent_version: string | null
+          company_loaded: boolean
+          company_name: string
+          created_at: string
+          id: string
+          last_error: string | null
+          last_seen_at: string | null
+          name: string
+          revoked_at: string | null
+          tally_running: boolean
+          tally_url: string
+          token_hash: string
+        }
+        Insert: {
+          agent_version?: string | null
+          company_loaded?: boolean
+          company_name: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_seen_at?: string | null
+          name: string
+          revoked_at?: string | null
+          tally_running?: boolean
+          tally_url?: string
+          token_hash: string
+        }
+        Update: {
+          agent_version?: string | null
+          company_loaded?: boolean
+          company_name?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_seen_at?: string | null
+          name?: string
+          revoked_at?: string | null
+          tally_running?: boolean
+          tally_url?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       tally_bridges: {
         Row: {
           api_key: string
@@ -2083,6 +2146,77 @@ export type Database = {
             columns: ["bridge_id"]
             isOneToOne: false
             referencedRelation: "tally_bridges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tally_sync_queue: {
+        Row: {
+          agent_id: string | null
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          depends_on_guids: string[]
+          id: string
+          job_type: string
+          last_error: string | null
+          max_attempts: number
+          payload_json: Json
+          priority: number
+          retryable: boolean
+          schema_version: number
+          source_id: string | null
+          source_table: string | null
+          status: string
+          synced_at: string | null
+          tally_guid: string
+        }
+        Insert: {
+          agent_id?: string | null
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          depends_on_guids?: string[]
+          id?: string
+          job_type: string
+          last_error?: string | null
+          max_attempts?: number
+          payload_json: Json
+          priority?: number
+          retryable?: boolean
+          schema_version?: number
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          synced_at?: string | null
+          tally_guid: string
+        }
+        Update: {
+          agent_id?: string | null
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          depends_on_guids?: string[]
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          max_attempts?: number
+          payload_json?: Json
+          priority?: number
+          retryable?: boolean
+          schema_version?: number
+          source_id?: string | null
+          source_table?: string | null
+          status?: string
+          synced_at?: string | null
+          tally_guid?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tally_sync_queue_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "tally_agents"
             referencedColumns: ["id"]
           },
         ]
@@ -2350,7 +2484,39 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_tally_jobs: {
+        Args: { p_agent_id: string; p_limit?: number }
+        Returns: {
+          agent_id: string | null
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          depends_on_guids: string[]
+          id: string
+          job_type: string
+          last_error: string | null
+          max_attempts: number
+          payload_json: Json
+          priority: number
+          retryable: boolean
+          schema_version: number
+          source_id: string | null
+          source_table: string | null
+          status: string
+          synced_at: string | null
+          tally_guid: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "tally_sync_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      reap_stale_tally_jobs: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
     }
     Enums: {
       approval_status: "pending" | "approved" | "rejected"
