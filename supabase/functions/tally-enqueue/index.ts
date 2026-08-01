@@ -117,8 +117,13 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("tally-enqueue failed:", message);
 
-    // A validation failure is the user's data problem, not a server fault.
-    const status = error instanceof TallyValidationError ? 422 : 500;
+    // A validation failure is the user's data problem, not a server fault, and
+    // an auth failure must not read as one either — clients retry 5xx.
+    const status = error instanceof TallyValidationError
+      ? 422
+      : message === "Authentication required"
+        ? 401
+        : 500;
     return new Response(JSON.stringify({ error: message }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
