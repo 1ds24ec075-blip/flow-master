@@ -9,7 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { corsHeaders, json, preflight } from "../_shared/http.ts";
-import { serviceClient } from "../_shared/agent-auth.ts";
+import { serviceClient, requireUserOrService } from "../_shared/agent-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { TallyValidationError, isVoucherJob, isLedgerMaster } from "../_shared/tally/types.ts";
 import type { JobPayload, JobType } from "../_shared/tally/types.ts";
@@ -23,6 +23,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
 
   try {
+    await requireUserOrService(req);
+
     const { billId, agentId } = await req.json();
     if (!billId) throw new Error("billId is required");
 

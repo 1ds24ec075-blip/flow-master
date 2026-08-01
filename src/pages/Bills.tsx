@@ -400,10 +400,15 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
         const supabaseKey =
           import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+        // The session token, not the anon key: the anon key ships in this bundle,
+        // so sending it would leave the endpoint open to anyone.
+        const { data: session } = await supabase.auth.getSession();
+        if (!session.session) throw new Error("Please sign in to send bills to Tally");
+
         const response = await fetch(`${supabaseUrl}/functions/v1/tally-enqueue`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${supabaseKey}`,
+            Authorization: `Bearer ${session.session.access_token}`,
             apikey: supabaseKey,
             "Content-Type": "application/json",
           },

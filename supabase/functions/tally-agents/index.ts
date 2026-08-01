@@ -1,15 +1,18 @@
 /**
  * Agent onboarding: mint, list and revoke per-installation tokens.
  *
- * Requires a signed-in user (verify_jwt). The plaintext token is returned
- * exactly once, at creation — only its sha256 is stored, so a lost token has to
- * be replaced rather than recovered.
+ * Requires a genuinely signed-in user — see requireUser. verify_jwt alone would
+ * leave this open to anyone holding the anon key, which ships in the browser
+ * bundle, and minting an agent token is enough to drain the sync queue.
+ *
+ * The plaintext token is returned exactly once, at creation — only its sha256 is
+ * stored, so a lost token has to be replaced rather than recovered.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { json, preflight, sha256Hex } from "../_shared/http.ts";
-import { serviceClient } from "../_shared/agent-auth.ts";
+import { serviceClient, requireUser } from "../_shared/agent-auth.ts";
 
 function mintToken(): string {
   const bytes = new Uint8Array(32);
@@ -22,6 +25,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
 
   try {
+    await requireUser(req);
+
     const supabase = serviceClient();
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const action = body.action ?? (req.method === "GET" ? "list" : "create");
@@ -79,6 +84,6 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("tally-agents failed:", message);
-    return json({ error: message }, 400);
+    return json({ error: message }, message === "Authentication required" ? 401 : 400);
   }
 });
