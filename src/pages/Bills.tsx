@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Upload, Loader2, Receipt, Trash2, Eye, CheckCircle, Pencil, Save, X, AlertTriangle, Copy, Download, Send, FileSpreadsheet } from "lucide-react";
@@ -1076,10 +1077,9 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
                 <div className="space-y-2">
                   <Label>Bill Date</Label>
                   {isEditing ? (
-                    <Input
-                      type="date"
+                    <DateField
                       value={editedBill?.bill_date || ""}
-                      onChange={(e) => setEditedBill(prev => prev ? { ...prev, bill_date: e.target.value } : null)}
+                      onChange={(isoDate) => setEditedBill(prev => prev ? { ...prev, bill_date: isoDate } : null)}
                     />
                   ) : (
                     <p className="text-sm font-medium mt-1">
