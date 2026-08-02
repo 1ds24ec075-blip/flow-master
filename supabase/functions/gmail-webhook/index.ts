@@ -1,3 +1,5 @@
+import { PubSubAuthError, verifyPubSubOidcToken } from "../_shared/pubsub-auth.ts";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -9,6 +11,19 @@ Deno.serve(async (req: Request) => {
     return new Response(null, {
       status: 200,
       headers: corsHeaders,
+    });
+  }
+
+  // Fail closed before touching the database: only Google Pub/Sub may call this.
+  try {
+    const { email } = await verifyPubSubOidcToken(req);
+    console.log('Verified Pub/Sub push caller:', email ?? 'unknown');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unauthorized';
+    console.error('gmail-webhook auth rejected:', message);
+    return new Response(JSON.stringify({ error: message }), {
+      status: error instanceof PubSubAuthError ? 401 : 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
