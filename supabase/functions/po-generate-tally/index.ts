@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { requireUserOrService } from "../_shared/agent-auth.ts";
+import { toTallyDate } from "../_shared/tally/serializer.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -33,7 +34,16 @@ function generateTallyJSON(poData: any) {
 
 function generateTallyXML(poData: any) {
   const data = poData.reviewed_data || poData.extracted_data;
-  
+
+  // Tally's <DATE> is YYYYMMDD. po_date arrives as an ISO date (YYYY-MM-DD),
+  // and Tally reads a dashed value as no date at all — it rejects the voucher
+  // with "Voucher date is missing" rather than reporting a parse error. Reuse
+  // the shared converter so this cannot drift from the serializer again.
+  const voucherDate = toTallyDate(data.po_date);
+  if (!voucherDate) {
+    throw new Error(`PO date "${data.po_date}" is missing or unparseable`);
+  }
+
   const itemsXML = data.items?.map((item: any) => `
     <INVENTORYENTRIES.LIST>
       <STOCKITEMNAME>${item.item_name}</STOCKITEMNAME>
@@ -57,7 +67,7 @@ function generateTallyXML(poData: any) {
       <REQUESTDATA>
         <TALLYMESSAGE>
           <VOUCHER REMOTEID="" VCHKEY="" VCHTYPE="Purchase" ACTION="Create">
-            <DATE>${data.po_date}</DATE>
+            <DATE>${voucherDate}</DATE>
             <VOUCHERNUMBER>${data.po_number}</VOUCHERNUMBER>
             <PARTYLEDGERNAME>${data.client_name}</PARTYLEDGERNAME>
             <REFERENCE>${data.po_number}</REFERENCE>
