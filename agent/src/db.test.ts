@@ -149,3 +149,24 @@ test("re-claiming a pending job updates it rather than duplicating", () => {
   assert.equal(ready.length, 1, "one row per GUID");
   assert.equal(ready[0].id, "job-master-reclaimed");
 });
+
+test("an already-delivered job handed back by the cloud is re-reported, not re-pushed", () => {
+  upsertJobs([masterJob]);
+  markSuccess(readyJobs(3)[0]);
+  markReported(unreportedResults().map((result) => result.id));
+  assert.equal(unreportedResults().length, 0, "settled after the first report");
+
+  // Re-enqueueing a bill re-arms every master it depends on, so the cloud
+  // offers this one again even though Tally already has it.
+  upsertJobs([{ ...masterJob, id: "job-master-reoffered", attempts: 1 }]);
+
+  assert.equal(readyJobs(3).length, 0, "still must not be pushed to Tally twice");
+  const pending = unreportedResults();
+  assert.equal(pending.length, 1, "but the cloud has to be told again");
+  assert.equal(pending[0].status, "success");
+  assert.equal(pending[0].id, "job-master-reoffered", "reported against the row the cloud handed us");
+
+  // Once acknowledged it settles again instead of looping.
+  markReported(pending.map((result) => result.id));
+  assert.equal(unreportedResults().length, 0);
+});

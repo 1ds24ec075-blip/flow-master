@@ -107,7 +107,16 @@ export function upsertJobs(jobs: Array<Omit<LocalJob, "status" | "reported" | "r
       payload_json = excluded.payload_json,
       depends_on_guids = excluded.depends_on_guids,
       attempts = excluded.attempts,
-      status = CASE WHEN sync_queue.status = 'success' THEN 'success' ELSE 'pending' END
+      status = CASE WHEN sync_queue.status = 'success' THEN 'success' ELSE 'pending' END,
+      -- Being handed a job we have already delivered means the cloud does not
+      -- know that yet -- re-enqueueing a bill re-arms every master it depends
+      -- on, including ones already in Tally. Such a job is never pushed again
+      -- (readyJobs skips 'success'), so unless the reported flag is cleared
+      -- here nothing ever tells the cloud, it reaps the claim back to
+      -- 'pending', and hands it out again every cycle forever. Clearing it
+      -- queues one more success report, after which the cloud marks the row
+      -- done and stops offering it.
+      reported = CASE WHEN sync_queue.status = 'success' THEN 0 ELSE sync_queue.reported END
   `);
 
   let written = 0;
