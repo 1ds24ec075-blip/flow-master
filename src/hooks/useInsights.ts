@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Alert {
   id: string;
@@ -49,23 +50,15 @@ export function useInsights() {
   return useQuery<InsightsResponse>({
     queryKey: ["business-insights"],
     queryFn: async () => {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const { data, error } = await supabase.functions.invoke<InsightsResponse>(
+        "generate-insights",
+        { body: { type: "dashboard" } }
+      );
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/generate-insights`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ type: 'dashboard' }),
-      });
+      if (error) throw error;
+      if (!data) throw new Error("Failed to fetch insights");
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch insights');
-      }
-
-      return response.json();
+      return data;
     },
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
     refetchInterval: 10 * 60 * 1000, // Refetch every 10 minutes
