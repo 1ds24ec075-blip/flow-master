@@ -492,16 +492,18 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
     const visionApiKey = Deno.env.get('GOOGLE_VISION_API_KEY') || Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('VISION_API_KEY');
 
     console.log('Environment check:', {
       hasSupabaseUrl: !!supabaseUrl,
       hasSupabaseKey: !!supabaseKey,
+      hasLovableApiKey: !!lovableApiKey,
       hasVisionApiKey: !!visionApiKey,
     });
 
-    if (!visionApiKey) {
-      throw new Error('GOOGLE_VISION_API_KEY is not configured');
+    if (!lovableApiKey && !visionApiKey) {
+      throw new Error('No extraction engine configured (LOVABLE_API_KEY missing)');
     }
 
     if (!supabaseUrl || !supabaseKey) {
@@ -535,59 +537,132 @@ Deno.serve(async (req: Request) => {
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    const binString = Array.from(bytes, (byte) =>
-      String.fromCodePoint(byte),
-    ).join("");
+    let binString = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binString += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
     const base64 = btoa(binString);
 
-    console.log('Image encoded, base64 length:', base64.length, 'characters');
-    console.log('Running extraction with Google Vision OCR...');
+    const mimeType = fileData.type
+      || (String(bill.image_url).toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
-    const visionResponse = await fetch(
-      `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+    console.log('Image encoded, base64 length:', base64.length, 'mime:', mimeType);
+
+    let extracted: any = null;
+
+    // ---- Primary engine: Gemini 2.5 Flash via Lovable AI Gateway ----
+    if (lovableApiKey) {
+      try {
+        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${lovableApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You extract structured data from Indian supplier bills/invoices/receipts. ' +
+                  'Return ONLY JSON with this exact shape: {"bill_number":string|null,"vendor_name":string|null,' +
+                  '"vendor_gst":string|null,"vendor_tin":string|null,"bill_date":"YYYY-MM-DD"|null,' +
+                  '"subtotal":number,"tax_amount":number,"total_amount":number,"currency":string,' +
+                  '"payment_method":string|null,"confidence":number,' +
+                  '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number,"amount":number}]}. ' +
+                  'vendor_gst must be a valid 15-character GSTIN or null. Amounts are plain numbers without symbols or commas. ' +
+                  'confidence is 0-100. Never invent values: use null/0 when not present on the document.',
+              },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: 'Extract all bill details and line items from this document.' },
+                  { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (aiResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
+        if (aiResponse.status === 402) throw new Error('AI credits exhausted. Please add credits to continue.');
+        if (!aiResponse.ok) {
+          throw new Error(`AI gateway returned ${aiResponse.status}: ${await aiResponse.text()}`);
+        }
+
+        const aiData = await aiResponse.json();
+        const content = aiData.choices?.[0]?.message?.content ?? '';
+        const jsonText = content.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+        const parsed = JSON.parse(jsonText);
+
+        extracted = {
+          bill_number: parsed.bill_number ?? null,
+          vendor_name: parsed.vendor_name ?? null,
+          vendor_gst: parsed.vendor_gst ?? null,
+          vendor_tin: parsed.vendor_tin ?? null,
+          bill_date: parsed.bill_date ?? null,
+          subtotal: Number(parsed.subtotal) || 0,
+          tax_amount: Number(parsed.tax_amount) || 0,
+          total_amount: Number(parsed.total_amount) || 0,
+          currency: parsed.currency || 'INR',
+          payment_method: parsed.payment_method ?? null,
+          items: Array.isArray(parsed.items) ? parsed.items : [],
+          confidence: Number(parsed.confidence) || 85,
+          extraction_notes: 'Extracted with Gemini 2.5 Flash.',
+        };
+
+        console.log('Gemini extraction succeeded');
+      } catch (aiError) {
+        console.error('Gemini extraction failed:', aiError);
+        if (!visionApiKey) throw aiError;
+      }
+    }
+
+    // ---- Fallback engine: Google Vision OCR + regex parsing ----
+    if (!extracted && visionApiKey) {
+      console.log('Falling back to Google Vision OCR...');
+      const visionResponse = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: { content: base64 },
+                features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }],
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          requests: [
-            {
-              image: { content: base64 },
-              features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }],
-            },
-          ],
-        }),
-      },
-    );
+      );
 
-    console.log('Google Vision response status:', visionResponse.status, visionResponse.statusText);
-
-    if (!visionResponse.ok) {
-      const errorText = await visionResponse.text();
-      console.error('Google Vision error response:', errorText);
-
-      if (visionResponse.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
+      if (!visionResponse.ok) {
+        const errorText = await visionResponse.text();
+        console.error('Google Vision error response:', errorText);
+        if (visionResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
+        throw new Error(`Google Vision returned ${visionResponse.status}: ${errorText}`);
       }
 
-      throw new Error(`Google Vision returned ${visionResponse.status}: ${errorText}`);
+      const visionData = await visionResponse.json();
+      const visionError = visionData.responses?.[0]?.error;
+      if (visionError) {
+        throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
+      }
+
+      const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text
+        || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
+
+      if (!ocrText) throw new Error('Google Vision did not return readable text for this bill');
+
+      console.log('Google Vision OCR text length:', ocrText.length);
+      extracted = parseBillFromOcrText(ocrText);
     }
 
-    const visionData = await visionResponse.json();
-    const visionError = visionData.responses?.[0]?.error;
-    if (visionError) {
-      throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
-    }
+    if (!extracted) throw new Error('Extraction failed: no engine returned data');
 
-    const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
-
-    if (!ocrText) {
-      throw new Error('Google Vision did not return readable text for this bill');
-    }
-
-    console.log('Google Vision OCR text length:', ocrText.length);
-    const extracted = parseBillFromOcrText(ocrText);
 
     console.log('Extraction completed:', {
       vendor: extracted.vendor_name,
