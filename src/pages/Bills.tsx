@@ -368,12 +368,21 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const updateBillMutation = useMutation({
     mutationFn: async ({ billId, updates }: { billId: string; updates: Partial<Bill> }) => {
-      const { error } = await supabase
+      // .select() matters: without it an UPDATE that matches no row still comes
+      // back error-free, and the edit is reported as saved when nothing changed.
+      // RLS filtering out the row looks exactly like success otherwise.
+      const { data, error } = await supabase
         .from("bills" as any)
         .update(updates as any)
-        .eq("id", billId);
+        .eq("id", billId)
+        .select("id");
 
       if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error(
+          "Nothing was saved — the bill may have been deleted, or your session may no longer have permission to edit it.",
+        );
+      }
     },
     onSuccess: () => {
       toast.success("Bill updated successfully");
@@ -554,14 +563,34 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const handleSaveEdit = () => {
     if (!selectedBill || !editedBill) return;
 
+    const vendorName = editedBill.vendor_name.trim();
+    if (!vendorName) {
+      toast.error("Vendor name is required");
+      return;
+    }
+
+    // parseFloat("") and parseFloat("nonsense") are both NaN, and the old
+    // `|| 0` turned either into a saved zero — clearing the amount looked like
+    // a successful save and then failed much later at "Bill has no valid
+    // amount". Reject it here instead.
+    const totalAmount = Number(editedBill.total_amount);
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+      toast.error("Enter a total amount greater than zero");
+      return;
+    }
+
+    // Trimmed because the GST trigger matches an anchored pattern, so a stray
+    // space fails the whole UPDATE with a raw Postgres error.
+    const vendorGst = editedBill.vendor_gst.trim();
+
     updateBillMutation.mutate({
       billId: selectedBill.id,
       updates: {
-        bill_number: editedBill.bill_number || null,
-        vendor_name: editedBill.vendor_name,
-        vendor_gst: editedBill.vendor_gst || null,
+        bill_number: editedBill.bill_number.trim() || null,
+        vendor_name: vendorName,
+        vendor_gst: vendorGst || null,
         bill_date: editedBill.bill_date || null,
-        total_amount: parseFloat(editedBill.total_amount) || 0,
+        total_amount: totalAmount,
         payment_status: editedBill.payment_status,
       } as any,
     });
