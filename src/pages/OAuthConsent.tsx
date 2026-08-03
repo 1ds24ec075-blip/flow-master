@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +34,7 @@ export default function OAuthConsent() {
   useEffect(() => {
     let active = true;
     (async () => {
-      if (!authorizationId) return setError("Missing authorization_id");
+      if (!authorizationId) return;
       const { data: sess } = await supabase.auth.getSession();
       if (!sess.session) {
         const next = window.location.pathname + window.location.search;
@@ -69,6 +69,32 @@ export default function OAuthConsent() {
     const target = data?.redirect_url ?? data?.redirect_to;
     if (!target) { setBusy(false); return setError("No redirect returned by the authorization server."); }
     window.location.href = target;
+  }
+
+  // Reached without an authorization_id, so there is no consent to grant. Say so
+  // and offer a way out rather than bouncing to the dashboard silently — a
+  // truncated or expired connect link is otherwise indistinguishable from the
+  // app just ignoring the click.
+  if (!authorizationId) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Nothing to authorize</CardTitle>
+            <CardDescription>
+              This page opens only when an external app asks for access. The link you followed has
+              no authorization reference — it has probably expired, or was copied incompletely.
+              Start the connection again from that app.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link to="/">Back to dashboard</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
   }
 
   if (error) {

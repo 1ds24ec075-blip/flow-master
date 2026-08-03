@@ -24,6 +24,14 @@ function safeNext(raw: string | null): string {
   return "";
 }
 
+function isValidOAuthConsentTarget(target: string): boolean {
+  try {
+    const url = new URL(target, window.location.origin);
+    return url.pathname === "/.lovable/oauth/consent" && Boolean(url.searchParams.get("authorization_id"));
+  } catch {
+    return false;
+  }
+}
 const Auth = () => {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -44,7 +52,11 @@ const Auth = () => {
       const target = sessionStorage.getItem(NEXT_KEY) || "/";
       sessionStorage.removeItem(NEXT_KEY);
       if (target.startsWith("/.lovable/")) {
-        window.location.href = target;
+        if (isValidOAuthConsentTarget(target)) {
+          window.location.href = target;
+        } else {
+          navigate("/", { replace: true });
+        }
       } else {
         navigate(target, { replace: true });
       }
