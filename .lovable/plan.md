@@ -1,64 +1,49 @@
-## Multi-tenant per-user Gmail OAuth
+# Migrating off Lovable Cloud to your own Supabase project
 
-Convert the current single-tenant Gmail integration into a per-user OAuth system where each MSME connects their own inbox, production-ready for public launch.
+## The constraint
 
-### Phase 1 — Database
+Once Lovable Cloud is enabled on a project it cannot be disconnected or repointed at an external Supabase project. So the migration is a **fork**: a fresh Lovable project (or your own repo outside Lovable) connected to your Supabase account, with the schema, data, functions and secrets moved across. This project keeps running untouched until you cut over.
 
-Migration on `gmail_integrations`:
-- Add `user_id uuid` referencing `auth.users(id) ON DELETE CASCADE` (nullable for now to preserve the existing row).
-- Add unique index on `(user_id, email_address)`.
-- Drop the permissive `Allow all operations` policy.
-- Add strict per-user RLS policies (SELECT/INSERT/UPDATE/DELETE) using `auth.uid() = user_id`.
-- Same treatment on `processed_emails`: add `user_id`, RLS scoped via the parent integration.
+Two viable targets — pick one:
 
-### Phase 2 — Edge functions
+- **A. New Lovable project + Supabase connector** — you keep building in Lovable, but the backend is your Supabase org (own dashboard, own billing, own instance sizing, SQL editor, PITR, read replicas).
+- **B. Self-hosted repo** — export code to GitHub, run Vite yourself (Vercel/Netlify), point it at your Supabase project. Full control, no Lovable runtime.
 
-**`gmail-auth-start`**
-- Require caller JWT, extract `user.id`.
-- Sign a short-lived `state` token (HMAC with a server secret) containing `{ user_id, nonce, exp }` and pass it in the Google OAuth URL.
-- Set `verify_jwt = true` for this function.
+## What has to move
 
-**`gmail-auth-callback`**
-- Verify the `state` HMAC and expiry; reject on mismatch.
-- Exchange code → tokens, fetch userinfo.
-- Upsert by `(user_id, email_address)` instead of by email alone.
-- Redirect back to `/gmail-integration` with success/error.
+| Piece | Size here | How it moves |
+| --- | --- | --- |
+| Schema | 59 migration files | Re-run migrations in order against the new project |
+| Data | all business tables | `pg_dump --data-only` export from Cloud, `psql` restore |
+| Edge functions | 32 functions + `_shared` | Deploy from the repo with the Supabase CLI |
+| Storage | `bills`, `po-documents` (private) | Recreate buckets + policies, copy objects via a script |
+| Auth users | Google + email/password accounts | Export `auth.users`, re-import; passwords survive, OAuth links re-establish on next sign-in |
+| Secrets | ~18 project secrets | Re-entered by hand in the new project (values are never readable from here) |
+| AI calls | 8 functions use Lovable AI | Must be swapped to a direct provider key (see below) |
 
-**`gmail-sync`**
-- Require JWT; load integration by `id` AND `user_id = auth.uid()`.
-- Add token refresh: if `token_expires_at` is past, call Google's token endpoint with `refresh_token`, persist new `access_token` + expiry before listing messages.
-- Same for `gmail-connector-sync` callsites — keep the Lovable connector path untouched but stop using it for end-user inboxes.
+## Migration sequence
 
-### Phase 3 — Frontend (`src/pages/GmailIntegration.tsx`)
-- Require auth; redirect to `/auth` if no session.
-- List only the current user's integrations (RLS handles filtering).
-- "Connect Gmail" button calls `gmail-auth-start` with the user's JWT, then follows the redirect.
-- Show connected email, last sync, sync status, and Disconnect.
-- Log connect/disconnect/sync events to `agent_activity_feed`.
+1. **Create the target Supabase project** in your own org, correct region and instance size, and note its URL / anon key / service-role key / DB password.
+2. **Export the schema and data from Cloud.** Use Cloud → Advanced → Export data for the dataset, and take the 59 migrations from `supabase/migrations/` as the schema source of truth. Verify row counts per table before and after.
+3. **Apply schema** to the new project: migrations in filename order, then confirm every `public` table has its GRANTs, RLS enabled, and the same policies (the hardened `authenticated`-only model, `anon` revoked).
+4. **Restore data** with foreign-key-safe ordering (masters → documents → line items → ledger/queue tables). Disable the ledger/liquidity triggers during load so restoring invoices doesn't duplicate ledger entries and liquidity line items, then re-enable them.
+5. **Recreate storage** buckets `bills` and `po-documents` as private, copy objects, reapply bucket policies, and re-check that signed-URL reads work from the app.
+6. **Deploy edge functions** with the Supabase CLI (`supabase functions deploy`), carrying `config.toml` verify_jwt settings verbatim — the agent endpoints (`tally-agent-poll`, `tally-agent-report`, `gmail-webhook`) intentionally run without JWT verification and rely on their own token/OIDC checks.
+7. **Re-enter secrets** in the new project, then rebind: Google OAuth client (add the new callback URL and new project's auth callback), Microsoft/Excel OAuth, Gmail Pub/Sub push endpoint, SMTP credentials, and the Tally agent token.
+8. **Replace Lovable AI** in the 8 AI functions (`bill-extract`, `process-po`, `smart-segregation`, `generate-insights`, `tally-ai-chat`, `cash-crisis-predictor`, `morning-brief`, `gmail-connector-sync`). Outside Lovable there is no `LOVABLE_API_KEY`, so these need a direct Gemini (or OpenAI) key and the gateway base URL swapped for the provider's endpoint.
+9. **Reconfigure the frontend**: `VITE_SUPABASE_URL` / anon key / project ref, the MCP issuer URL (`src/lib/mcp/index.ts` hardcodes the current project ref), and the Tally agent's `.env`.
+10. **Verify before cutover**: sign in with Google, upload and extract a bill, generate Tally XML, run a Gmail sync, mint an agent token and push one voucher, then run a security scan on the new backend.
+11. **Cut over**: freeze writes on the old backend, re-export the delta, point DNS/published URL at the new deployment, keep Cloud read-only as a rollback for a week.
 
-### Phase 4 — Auth + legal pages
-- Confirm `src/pages/Auth.tsx` works (email/password + Google) — already in place.
-- Add `/privacy` and `/terms` route stubs with placeholder MSME-appropriate copy you can edit. Required by Google verification.
-- Add a Gmail-specific data-handling disclosure section on `/privacy` (read-only scope, no resale, deletion on disconnect).
+## Things that will bite
 
-### Phase 5 — Google Cloud setup doc
-Create `GOOGLE_OAUTH_SETUP.md` covering:
-- OAuth consent screen → External, Production.
-- Required scopes: `gmail.readonly`, `userinfo.email`, `userinfo.profile`.
-- Authorized redirect URI: `https://pskuxhpfohmxlhmupeoz.supabase.co/functions/v1/gmail-auth-callback`.
-- Authorized JavaScript origins: preview + published + custom domains.
-- App homepage, privacy, and terms URLs to paste in.
-- CASA assessment checklist for the restricted `gmail.readonly` scope (4–6 week timeline).
-- How to add pilot MSMEs as Test Users while verification is pending.
+- **Auth user IDs must be preserved.** Rows all over the schema reference `auth.users` ids; import users with their original UUIDs or every ownership link breaks.
+- **Triggers duplicate data on restore.** The ledger, liquidity and mismatch-alert triggers fire on INSERT — load with them disabled.
+- **Google OAuth** needs the new project's auth callback added to the Google console before anyone can sign in on the new backend.
+- **Gmail Pub/Sub** push subscription points at the old function URL and must be re-pointed, or webhook-driven sync silently stops.
+- **Secrets can't be read out of here** — the service-role key and DB password of the Cloud backend are not retrievable, so anything derived from them has to be regenerated on the new side.
+- **This project stays on Cloud.** Restoring an old version does not remove Cloud; the fork is the only path.
 
-### Technical notes
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are already in secrets — no new secrets needed.
-- A new `OAUTH_STATE_SECRET` will be added for HMAC signing of the `state` parameter.
-- The existing single-tenant row in `gmail_integrations` will be left intact with `user_id = null` and excluded from the UI.
-- `processed_emails` will be backfilled with `user_id = null` for the existing row; new rows always carry `user_id`.
+## What I need from you to start
 
-### Out of scope
-- Gmail push notifications (Pub/Sub watch). Polling stays for now.
-- Per-user per-mailbox subject-filter customization UI (defaults remain).
-
-Approve and I'll build it.
+Which target (A or B), and whether you want me to prepare the migration artifacts here — a consolidated schema SQL file, an ordered data-load script with trigger toggles, a storage copy script, and a secrets checklist — so you can run them against your Supabase project.
