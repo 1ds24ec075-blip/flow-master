@@ -2518,6 +2518,41 @@ export type Database = {
         Args: { p_older_than?: string }
         Returns: number
       }
+      record_tally_job_result: {
+        Args: {
+          p_agent_id: string
+          p_error: string
+          p_id: string
+          p_retryable: boolean
+          p_success: boolean
+        }
+        Returns: {
+          agent_id: string | null
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          depends_on_guids: string[]
+          id: string
+          job_type: string
+          last_error: string | null
+          max_attempts: number
+          payload_json: Json
+          priority: number
+          retryable: boolean
+          schema_version: number
+          source_id: string | null
+          source_table: string | null
+          status: string
+          synced_at: string | null
+          tally_guid: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "tally_sync_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
     }
     Enums: {
       approval_status: "pending" | "approved" | "rejected"
