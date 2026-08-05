@@ -1,49 +1,59 @@
-# Migrating off Lovable Cloud to your own Supabase project
+# Tally attempts migration + agent function deploy
 
-## The constraint
+Ordered, verified rollout against the live backend. Step 1 is already done and its results are recorded below.
 
-Once Lovable Cloud is enabled on a project it cannot be disconnected or repointed at an external Supabase project. So the migration is a **fork**: a fresh Lovable project (or your own repo outside Lovable) connected to your Supabase account, with the schema, data, functions and secrets moved across. This project keeps running untouched until you cut over.
+## Waiting on you
 
-Two viable targets — pick one:
+Paste the contents of `20260804120000_tally_attempts_count_deliveries.sql`. It is not present in this project (`supabase/migrations/` ends at `20260801174908_…`), so there is nothing for me to apply yet. I will run exactly what you paste — no additions, no reordering.
 
-- **A. New Lovable project + Supabase connector** — you keep building in Lovable, but the backend is your Supabase org (own dashboard, own billing, own instance sizing, SQL editor, PITR, read replicas).
-- **B. Self-hosted repo** — export code to GitHub, run Vite yourself (Vercel/Netlify), point it at your Supabase project. Full control, no Lovable runtime.
+The other two files you named are also absent, so `add_companies_and_igst` and `index_delivered_masters` stay unapplied by default. I will not author or apply them.
 
-## What has to move
+## Step 1 — Pre-flight verification (complete)
 
-| Piece | Size here | How it moves |
-| --- | --- | --- |
-| Schema | 59 migration files | Re-run migrations in order against the new project |
-| Data | all business tables | `pg_dump --data-only` export from Cloud, `psql` restore |
-| Edge functions | 32 functions + `_shared` | Deploy from the repo with the Supabase CLI |
-| Storage | `bills`, `po-documents` (private) | Recreate buckets + policies, copy objects via a script |
-| Auth users | Google + email/password accounts | Export `auth.users`, re-import; passwords survive, OAuth links re-establish on next sign-in |
-| Secrets | ~18 project secrets | Re-entered by hand in the new project (values are never readable from here) |
-| AI calls | 8 functions use Lovable AI | Must be swapped to a direct provider key (see below) |
+Read-only queries against production:
 
-## Migration sequence
+- **Jobs holding burned attempts with no recorded error:** 3
+- **Exhausted pending job carrying an error:** one row — `5031b02e-b01c-4604-8690-3d5d1c4057ff`, `voucher`, attempts 3 of 3, `The date 1-3-2026 is Out of Range!`
+- **Bill blocked behind it:** one row — `1d6c6795-9ec7-4e9c-9434-391785e2295e`, `SO-2026-001`, `tally_status = 'queued'`
 
-1. **Create the target Supabase project** in your own org, correct region and instance size, and note its URL / anon key / service-role key / DB password.
-2. **Export the schema and data from Cloud.** Use Cloud → Advanced → Export data for the dataset, and take the 59 migrations from `supabase/migrations/` as the schema source of truth. Verify row counts per table before and after.
-3. **Apply schema** to the new project: migrations in filename order, then confirm every `public` table has its GRANTs, RLS enabled, and the same policies (the hardened `authenticated`-only model, `anon` revoked).
-4. **Restore data** with foreign-key-safe ordering (masters → documents → line items → ledger/queue tables). Disable the ledger/liquidity triggers during load so restoring invoices doesn't duplicate ledger entries and liquidity line items, then re-enable them.
-5. **Recreate storage** buckets `bills` and `po-documents` as private, copy objects, reapply bucket policies, and re-check that signed-URL reads work from the app.
-6. **Deploy edge functions** with the Supabase CLI (`supabase functions deploy`), carrying `config.toml` verify_jwt settings verbatim — the agent endpoints (`tally-agent-poll`, `tally-agent-report`, `gmail-webhook`) intentionally run without JWT verification and rely on their own token/OIDC checks.
-7. **Re-enter secrets** in the new project, then rebind: Google OAuth client (add the new callback URL and new project's auth callback), Microsoft/Excel OAuth, Gmail Pub/Sub push endpoint, SMTP credentials, and the Tally agent token.
-8. **Replace Lovable AI** in the 8 AI functions (`bill-extract`, `process-po`, `smart-segregation`, `generate-insights`, `tally-ai-chat`, `cash-crisis-predictor`, `morning-brief`, `gmail-connector-sync`). Outside Lovable there is no `LOVABLE_API_KEY`, so these need a direct Gemini (or OpenAI) key and the gateway base URL swapped for the provider's endpoint.
-9. **Reconfigure the frontend**: `VITE_SUPABASE_URL` / anon key / project ref, the MCP issuer URL (`src/lib/mcp/index.ts` hardcodes the current project ref), and the Tally agent's `.env`.
-10. **Verify before cutover**: sign in with Google, upload and extract a bill, generate Tally XML, run a Gmail sync, mint an agent token and push one voucher, then run a security scan on the new backend.
-11. **Cut over**: freeze writes on the old backend, re-export the delta, point DNS/published URL at the new deployment, keep Cloud read-only as a rollback for a week.
+Confirmations you asked for:
 
-## Things that will bite
+- **Queries 2 and 3 describe the same set.** Queue row `5031b02e` carries `source_table = 'bills'` and `source_id = 1d6c6795…`, which is precisely the bill returned by query 3. One job, one bill.
+- **No `success` row is in scope.** The queue holds 16 rows: 11 `success` (max attempts 1) and 5 `pending`. Every filter is restricted to `pending`/`in_progress`.
 
-- **Auth user IDs must be preserved.** Rows all over the schema reference `auth.users` ids; import users with their original UUIDs or every ownership link breaks.
-- **Triggers duplicate data on restore.** The ledger, liquidity and mismatch-alert triggers fire on INSERT — load with them disabled.
-- **Google OAuth** needs the new project's auth callback added to the Google console before anyone can sign in on the new backend.
-- **Gmail Pub/Sub** push subscription points at the old function URL and must be re-pointed, or webhook-driven sync silently stops.
-- **Secrets can't be read out of here** — the service-role key and DB password of the Cloud backend are not retrievable, so anything derived from them has to be regenerated on the new side.
-- **This project stays on Cloud.** Restoring an old version does not remove Cloud; the fork is the only path.
+## Step 2 — Apply the one migration
 
-## What I need from you to start
+Submit the pasted SQL, unmodified, as a single migration for your approval. After it runs I report the actual affected-row counts per statement and check them against the Step 1 preview:
 
-Which target (A or B), and whether you want me to prepare the migration artifacts here — a consolidated schema SQL file, an ordered data-load script with trigger toggles, a storage copy script, and a secrets checklist — so you can run them against your Supabase project.
+- A backfill of the 3 silent-attempt jobs should report 3.
+- A release of the exhausted job should report 1.
+- A corresponding bill status correction should report 1.
+
+If any count diverges from the preview, I stop and show you the discrepancy rather than continuing to Step 3.
+
+## Step 3 — Deploy the two edge functions, in order
+
+1. `tally-agent-poll`
+2. `tally-agent-report`
+
+Sequential, not batched, with the migration already live — `tally-agent-report` writes the columns the migration governs, so it must land last. I confirm each deploy succeeded before starting the next.
+
+Not deployed this round: `tally-enqueue`, `bill-generate-tally`.
+
+## Step 4 — Post-deploy queue state
+
+Run and show every row:
+
+```sql
+SELECT id, job_type, status, attempts, last_error, source_id
+FROM tally_sync_queue
+WHERE status IN ('pending', 'in_progress')
+ORDER BY created_at;
+```
+
+I will not restart or otherwise touch the local Tally agent — that stays your manual step.
+
+## Technical notes
+
+- Migrations here run through the Lovable migration tool, which surfaces the SQL for your approval before execution; there is no file-based apply path, which is why the SQL text itself is needed.
+- I pause for your confirmation between Step 2, Step 3, and Step 4.
