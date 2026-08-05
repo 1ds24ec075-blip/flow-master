@@ -36,24 +36,18 @@ serve(async (req) => {
       const succeeded = result.status === "success";
       const retryable = result.retryable !== false;
 
-      const { data: row, error } = await supabase
-        .from("tally_sync_queue")
-        .update({
-          // A retryable failure goes back to 'pending' so the next flush picks
-          // it up; attempts is already incremented at claim time, and
-          // claim_tally_jobs stops handing it out past max_attempts.
-          status: succeeded ? "success" : retryable ? "pending" : "failed",
-          last_error: succeeded ? null : (result.error ?? "Unknown Tally error"),
-          retryable,
-          synced_at: succeeded ? now : null,
-          claimed_at: null,
-        })
-        .eq("id", result.id)
-        .eq("agent_id", agent.id)
-        .select("id, job_type, source_table, source_id, status, last_error")
-        .maybeSingle();
+      // The increment and the "is this the last attempt?" decision live in one
+      // SQL statement so they cannot interleave with another report.
+      const { data: rows, error } = await supabase.rpc("record_tally_job_result", {
+        p_id: result.id,
+        p_agent_id: agent.id,
+        p_success: succeeded,
+        p_error: succeeded ? null : (result.error ?? "Unknown Tally error"),
+        p_retryable: retryable,
+      });
 
       if (error) throw error;
+      const row = Array.isArray(rows) ? rows[0] : rows;
       if (!row) continue;
       updated += 1;
 
@@ -65,12 +59,16 @@ serve(async (req) => {
             succeeded
               ? { tally_status: "sent", tally_uploaded_at: now, tally_error: null }
               : {
-                  tally_status: retryable ? "queued" : "failed",
+                  // Follow the row's real outcome: a job that has run out of
+                  // attempts is 'failed' in the queue and must not keep
+                  // claiming to be queued on the bill.
+                  tally_status: row.status === "pending" ? "queued" : "failed",
                   tally_error: row.last_error,
                 },
           )
           .eq("id", row.source_id);
       }
+
     }
 
     await supabase
