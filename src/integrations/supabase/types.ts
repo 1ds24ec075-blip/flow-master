@@ -432,6 +432,30 @@ export type Database = {
         }
         Relationships: []
       }
+      companies: {
+        Row: {
+          created_at: string
+          gstin: string
+          id: string
+          name: string
+          state_code: string | null
+        }
+        Insert: {
+          created_at?: string
+          gstin: string
+          id?: string
+          name: string
+          state_code?: string | null
+        }
+        Update: {
+          created_at?: string
+          gstin?: string
+          id?: string
+          name?: string
+          state_code?: string | null
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           created_at: string
@@ -2007,6 +2031,7 @@ export type Database = {
       tally_agents: {
         Row: {
           agent_version: string | null
+          company_id: string | null
           company_loaded: boolean
           company_name: string
           created_at: string
@@ -2021,6 +2046,7 @@ export type Database = {
         }
         Insert: {
           agent_version?: string | null
+          company_id?: string | null
           company_loaded?: boolean
           company_name: string
           created_at?: string
@@ -2035,6 +2061,7 @@ export type Database = {
         }
         Update: {
           agent_version?: string | null
+          company_id?: string | null
           company_loaded?: boolean
           company_name?: string
           created_at?: string
@@ -2047,7 +2074,15 @@ export type Database = {
           tally_url?: string
           token_hash?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tally_agents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tally_bridges: {
         Row: {
