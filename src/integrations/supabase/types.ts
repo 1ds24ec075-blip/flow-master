@@ -196,6 +196,41 @@ export type Database = {
           },
         ]
       }
+      bill_audit_events: {
+        Row: {
+          bill_id: string
+          created_at: string
+          details: Json
+          event: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          bill_id: string
+          created_at?: string
+          details?: Json
+          event: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          bill_id?: string
+          created_at?: string
+          details?: Json
+          event?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_audit_events_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bills: {
         Row: {
           bank_transaction_id: string | null
