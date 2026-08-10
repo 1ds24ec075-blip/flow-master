@@ -15,7 +15,8 @@ import { corsHeaders, json, preflight } from "../_shared/http.ts";
 import { serviceClient } from "../_shared/agent-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { serializeVoucherToXML } from "../_shared/tally/serializer.ts";
-import { TallyValidationError } from "../_shared/tally/types.ts";
+import { loadBillSyncOptions } from "../_shared/tally/context.ts";
+import { TallyValidationError, TallyReviewRequired } from "../_shared/tally/types.ts";
 
 import { requireUserOrService } from "../_shared/agent-auth.ts";
 serve(async (req) => {
@@ -52,22 +53,30 @@ serve(async (req) => {
 
     const { data: lineItems, error: lineItemsError } = await supabase
       .from("expense_line_items")
-      .select("item_description, quantity, unit_price, tax_rate, amount")
+      .select("item_description, quantity, unit_price, tax_rate, amount, hsn_code")
       .eq("bill_id", billId)
       .order("created_at", { ascending: true });
 
     if (lineItemsError) throw lineItemsError;
 
-    const { masters, voucher } = buildBillSyncJobs(bill, lineItems ?? []);
-
     // Rendered here only so the UI can preview/download it. The agent renders
     // its own copy at send time from the queued JSON.
     const { data: agent } = await supabase
       .from("tally_agents")
-      .select("company_name")
+      .select("id, company_name")
       .is("revoked_at", null)
+      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
+
+    if (!agent?.id) {
+      throw new TallyValidationError(
+        "No Tally agent is registered. Install and register the desktop agent before generating Tally data.",
+      );
+    }
+
+    const syncOptions = await loadBillSyncOptions(supabase, agent.id);
+    const { masters, voucher } = buildBillSyncJobs(bill, lineItems ?? [], syncOptions);
 
     const companyName = agent?.company_name ?? "";
     const tallyXml = companyName ? serializeVoucherToXML(voucher, companyName) : null;
@@ -112,6 +121,19 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("bill-generate-tally failed:", message);
+    if (error instanceof TallyReviewRequired) {
+      return new Response(
+        JSON.stringify({
+          error: message,
+          needs_review: true,
+          item_type: error.itemType,
+          raw_name: error.rawName,
+          candidates: error.candidates,
+        }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     return new Response(JSON.stringify({ error: message }), {
       status: error instanceof TallyValidationError ? 422 : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
