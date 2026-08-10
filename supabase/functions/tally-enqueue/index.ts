@@ -11,7 +11,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders, json, preflight } from "../_shared/http.ts";
 import { serviceClient, requireUserOrService } from "../_shared/agent-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
-import { TallyValidationError, isVoucherJob, isLedgerMaster } from "../_shared/tally/types.ts";
+import { loadBillSyncOptions } from "../_shared/tally/context.ts";
+import { TallyValidationError, TallyReviewRequired, isVoucherJob, isLedgerMaster } from "../_shared/tally/types.ts";
 import type { JobPayload, JobType } from "../_shared/tally/types.ts";
 
 function jobTypeFor(payload: JobPayload): JobType {
@@ -61,13 +62,14 @@ serve(async (req) => {
 
     const { data: lineItems, error: lineItemsError } = await supabase
       .from("expense_line_items")
-      .select("item_description, quantity, unit_price, tax_rate, amount")
+      .select("item_description, quantity, unit_price, tax_rate, amount, hsn_code")
       .eq("bill_id", billId)
       .order("created_at", { ascending: true });
 
     if (lineItemsError) throw lineItemsError;
 
-    const { masters, voucher } = buildBillSyncJobs(bill, lineItems ?? []);
+    const syncOptions = await loadBillSyncOptions(supabase, targetAgentId!);
+    const { masters, voucher } = buildBillSyncJobs(bill, lineItems ?? [], syncOptions);
 
     const rows = [...masters, voucher].map((payload) => ({
       agent_id: targetAgentId,
@@ -119,6 +121,19 @@ serve(async (req) => {
 
     // A validation failure is the user's data problem, not a server fault, and
     // an auth failure must not read as one either — clients retry 5xx.
+    if (error instanceof TallyReviewRequired) {
+      return new Response(
+        JSON.stringify({
+          error: message,
+          needs_review: true,
+          item_type: error.itemType,
+          raw_name: error.rawName,
+          candidates: error.candidates,
+        }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const status = error instanceof TallyValidationError
       ? 422
       : message === "Authentication required"
