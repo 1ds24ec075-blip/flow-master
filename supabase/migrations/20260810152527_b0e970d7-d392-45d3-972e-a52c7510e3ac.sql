@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.fill_company_id() FROM PUBLIC, anon, authenticated;

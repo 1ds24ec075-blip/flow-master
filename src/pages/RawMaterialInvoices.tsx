@@ -72,9 +72,10 @@ export default function RawMaterialInvoices() {
   // Mutations
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      // company_id is stamped by the database trigger from the caller's membership.
       const { error } = await supabase.from("raw_material_invoices").insert({
         ...data, amount: parseFloat(data.amount), status: "pending",
-      });
+      } as never);
       if (error) throw error;
     },
     onSuccess: () => {
