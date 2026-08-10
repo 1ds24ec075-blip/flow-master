@@ -95,3 +95,8 @@ verify_jwt = false
 # Minting agent tokens must be behind a signed-in user.
 [functions.tally-agents]
 verify_jwt = true
+
+# A resolution is a human judgment — requireUser needs a real user JWT.
+[functions.resolve-item-match]
+verify_jwt = true
+
