@@ -196,6 +196,41 @@ export type Database = {
           },
         ]
       }
+      bill_audit_events: {
+        Row: {
+          bill_id: string
+          created_at: string
+          details: Json
+          event: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          bill_id: string
+          created_at?: string
+          details?: Json
+          event: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          bill_id?: string
+          created_at?: string
+          details?: Json
+          event?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_audit_events_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bills: {
         Row: {
           bank_transaction_id: string | null
@@ -911,6 +946,57 @@ export type Database = {
             columns: ["preferred_supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_match_resolutions: {
+        Row: {
+          business_id: string
+          id: string
+          item_type: string
+          matched_to_guid: string | null
+          raw_name_normalized: string
+          resolution: string
+          resolved_at: string
+          resolved_by: string
+          source_bill_id: string | null
+        }
+        Insert: {
+          business_id: string
+          id?: string
+          item_type: string
+          matched_to_guid?: string | null
+          raw_name_normalized: string
+          resolution: string
+          resolved_at?: string
+          resolved_by: string
+          source_bill_id?: string | null
+        }
+        Update: {
+          business_id?: string
+          id?: string
+          item_type?: string
+          matched_to_guid?: string | null
+          raw_name_normalized?: string
+          resolution?: string
+          resolved_at?: string
+          resolved_by?: string
+          source_bill_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_match_resolutions_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_match_resolutions_source_bill_id_fkey"
+            columns: ["source_bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
             referencedColumns: ["id"]
           },
         ]
