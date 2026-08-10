@@ -120,21 +120,25 @@ export class TallyValidationError extends Error {
  * `candidates` is what the review UI shows them.
  */
 export class TallyReviewRequired extends Error {
-  readonly itemType: "vendor" | "stock_item";
-  readonly rawName: string;
+  readonly itemType: "vendor" | "stock_item" | null;
+  readonly rawName: string | null;
   readonly candidates: string[];
 
   constructor(
     message: string,
-    details: { itemType: "vendor" | "stock_item"; rawName: string; candidates: string[] },
+    details?:
+      | string[]
+      | { itemType?: "vendor" | "stock_item" | null; rawName?: string | null; candidates?: string[] },
   ) {
     super(message);
     this.name = "TallyReviewRequired";
-    this.itemType = details.itemType;
-    this.rawName = details.rawName;
-    this.candidates = details.candidates;
+    const normalized = Array.isArray(details) ? { candidates: details } : (details ?? {});
+    this.itemType = normalized.itemType ?? null;
+    this.rawName = normalized.rawName ?? null;
+    this.candidates = normalized.candidates ?? [];
   }
 }
+
 
 
 export function isVoucherJob(payload: JobPayload): payload is VoucherJob {
