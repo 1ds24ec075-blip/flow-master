@@ -55,7 +55,8 @@ export default function Suppliers() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase.from("suppliers").insert(data);
+      // company_id is stamped by the database trigger from the caller's membership.
+      const { error } = await supabase.from("suppliers").insert(data as never);
       if (error) throw error;
     },
     onSuccess: () => {

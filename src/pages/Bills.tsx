@@ -38,6 +38,9 @@ import { serializeVoucherToXML } from "@tally/serializer";
 
 // Display-only. The agent gets the authoritative company name from the cloud.
 const TALLY_COMPANY_NAME = "Guhanesh";
+// Manual-download preview only. The sync path reads the real state code from
+// the company record server-side; this mirrors the seeded company (Karnataka).
+const TALLY_COMPANY_STATE_CODE = "29";
 
 interface DuplicateMatchDetails {
   matched_bill_id: string;
@@ -222,7 +225,9 @@ const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
  * renders the XML at send time through this same serializer.
  */
 const buildBillTallyXml = (bill: Bill, items: ExpenseLineItem[]) => {
-  const { voucher } = buildBillSyncJobs(bill, items);
+  const { voucher } = buildBillSyncJobs(bill, items, {
+    companyStateCode: TALLY_COMPANY_STATE_CODE,
+  });
   return serializeVoucherToXML(voucher, TALLY_COMPANY_NAME);
 };
 
