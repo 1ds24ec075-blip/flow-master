@@ -248,8 +248,34 @@ function extractTotalAmount(lines: string[]): number | null {
   ]);
 }
 
-function extractItems(lines: string[]): Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> {
-  const items: Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> = [];
+/**
+ * A bare 4, 6, or 8-digit token on the item's own line — the lengths that
+ * actually occur in the HSN/SAC hierarchy. Deliberately conservative: if more
+ * than one token on the line qualifies, or none do, this returns null rather
+ * than guessing which one is the code, because a wrong HSN silently
+ * misclassifies GST rather than failing loudly.
+ */
+function extractHsnCode(line: string): string | null {
+  const candidates = [...line.matchAll(/\b(\d{8}|\d{6}|\d{4})\b/g)].filter((match) => {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const before = line.slice(Math.max(0, start - 4), start);
+    const after = line.slice(end, end + 3);
+    // Not the integer part of a decimal amount (e.g. the "4500" in "4500.00").
+    if (/^\.\d/.test(after)) return false;
+    // Not immediately preceded by a currency marker.
+    if (/(?:₹|rs\.?|inr)\s*$/i.test(before)) return false;
+    return true;
+  });
+
+  const distinct = [...new Set(candidates.map((match) => match[0]))];
+  return distinct.length === 1 ? distinct[0] : null;
+}
+
+function extractItems(
+  lines: string[],
+): Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number | null; hsn_code: string | null; amount: number }> {
+  const items: Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number | null; hsn_code: string | null; amount: number }> = [];
 
   for (const line of lines) {
     const lowerLine = line.toLowerCase();
@@ -267,6 +293,8 @@ function extractItems(lines: string[]): Array<{ item_description: string; quanti
       continue;
     }
 
+    const hsnCode = extractHsnCode(line);
+
     const description = cleanText(
       line.replace(/(?:₹|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/gi, ' ').replace(/\s+/g, ' '),
     );
@@ -283,7 +311,13 @@ function extractItems(lines: string[]): Array<{ item_description: string; quanti
       item_description: description,
       quantity,
       unit_price: unitPrice,
-      tax_rate: 0,
+      // The lines this parser is allowed to see have already had every
+      // gst/cgst/sgst/tax-labelled line filtered out above, so there is no
+      // text left here a rate could honestly be read from. Left null — same
+      // never-guess rule as hsn_code — rather than defaulted to 0, which is
+      // indistinguishable from a confirmed nil-rated item.
+      tax_rate: null,
+      hsn_code: hsnCode,
       amount,
     });
 
@@ -551,6 +585,12 @@ Deno.serve(async (req: Request) => {
     console.log('Image encoded, base64 length:', base64.length, 'mime:', mimeType);
 
     let extracted: any = null;
+    // Hoisted out of the Vision-only block below so it stays in scope for the
+    // final response: it is only ever assigned when the Gemini path did NOT
+    // run (or failed), which after this fix is the common case, so `ocr_text`
+    // in the debug response will legitimately be null for most bills — that
+    // is correct, not a regression. See ocr_text handling in the response.
+    let ocrText: string | undefined;
 
     // ---- Primary engine: Gemini 2.5 Flash via Lovable AI Gateway ----
     if (lovableApiKey) {
@@ -573,9 +613,14 @@ Deno.serve(async (req: Request) => {
                   '"vendor_gst":string|null,"vendor_tin":string|null,"bill_date":"YYYY-MM-DD"|null,' +
                   '"subtotal":number,"tax_amount":number,"total_amount":number,"currency":string,' +
                   '"payment_method":string|null,"confidence":number,' +
-                  '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number,"amount":number}]}. ' +
+                  '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number|null,"hsn_code":string|null,"amount":number}]}. ' +
                   'vendor_gst must be a valid 15-character GSTIN or null. Amounts are plain numbers without symbols or commas. ' +
-                  'confidence is 0-100. Never invent values: use null/0 when not present on the document.',
+                  'confidence is 0-100. Never invent values: use null/0 when not present on the document. ' +
+                  'For each line item, read tax_rate and hsn_code only from what is printed on that specific line — ' +
+                  'do not copy a rate or code from a different line, and do not apply one bill-wide rate to every item. ' +
+                  'If a line has no visible HSN/SAC code, set hsn_code to null; never fabricate one. ' +
+                  'If a line has no legible tax rate, set tax_rate to null rather than 0 — 0 means you read a ' +
+                  'confirmed nil-rated or exempt line, null means the rate could not be determined.',
               },
               {
                 role: 'user',
@@ -654,7 +699,7 @@ Deno.serve(async (req: Request) => {
         throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
       }
 
-      const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text
+      ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text
         || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
 
       if (!ocrText) throw new Error('Google Vision did not return readable text for this bill');
@@ -682,10 +727,10 @@ Deno.serve(async (req: Request) => {
 
     // Validate GST format before saving - must be 15 chars matching GSTIN pattern
     const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    const validatedGst = extracted.vendor_gst && gstPattern.test(extracted.vendor_gst) 
-      ? extracted.vendor_gst 
+    const validatedGst = extracted.vendor_gst && gstPattern.test(extracted.vendor_gst)
+      ? extracted.vendor_gst
       : null;
-    
+
     // Log GST validation result
     if (extracted.vendor_gst && !validatedGst) {
       console.log('GST validation failed:', extracted.vendor_gst, '- does not match GSTIN format');
@@ -744,7 +789,12 @@ Deno.serve(async (req: Request) => {
         item_description: item.item_description || '',
         quantity: item.quantity || 1,
         unit_price: item.unit_price || 0,
-        tax_rate: item.tax_rate || 0,
+        // ?? not ||: a genuinely-read 0% (nil-rated) must survive as 0 while
+        // "not found" survives as null — they cannot collapse to the same
+        // value, because buildBillSyncJobs in jobs.ts tells taxable and
+        // unknown apart with `tax_rate != null`, and needs both.
+        tax_rate: item.tax_rate ?? null,
+        hsn_code: item.hsn_code ?? null,
         amount: item.amount || 0,
       }));
 
@@ -771,8 +821,10 @@ Deno.serve(async (req: Request) => {
       } : null,
       ...(debugOcr
         ? {
-            ocr_text: ocrText,
-            ocr_text_length: ocrText.length,
+            // null whenever Gemini succeeded — there was no separate OCR step
+            // for this bill, which is expected, not an error.
+            ocr_text: ocrText ?? null,
+            ocr_text_length: ocrText?.length ?? 0,
             parsed_items: extracted.items,
           }
         : {}),
