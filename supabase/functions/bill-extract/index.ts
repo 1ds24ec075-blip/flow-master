@@ -620,7 +620,15 @@ Deno.serve(async (req: Request) => {
                   'do not copy a rate or code from a different line, and do not apply one bill-wide rate to every item. ' +
                   'If a line has no visible HSN/SAC code, set hsn_code to null; never fabricate one. ' +
                   'If a line has no legible tax rate, set tax_rate to null rather than 0 — 0 means you read a ' +
-                  'confirmed nil-rated or exempt line, null means the rate could not be determined.',
+                  'confirmed nil-rated or exempt line, null means the rate could not be determined. ' +
+                  'One exception: some invoices print rates only in a separate tax-rate summary table (often ' +
+                  'listing HSN/SAC code, taxable value, and CGST/SGST/IGST rate per HSN group) instead of on each ' +
+                  'item line. If such a table is present and is organized by HSN/SAC code, and the hsn_code on a ' +
+                  'line matches exactly one row in that table with exactly one rate, use that rate for tax_rate. ' +
+                  'If the same HSN code appears against more than one rate, the table is not clearly organized by ' +
+                  'HSN, or the HSN on a line does not clearly match any row, leave tax_rate null — do not guess or ' +
+                  'average. This exception never overrides the rule above: a rate read this way must still be tied ' +
+                  'to a specific HSN group, never applied as one flat rate across items with different HSN codes.',
               },
               {
                 role: 'user',
