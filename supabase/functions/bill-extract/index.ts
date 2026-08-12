@@ -490,6 +490,8 @@ Deno.serve(async (req: Request) => {
       throw new Error('billId is required');
     }
 
+    const debugOcr = body?.debugOcr === true;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
@@ -658,6 +660,12 @@ Deno.serve(async (req: Request) => {
       if (!ocrText) throw new Error('Google Vision did not return readable text for this bill');
 
       console.log('Google Vision OCR text length:', ocrText.length);
+      if (debugOcr) {
+        const CHUNK = 1500;
+        for (let i = 0; i < ocrText.length; i += CHUNK) {
+          console.log(`OCR_TEXT[${i / CHUNK}]: ${ocrText.slice(i, i + CHUNK)}`);
+        }
+      }
       extracted = parseBillFromOcrText(ocrText);
     }
 
@@ -761,6 +769,13 @@ Deno.serve(async (req: Request) => {
         confidence: duplicateCheck.confidence,
         match_details: duplicateCheck.matchDetails,
       } : null,
+      ...(debugOcr
+        ? {
+            ocr_text: ocrText,
+            ocr_text_length: ocrText.length,
+            parsed_items: extracted.items,
+          }
+        : {}),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
