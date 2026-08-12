@@ -4,6 +4,7 @@
  * This is the only place that decides *what* to sync. The serializer decides
  * how it's rendered; the agent decides when it's pushed.
  */
+
 import {
   type JobPayload,
   type MasterJob,
@@ -17,7 +18,6 @@ import {
   isVoucherJob,
 } from "./types.ts";
 import { toTallyDate } from "./serializer.ts";
-import { deterministicGuid } from "./guid.ts";
 import {
   matchStockItem,
   matchVendorLedger,
@@ -27,8 +27,6 @@ import {
   type MasterMatch,
   type MatchResolution,
 } from "./matching.ts";
-
-export { deterministicGuid };
 
 export const DEFAULT_STOCK_UNIT = "Nos";
 export const BILL_STOCK_GROUP_NAME = "Bill Items";
@@ -63,6 +61,7 @@ export interface BillSyncOptions {
    * guessing between CGST/SGST and IGST, which is the bug this exists to fix.
    */
   companyStateCode: string;
+
   /**
    * Vendor ledgers Tally already holds. Supplying them lets a bill post to the
    * existing ledger instead of creating a near-duplicate under a slightly
@@ -70,8 +69,10 @@ export interface BillSyncOptions {
    * old create-everything behaviour.
    */
   knownVendorLedgers?: KnownVendorLedger[];
+
   /** Stock items Tally already holds. Same reasoning as above. */
   knownStockItems?: KnownStockItem[];
+
   /**
    * Human answers to previously-ambiguous matches, keyed on the exact
    * normalized name. A hit skips the fuzzy logic entirely — matched adopts the
@@ -134,6 +135,10 @@ export function jobsNeedingEnqueue(
 function round2(value: number | null | undefined): number {
   return Number(Number(value ?? 0).toFixed(2));
 }
+
+import { deterministicGuid } from "./guid.ts";
+
+export { deterministicGuid };
 
 export function stockItemNameFor(item: LineItemLike, index: number): string {
   return (item.item_description || `Bill Item ${index + 1}`).trim();
@@ -239,8 +244,8 @@ export function buildBillSyncJobs(
 
   const validItems = (rawItems ?? []).filter((item, index) => stockItemNameFor(item, index) && amountFor(item) > 0);
   const hasInventory = validItems.length > 0;
-
   const knownStockItems = options?.knownStockItems ?? [];
+
   const resolvedStockNames = validItems.map((item, index) => {
     const extracted = stockItemNameFor(item, index);
     return resolveMasterName(
@@ -263,10 +268,31 @@ export function buildBillSyncJobs(
   // Whatever the line items don't account for is GST, split evenly across
   // CGST/SGST. With no line items there's no reliable split to infer.
   const gstTotal = hasInventory ? round2(totalAmount - itemTotal) : 0;
+
   if (gstTotal < 0) {
     throw new TallyValidationError(
       `Bill line items (${itemTotal.toFixed(2)}) exceed the bill total (${totalAmount.toFixed(2)})`,
     );
+  }
+
+  // A line item can reach here with no tax_rate at all — extraction found the
+  // HSN but genuinely could not attribute a rate to it (a summary table it
+  // could not safely read, or the document never states one). Left alone,
+  // that item's Tally stock master would be created with no GST
+  // classification and nothing would say why: the same quiet gap
+  // TallyReviewRequired exists everywhere else in this file to prevent. Only
+  // matters when the bill actually carries GST — a zero-GST bill has nothing
+  // for the missing rate to misclassify.
+  if (gstTotal > 0) {
+    const missingRateNames = validItems
+      .map((item, index) => (item.tax_rate == null ? resolvedStockNames[index] : null))
+      .filter((name): name is string => name !== null);
+    if (missingRateNames.length > 0) {
+      throw new TallyReviewRequired(
+        `Cannot confirm the GST rate for ${missingRateNames.length === 1 ? "this line item" : "these line items"}: ${missingRateNames.join(", ")}. ` +
+          "The bill total implies GST is due, but the rate could not be read for at least one item. Add it manually or confirm it before sending.",
+      );
+    }
   }
 
   // Cross-check the inferred tax against the rates extraction actually read.
@@ -277,8 +303,9 @@ export function buildBillSyncJobs(
   // tax_rate the correct figure is computable, and a gap bigger than a rupee
   // means part of gstTotal is not tax; posting it as input credit would be
   // fiction that only surfaces at GSTR-2B. Runs only when all lines are rated
-  // (a partial expectation proves nothing) and only when there is inferred tax
-  // to test — a zero-GST bill stays out of review by prior decision.
+  // (a partial expectation proves nothing, and the check above has already
+  // handled the case where one is missing) and only when there is inferred
+  // tax to test — a zero-GST bill stays out of review by prior decision.
   if (gstTotal > 0) {
     const rates = validItems.map((item) => (item.tax_rate == null ? null : Number(item.tax_rate)));
     if (rates.length > 0 && rates.every((rate) => rate !== null && Number.isFinite(rate))) {
@@ -431,6 +458,7 @@ export function buildBillSyncJobs(
   const itemDetails = validItems
     .map((item, index) => `${resolvedStockNames[index]} (${amountFor(item).toFixed(2)})`)
     .join(", ");
+
   const baseNarration = `Bill ${reference} from ${partyLedgerName}`;
 
   const voucher: VoucherJob = {
