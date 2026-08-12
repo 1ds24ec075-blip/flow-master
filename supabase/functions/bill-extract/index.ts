@@ -769,6 +769,13 @@ Deno.serve(async (req: Request) => {
         confidence: duplicateCheck.confidence,
         match_details: duplicateCheck.matchDetails,
       } : null,
+      ...(debugOcr
+        ? {
+            ocr_text: ocrText,
+            ocr_text_length: ocrText.length,
+            parsed_items: extracted.items,
+          }
+        : {}),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
