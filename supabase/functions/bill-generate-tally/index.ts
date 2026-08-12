@@ -119,8 +119,8 @@ serve(async (req) => {
       tally_status: enqueue ? "queued" : "ready",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("bill-generate-tally failed:", message);
+    const message = errorMessage(error);
+    console.error("bill-generate-tally failed:", message, error);
     if (error instanceof TallyReviewRequired) {
       return new Response(
         JSON.stringify({
