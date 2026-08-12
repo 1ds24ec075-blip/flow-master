@@ -11,7 +11,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-import { corsHeaders, json, preflight } from "../_shared/http.ts";
+import { corsHeaders, json, preflight, errorMessage } from "../_shared/http.ts";
 import { serviceClient } from "../_shared/agent-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { serializeVoucherToXML } from "../_shared/tally/serializer.ts";
@@ -119,8 +119,8 @@ serve(async (req) => {
       tally_status: enqueue ? "queued" : "ready",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("bill-generate-tally failed:", message);
+    const message = errorMessage(error);
+    console.error("bill-generate-tally failed:", message, error);
     if (error instanceof TallyReviewRequired) {
       return new Response(
         JSON.stringify({

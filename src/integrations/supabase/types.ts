@@ -834,6 +834,7 @@ export type Database = {
           amount: number | null
           bill_id: string | null
           created_at: string | null
+          hsn_code: string | null
           id: string
           item_description: string | null
           quantity: number | null
@@ -844,6 +845,7 @@ export type Database = {
           amount?: number | null
           bill_id?: string | null
           created_at?: string | null
+          hsn_code?: string | null
           id?: string
           item_description?: string | null
           quantity?: number | null
@@ -854,6 +856,7 @@ export type Database = {
           amount?: number | null
           bill_id?: string | null
           created_at?: string | null
+          hsn_code?: string | null
           id?: string
           item_description?: string | null
           quantity?: number | null

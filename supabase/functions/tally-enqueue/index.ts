@@ -8,7 +8,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-import { corsHeaders, json, preflight } from "../_shared/http.ts";
+import { corsHeaders, json, preflight, errorMessage } from "../_shared/http.ts";
 import { serviceClient, requireUserOrService } from "../_shared/agent-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { loadBillSyncOptions } from "../_shared/tally/context.ts";
@@ -116,8 +116,8 @@ serve(async (req) => {
       jobs: queued,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("tally-enqueue failed:", message);
+    const message = errorMessage(error);
+    console.error("tally-enqueue failed:", message, error);
 
     // A validation failure is the user's data problem, not a server fault, and
     // an auth failure must not read as one either — clients retry 5xx.

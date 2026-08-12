@@ -1,0 +1,1 @@
+ALTER TABLE public.expense_line_items ADD COLUMN IF NOT EXISTS hsn_code TEXT;
