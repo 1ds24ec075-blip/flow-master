@@ -1,64 +1,69 @@
-## Multi-tenant per-user Gmail OAuth
+# Backend Migration: Lowest-Risk, Lowest-Effort Path
 
-Convert the current single-tenant Gmail integration into a per-user OAuth system where each MSME connects their own inbox, production-ready for public launch.
+Goal: move the backend (database, auth users, storage, edge functions) to your own Supabase project with nothing breaking, and with the least manual work.
 
-### Phase 1 — Database
+Key decision: **do a full physical database copy (dump/restore), not a replay of the 67 migration files.**
+A dump/restore carries schema + data + RLS policies + triggers + functions + `auth.users` (including password hashes and identities) in one shot. Replaying migrations means re-running 67 files, then hand-moving data in dependency order, then re-creating every user — many more steps and many more ways to break.
 
-Migration on `gmail_integrations`:
-- Add `user_id uuid` referencing `auth.users(id) ON DELETE CASCADE` (nullable for now to preserve the existing row).
-- Add unique index on `(user_id, email_address)`.
-- Drop the permissive `Allow all operations` policy.
-- Add strict per-user RLS policies (SELECT/INSERT/UPDATE/DELETE) using `auth.uid() = user_id`.
-- Same treatment on `processed_emails`: add `user_id`, RLS scoped via the parent integration.
+## What exists today (verified)
 
-### Phase 2 — Edge functions
+- 67 migration files, 34 edge functions (plus `_shared`)
+- Two storage buckets: `bills`, `po-documents` (private, signed URLs)
+- Frontend reads backend config from `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`) — only one hardcoded project reference remains, in `src/lib/mcp/index.ts` (OAuth issuer URL)
+- Functions depend on secrets: Google/Microsoft OAuth, Gmail SMTP, `OPENAI_API_KEY`, `OAUTH_STATE_SECRET`, and `LOVABLE_API_KEY` (used by 8 AI functions)
+- A desktop Tally agent polls the backend with its own API key
 
-**`gmail-auth-start`**
-- Require caller JWT, extract `user.id`.
-- Sign a short-lived `state` token (HMAC with a server secret) containing `{ user_id, nonce, exp }` and pass it in the Google OAuth URL.
-- Set `verify_jwt = true` for this function.
+## Step 0 — Fix the four build errors first
 
-**`gmail-auth-callback`**
-- Verify the `state` HMAC and expiry; reject on mismatch.
-- Exchange code → tokens, fetch userinfo.
-- Upsert by `(user_id, email_address)` instead of by email alone.
-- Redirect back to `/gmail-integration` with success/error.
+Inserts missing the required `company_id` in `Clients.tsx`, `Quotations.tsx`, `RawMaterialInvoices.tsx`, `SupplierDashboard.tsx`. Fix before migrating so the new backend is validated against a clean build.
 
-**`gmail-sync`**
-- Require JWT; load integration by `id` AND `user_id = auth.uid()`.
-- Add token refresh: if `token_expires_at` is past, call Google's token endpoint with `refresh_token`, persist new `access_token` + expiry before listing messages.
-- Same for `gmail-connector-sync` callsites — keep the Lovable connector path untouched but stop using it for end-user inboxes.
+## Step 1 — Create the target project
 
-### Phase 3 — Frontend (`src/pages/GmailIntegration.tsx`)
-- Require auth; redirect to `/auth` if no session.
-- List only the current user's integrations (RLS handles filtering).
-- "Connect Gmail" button calls `gmail-auth-start` with the user's JWT, then follows the redirect.
-- Show connected email, last sync, sync status, and Disconnect.
-- Log connect/disconnect/sync events to `agent_activity_feed`.
+New Supabase project in the region closest to your users, on a paid tier (needed for the scale you described and for reliable restores). Keep the DB password safe; the CLI needs it.
 
-### Phase 4 — Auth + legal pages
-- Confirm `src/pages/Auth.tsx` works (email/password + Google) — already in place.
-- Add `/privacy` and `/terms` route stubs with placeholder MSME-appropriate copy you can edit. Required by Google verification.
-- Add a Gmail-specific data-handling disclosure section on `/privacy` (read-only scope, no resale, deletion on disconnect).
+## Step 2 — Copy the database (one command set)
 
-### Phase 5 — Google Cloud setup doc
-Create `GOOGLE_OAUTH_SETUP.md` covering:
-- OAuth consent screen → External, Production.
-- Required scopes: `gmail.readonly`, `userinfo.email`, `userinfo.profile`.
-- Authorized redirect URI: `https://pskuxhpfohmxlhmupeoz.supabase.co/functions/v1/gmail-auth-callback`.
-- Authorized JavaScript origins: preview + published + custom domains.
-- App homepage, privacy, and terms URLs to paste in.
-- CASA assessment checklist for the restricted `gmail.readonly` scope (4–6 week timeline).
-- How to add pilot MSMEs as Test Users while verification is pending.
+From your machine with the Supabase CLI:
 
-### Technical notes
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are already in secrets — no new secrets needed.
-- A new `OAUTH_STATE_SECRET` will be added for HMAC signing of the `state` parameter.
-- The existing single-tenant row in `gmail_integrations` will be left intact with `user_id = null` and excluded from the UI.
-- `processed_emails` will be backfilled with `user_id = null` for the existing row; new rows always carry `user_id`.
+```bash
+supabase db dump --db-url "<SOURCE_DB_URL>" -f roles.sql --role-only
+supabase db dump --db-url "<SOURCE_DB_URL>" -f schema.sql
+supabase db dump --db-url "<SOURCE_DB_URL>" -f data.sql --use-copy --data-only
+psql "<TARGET_DB_URL>" -f schema.sql
+psql "<TARGET_DB_URL>" -f data.sql
+```
 
-### Out of scope
-- Gmail push notifications (Pub/Sub watch). Polling stays for now.
-- Per-user per-mailbox subject-filter customization UI (defaults remain).
+Then a separate dump/restore of `auth.users`, `auth.identities`, `storage.objects` metadata so logins and file links keep working (passwords survive because hashes come along; Google-login users keep working once the provider is configured with the new callback URL).
 
-Approve and I'll build it.
+Verification: row counts per table compared source vs target, plus a spot check that RLS policies and triggers came across.
+
+## Step 3 — Copy storage objects
+
+Script that lists every object in `bills` and `po-documents` on the old project and re-uploads to the new one at the identical path, so all stored `image_url` / `file_path` values stay valid. Buckets recreated as private, same names.
+
+## Step 4 — Deploy the 34 edge functions
+
+`supabase functions deploy --project-ref <NEW_REF>` for all of them, then set secrets. Two things must change:
+
+- `LOVABLE_API_KEY` is Lovable-only. The 8 AI functions get switched to a direct Gemini (or OpenAI) key read from a new secret, with the same model behaviour.
+- OAuth callback URLs (Gmail, Microsoft/Excel) must be re-registered in Google Cloud and Azure to point at the new project's function URLs, otherwise connect flows fail.
+
+## Step 5 — Point the frontend at the new backend
+
+Swap the three `VITE_SUPABASE_*` values and update the MCP issuer in `src/lib/mcp/index.ts` to read the project ref from env instead of a hardcoded string. Then hosting: GitHub repo → Vercel/Netlify with those env vars.
+
+## Step 6 — Cutover with a rollback door
+
+1. Do steps 2-4 as a **rehearsal** while the old backend stays live; test sign-in, a bill extraction, a Tally enqueue against the new project.
+2. Freeze writes briefly (announce a short window), re-run a delta data dump so nothing written during rehearsal is lost.
+3. Flip the frontend env vars and re-point the Tally agent's `.env` to the new URL + a newly issued bridge key.
+4. Keep the old backend untouched for a week. Rollback = flip the env vars back.
+
+## Effort estimate
+
+Steps 2, 3, 5 are scripted and fast. The real work is Step 4's OAuth re-registration and the AI-key swap, plus the rehearsal. Expect one focused session for rehearsal and a short freeze window for the real cutover.
+
+## What I need from you before building
+
+- Whether you want me to (a) prepare all the scripts, code changes and a copy-paste runbook you run against your own project, or (b) also drive the parts I can reach from here.
+- The AI provider for the 8 functions after the switch: direct Gemini key, or OpenAI (key already present).

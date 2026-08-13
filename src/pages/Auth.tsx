@@ -101,9 +101,10 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading("google");
     try {
-      // Keep redirect_uri clean — no query string — so the provider accepts it.
+      // Must be the plain app origin — the OAuth broker allowlists the origin,
+      // and a path like /auth can be rejected, which blocks the popup entirely.
       const { error, redirected } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}/auth`,
+        redirect_uri: window.location.origin,
       });
 
       if (error) {

@@ -111,6 +111,36 @@ export class TallyValidationError extends Error {
   }
 }
 
+/**
+ * Raised when a master's identity is ambiguous: close to something Tally
+ * already holds, but not close enough to merge or split automatically.
+ *
+ * Distinct from TallyValidationError because the data is not wrong — it is
+ * undecided. The bill parks until a human answers via resolve-item-match, and
+ * `candidates` is what the review UI shows them.
+ */
+export class TallyReviewRequired extends Error {
+  readonly itemType: "vendor" | "stock_item" | null;
+  readonly rawName: string | null;
+  readonly candidates: string[];
+
+  constructor(
+    message: string,
+    details?:
+      | string[]
+      | { itemType?: "vendor" | "stock_item" | null; rawName?: string | null; candidates?: string[] },
+  ) {
+    super(message);
+    this.name = "TallyReviewRequired";
+    const normalized = Array.isArray(details) ? { candidates: details } : (details ?? {});
+    this.itemType = normalized.itemType ?? null;
+    this.rawName = normalized.rawName ?? null;
+    this.candidates = normalized.candidates ?? [];
+  }
+}
+
+
+
 export function isVoucherJob(payload: JobPayload): payload is VoucherJob {
   return (payload as VoucherJob).voucherType !== undefined;
 }

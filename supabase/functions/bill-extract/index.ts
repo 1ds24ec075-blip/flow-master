@@ -248,8 +248,34 @@ function extractTotalAmount(lines: string[]): number | null {
   ]);
 }
 
-function extractItems(lines: string[]): Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> {
-  const items: Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number; amount: number }> = [];
+/**
+ * A bare 4, 6, or 8-digit token on the item's own line — the lengths that
+ * actually occur in the HSN/SAC hierarchy. Deliberately conservative: if more
+ * than one token on the line qualifies, or none do, this returns null rather
+ * than guessing which one is the code, because a wrong HSN silently
+ * misclassifies GST rather than failing loudly.
+ */
+function extractHsnCode(line: string): string | null {
+  const candidates = [...line.matchAll(/\b(\d{8}|\d{6}|\d{4})\b/g)].filter((match) => {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const before = line.slice(Math.max(0, start - 4), start);
+    const after = line.slice(end, end + 3);
+    // Not the integer part of a decimal amount (e.g. the "4500" in "4500.00").
+    if (/^\.\d/.test(after)) return false;
+    // Not immediately preceded by a currency marker.
+    if (/(?:₹|rs\.?|inr)\s*$/i.test(before)) return false;
+    return true;
+  });
+
+  const distinct = [...new Set(candidates.map((match) => match[0]))];
+  return distinct.length === 1 ? distinct[0] : null;
+}
+
+function extractItems(
+  lines: string[],
+): Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number | null; hsn_code: string | null; amount: number }> {
+  const items: Array<{ item_description: string; quantity: number; unit_price: number; tax_rate: number | null; hsn_code: string | null; amount: number }> = [];
 
   for (const line of lines) {
     const lowerLine = line.toLowerCase();
@@ -267,6 +293,8 @@ function extractItems(lines: string[]): Array<{ item_description: string; quanti
       continue;
     }
 
+    const hsnCode = extractHsnCode(line);
+
     const description = cleanText(
       line.replace(/(?:₹|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/gi, ' ').replace(/\s+/g, ' '),
     );
@@ -283,7 +311,13 @@ function extractItems(lines: string[]): Array<{ item_description: string; quanti
       item_description: description,
       quantity,
       unit_price: unitPrice,
-      tax_rate: 0,
+      // The lines this parser is allowed to see have already had every
+      // gst/cgst/sgst/tax-labelled line filtered out above, so there is no
+      // text left here a rate could honestly be read from. Left null — same
+      // never-guess rule as hsn_code — rather than defaulted to 0, which is
+      // indistinguishable from a confirmed nil-rated item.
+      tax_rate: null,
+      hsn_code: hsnCode,
       amount,
     });
 
@@ -458,9 +492,169 @@ async function checkForDuplicateBill(
   return noMatch;
 }
 
+// ============= Tax Rate Reconciliation =============
+
+interface TaxSummaryRow {
+  hsn_code?: string | null;
+  combined_rate?: number | null;
+}
+
+/** Digits only, so "3923" and "HSN 3923" and "3923.00" all compare equal. */
+function normalizeHsn(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const digits = String(value).replace(/\D/g, '');
+  return digits.length >= 4 ? digits : null;
+}
+
+/**
+ * Finds the rates a summary table gives for one HSN code.
+ *
+ * Exact match first. Failing that, the 4-digit heading: a line may carry the
+ * full 8-digit code while the table groups by the 4-digit heading it sits
+ * under, and those should still match. The caller refuses to act whenever this
+ * turns up more than one distinct rate, so widening the search cannot silently
+ * pick the wrong one.
+ */
+function ratesForHsn(hsn: string, byHsn: Map<string, Set<number>>): Set<number> {
+  const exact = byHsn.get(hsn);
+  if (exact && exact.size > 0) return exact;
+
+  const heading = hsn.slice(0, 4);
+  const merged = new Set<number>();
+  for (const [key, rates] of byHsn) {
+    if (key.slice(0, 4) === heading) {
+      for (const rate of rates) merged.add(rate);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Rebuilds each line item's tax_rate from the HSN-wise summary table, in code.
+ *
+ * The model is asked to transcribe the table and to read each line's own HSN,
+ * but NOT to join the two — joining row-by-row is the step it demonstrably
+ * drifts on, having twice returned rates shifted one row down from the items
+ * they belong to. Every field it drifted on is one this function overwrites
+ * from the table, so a shifted rate cannot survive.
+ *
+ * Worth being explicit about why the existing total-based tax check cannot
+ * catch this on its own: swapping the rates of two items with equal amounts
+ * leaves the summed tax identical, so the bill reconciles to the rupee with
+ * every individual rate wrong. Only an HSN-to-rate check sees it.
+ *
+ * Never invents a rate. An HSN absent from the table, or listed against more
+ * than one rate, leaves the item at null.
+ */
+function reconcileTaxRates(
+  items: Array<Record<string, unknown>>,
+  taxSummary: TaxSummaryRow[],
+): { items: Array<Record<string, unknown>>; corrections: string[] } {
+  const byHsn = new Map<string, Set<number>>();
+  for (const row of taxSummary ?? []) {
+    const hsn = normalizeHsn(row?.hsn_code);
+    const rate = Number(row?.combined_rate);
+    if (!hsn || !Number.isFinite(rate)) continue;
+    if (!byHsn.has(hsn)) byHsn.set(hsn, new Set());
+    byHsn.get(hsn)!.add(rate);
+  }
+
+  const corrections: string[] = [];
+  if (byHsn.size === 0) return { items, corrections };
+
+  const reconciled = items.map((item, index) => {
+    const label = String(item?.item_description ?? `item ${index + 1}`);
+    const hsn = normalizeHsn(item?.hsn_code);
+    if (!hsn) return item;
+
+    const rates = ratesForHsn(hsn, byHsn);
+    if (rates.size === 0) return item;
+
+    const claimed = item?.tax_rate === null || item?.tax_rate === undefined ? null : Number(item.tax_rate);
+
+    if (rates.size > 1) {
+      corrections.push(
+        `${label}: HSN ${hsn} appears against ${rates.size} different rates in the summary table, tax_rate set to null`,
+      );
+      return { ...item, tax_rate: null };
+    }
+
+    const authoritative = [...rates][0];
+    if (claimed !== authoritative) {
+      corrections.push(
+        `${label}: HSN ${hsn} -> ${authoritative}% from summary table (model returned ${claimed === null ? 'null' : claimed})`,
+      );
+    }
+    return { ...item, tax_rate: authoritative };
+  });
+
+  return { items: reconciled, corrections };
+}
+
+// ============= Error Reporting =============
+
+/**
+ * DIAGNOSTIC, temporary. Turns any thrown value into something readable.
+ *
+ * The old handler was `error instanceof Error ? error.message : 'Unknown error'`,
+ * which collapsed every non-Error throw into one useless string. That check is
+ * wrong for the most common failure in this file. supabase-js only wraps an
+ * error in the PostgrestError class on the .throwOnError() path; the `error`
+ * handed back in `{ data, error }` is the raw `JSON.parse(body)` result, a
+ * plain object. So `throw fetchError` / `throw updateError` throw plain
+ * objects, `instanceof Error` is false, and a perfectly descriptive message
+ * like "JSON object requested, multiple (or no) rows returned" was being
+ * discarded and reported as "Unknown error".
+ *
+ * Reading `.message` off the object directly is what actually fixes it. The
+ * same bug exists at ~30 other `throw <someError>` sites across these
+ * functions.
+ */
+function describeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      kind: 'Error',
+      constructor: error.constructor?.name ?? 'Error',
+      name: error.name,
+      message: error.message,
+      // Non-standard properties that Supabase/Postgrest/Storage errors carry.
+      extra: Object.fromEntries(
+        Object.getOwnPropertyNames(error)
+          .filter((key) => !['name', 'message', 'stack'].includes(key))
+          .map((key) => [key, (error as unknown as Record<string, unknown>)[key]]),
+      ),
+      stack: error.stack?.split('\n').slice(0, 6).join('\n') ?? null,
+    };
+  }
+
+  if (error !== null && typeof error === 'object') {
+    const obj = error as Record<string, unknown>;
+    return {
+      kind: 'non-Error object',
+      constructor: (error as { constructor?: { name?: string } }).constructor?.name ?? 'unknown',
+      message: typeof obj.message === 'string' ? obj.message : null,
+      ownProperties: Object.getOwnPropertyNames(obj),
+      // Cheap stringify; circular structures fall back to a marker rather than
+      // throwing a second error inside the error handler.
+      json: (() => {
+        try {
+          return JSON.stringify(obj);
+        } catch {
+          return '(unserializable)';
+        }
+      })(),
+    };
+  }
+
+  return { kind: typeof error, constructor: null, message: String(error), value: String(error) };
+}
+
 // ============= Main Handler =============
 
 Deno.serve(async (req: Request) => {
+  // DIAGNOSTIC, temporary. A non-Error throw carries no stack, so without this
+  // there is nothing to say WHERE it happened. Updated as the handler advances.
+  let stage = 'init';
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,
@@ -482,6 +676,7 @@ Deno.serve(async (req: Request) => {
 
 
   try {
+    stage = 'parse-request';
     const body = await req.json();
     console.log('Received request body:', body);
 
@@ -490,18 +685,22 @@ Deno.serve(async (req: Request) => {
       throw new Error('billId is required');
     }
 
+    const debugOcr = body?.debugOcr === true;
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
     const visionApiKey = Deno.env.get('GOOGLE_VISION_API_KEY') || Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('VISION_API_KEY');
 
     console.log('Environment check:', {
       hasSupabaseUrl: !!supabaseUrl,
       hasSupabaseKey: !!supabaseKey,
+      hasLovableApiKey: !!lovableApiKey,
       hasVisionApiKey: !!visionApiKey,
     });
 
-    if (!visionApiKey) {
-      throw new Error('GOOGLE_VISION_API_KEY is not configured');
+    if (!lovableApiKey && !visionApiKey) {
+      throw new Error('No extraction engine configured (LOVABLE_API_KEY missing)');
     }
 
     if (!supabaseUrl || !supabaseKey) {
@@ -512,6 +711,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('Extracting Bill:', billId);
 
+    stage = 'fetch-bill-row';
     const { data: bill, error: fetchError } = await supabase
       .from('bills')
       .select('*')
@@ -524,6 +724,7 @@ Deno.serve(async (req: Request) => {
       throw new Error('Bill has no image to extract');
     }
 
+    stage = 'download-image';
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('bills')
       .download(bill.image_url);
@@ -532,62 +733,197 @@ Deno.serve(async (req: Request) => {
 
     console.log('File downloaded, size:', fileData.size, 'bytes');
 
+    stage = 'encode-base64';
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    const binString = Array.from(bytes, (byte) =>
-      String.fromCodePoint(byte),
-    ).join("");
+    let binString = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binString += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
     const base64 = btoa(binString);
 
-    console.log('Image encoded, base64 length:', base64.length, 'characters');
-    console.log('Running extraction with Google Vision OCR...');
+    const mimeType = fileData.type
+      || (String(bill.image_url).toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
-    const visionResponse = await fetch(
-      `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+    console.log('Image encoded, base64 length:', base64.length, 'mime:', mimeType);
+
+    let extracted: any = null;
+    // Hoisted out of the Vision-only block below so it stays in scope for the
+    // final response: it is only ever assigned when the Gemini path did NOT
+    // run (or failed), which after this fix is the common case, so `ocr_text`
+    // in the debug response will legitimately be null for most bills — that
+    // is correct, not a regression. See ocr_text handling in the response.
+    let ocrText: string | undefined;
+
+    // ---- Primary engine: Gemini 2.5 Flash via Lovable AI Gateway ----
+    if (lovableApiKey) {
+      try {
+        stage = 'gemini-request';
+        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${lovableApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You extract structured data from Indian supplier bills/invoices/receipts. ' +
+                  'Return ONLY JSON with this exact shape: {"bill_number":string|null,"vendor_name":string|null,' +
+                  '"vendor_gst":string|null,"vendor_tin":string|null,"bill_date":"YYYY-MM-DD"|null,' +
+                  '"subtotal":number,"tax_amount":number,"total_amount":number,"currency":string,' +
+                  '"payment_method":string|null,"confidence":number,' +
+                  '"tax_summary":[{"hsn_code":string,"combined_rate":number|null}],' +
+                  '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number|null,"hsn_code":string|null,"amount":number}]}. ' +
+                  'vendor_gst must be a valid 15-character GSTIN or null. Amounts are plain numbers without symbols or commas. ' +
+                  'confidence is 0-100. Never invent values: use null/0 when not present on the document. ' +
+                  'tax_rate is always the COMBINED GST rate for that line, as a single percentage: CGST plus ' +
+                  'SGST/UTGST added together, or the IGST rate on its own. It is never one component by itself. ' +
+                  'An 18% item is tax_rate 18, not 9. A 5% item is tax_rate 5, not 2.5. ' +
+                  'For each line item, read tax_rate and hsn_code only from what is printed on that specific line — ' +
+                  'do not copy a rate or code from a different line, and do not apply one bill-wide rate to every item. ' +
+                  'If a line has no visible HSN/SAC code, set hsn_code to null; never fabricate one. ' +
+                  'If a line has no legible tax rate, set tax_rate to null rather than 0 — 0 means you read a ' +
+                  'confirmed nil-rated or exempt line, null means the rate could not be determined. ' +
+                  'Many invoices also print a separate HSN-wise tax summary table (listing HSN/SAC code, ' +
+                  'taxable value, and CGST/SGST/IGST rate per HSN group). Transcribe that table into ' +
+                  'tax_summary, one object per printed row, in the order printed, without reordering, merging ' +
+                  'or deduplicating rows. Use an empty array when the document has no such table. ' +
+                  'Do NOT use the table to fill in the item lines yourself and do NOT copy its rates onto ' +
+                  'items: transcribe it as data and leave the matching alone. ' +
+                  'Compute combined_rate for each summary row by reading its columns, because these tables ' +
+                  'come in three layouts and they are easy to confuse: ' +
+                  '(a) ONE combined column, headed GST Rate or Rate or Tax Rate — use that number directly; ' +
+                  '(b) TWO separate columns, one CGST Rate or Central Tax and one SGST Rate or UTGST or State Tax — ' +
+                  'combined_rate is their SUM, so CGST 9 with SGST 9 gives 18, and CGST 2.5 with SGST 2.5 gives 5; ' +
+                  '(c) a single IGST Rate or Integrated Tax column — that figure is already the full rate, so use it ' +
+                  'directly and do NOT double it. ' +
+                  'In layout (b), returning only the CGST column value is wrong: that is half the real rate. ' +
+                  'Check yourself before answering: a combined Indian GST rate is normally 0, 0.25, 3, 5, 12, 18 or 28. ' +
+                  'If the number you are about to return is not one of those — 9 and 2.5 are the classic signs, being ' +
+                  'half of 18 and half of 5 — go back to the row and confirm you have not picked up only the CGST or ' +
+                  'only the SGST column. Fix it by adding the two component columns together, never by rounding or ' +
+                  'snapping the rate to the nearest slab. ' +
+                  'Emit items in the exact order they are printed, one object per printed item line. Every field ' +
+                  'of an item must be read from that same printed row. Before emitting each item, re-read the row ' +
+                  'it came from and confirm the hsn_code you are about to write is the code printed on that row, ' +
+                  'next to that description. Never carry a value down from the row above or up from the row below: ' +
+                  'a rate or code that belongs to a neighbouring line is worse than null, because null is visibly ' +
+                  'missing whereas a shifted value looks correct and is not. ' +
+                  'If the rate on a line itself is not legible, leave its tax_rate null and let tax_summary carry the rate.',
+              },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: 'Extract all bill details and line items from this document.' },
+                  { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (aiResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
+        if (aiResponse.status === 402) throw new Error('AI credits exhausted. Please add credits to continue.');
+        if (!aiResponse.ok) {
+          throw new Error(`AI gateway returned ${aiResponse.status}: ${await aiResponse.text()}`);
+        }
+
+        stage = 'gemini-parse-response';
+        const aiData = await aiResponse.json();
+        const content = aiData.choices?.[0]?.message?.content ?? '';
+        const jsonText = content.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+        const parsed = JSON.parse(jsonText);
+
+        const parsedItems = Array.isArray(parsed.items) ? parsed.items : [];
+        const taxSummary: TaxSummaryRow[] = Array.isArray(parsed.tax_summary) ? parsed.tax_summary : [];
+        const reconciliation = reconcileTaxRates(parsedItems, taxSummary);
+        if (reconciliation.corrections.length > 0) {
+          console.log('Tax rate reconciliation applied:', reconciliation.corrections);
+        } else if (taxSummary.length > 0) {
+          console.log('Tax rate reconciliation: summary table agreed with every line item');
+        }
+
+        extracted = {
+          bill_number: parsed.bill_number ?? null,
+          vendor_name: parsed.vendor_name ?? null,
+          vendor_gst: parsed.vendor_gst ?? null,
+          vendor_tin: parsed.vendor_tin ?? null,
+          bill_date: parsed.bill_date ?? null,
+          subtotal: Number(parsed.subtotal) || 0,
+          tax_amount: Number(parsed.tax_amount) || 0,
+          total_amount: Number(parsed.total_amount) || 0,
+          currency: parsed.currency || 'INR',
+          payment_method: parsed.payment_method ?? null,
+          items: reconciliation.items,
+          tax_summary: taxSummary,
+          rate_corrections: reconciliation.corrections,
+          confidence: Number(parsed.confidence) || 85,
+          extraction_notes: 'Extracted with Gemini 2.5 Flash.',
+        };
+
+        console.log('Gemini extraction succeeded');
+      } catch (aiError) {
+        console.error('Gemini extraction failed:', aiError);
+        if (!visionApiKey) throw aiError;
+      }
+    }
+
+    // ---- Fallback engine: Google Vision OCR + regex parsing ----
+    if (!extracted && visionApiKey) {
+      stage = 'vision-ocr';
+      console.log('Falling back to Google Vision OCR...');
+      const visionResponse = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: { content: base64 },
+                features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }],
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          requests: [
-            {
-              image: { content: base64 },
-              features: [{ type: 'DOCUMENT_TEXT_DETECTION', maxResults: 1 }],
-            },
-          ],
-        }),
-      },
-    );
+      );
 
-    console.log('Google Vision response status:', visionResponse.status, visionResponse.statusText);
-
-    if (!visionResponse.ok) {
-      const errorText = await visionResponse.text();
-      console.error('Google Vision error response:', errorText);
-
-      if (visionResponse.status === 429) {
-        throw new Error('Rate limit exceeded. Please try again later.');
+      if (!visionResponse.ok) {
+        const errorText = await visionResponse.text();
+        console.error('Google Vision error response:', errorText);
+        if (visionResponse.status === 429) throw new Error('Rate limit exceeded. Please try again later.');
+        throw new Error(`Google Vision returned ${visionResponse.status}: ${errorText}`);
       }
 
-      throw new Error(`Google Vision returned ${visionResponse.status}: ${errorText}`);
+      const visionData = await visionResponse.json();
+      const visionError = visionData.responses?.[0]?.error;
+      if (visionError) {
+        throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
+      }
+
+      ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text
+        || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
+
+      if (!ocrText) throw new Error('Google Vision did not return readable text for this bill');
+
+      console.log('Google Vision OCR text length:', ocrText.length);
+      if (debugOcr) {
+        const CHUNK = 1500;
+        for (let i = 0; i < ocrText.length; i += CHUNK) {
+          console.log(`OCR_TEXT[${i / CHUNK}]: ${ocrText.slice(i, i + CHUNK)}`);
+        }
+      }
+      extracted = parseBillFromOcrText(ocrText);
     }
 
-    const visionData = await visionResponse.json();
-    const visionError = visionData.responses?.[0]?.error;
-    if (visionError) {
-      throw new Error(`Google Vision error: ${visionError.message || 'Unknown Vision API error'}`);
-    }
+    if (!extracted) throw new Error('Extraction failed: no engine returned data');
 
-    const ocrText = visionData.responses?.[0]?.fullTextAnnotation?.text || visionData.responses?.[0]?.textAnnotations?.[0]?.description || '';
-
-    if (!ocrText) {
-      throw new Error('Google Vision did not return readable text for this bill');
-    }
-
-    console.log('Google Vision OCR text length:', ocrText.length);
-    const extracted = parseBillFromOcrText(ocrText);
 
     console.log('Extraction completed:', {
       vendor: extracted.vendor_name,
@@ -599,16 +935,17 @@ Deno.serve(async (req: Request) => {
 
     // Validate GST format before saving - must be 15 chars matching GSTIN pattern
     const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    const validatedGst = extracted.vendor_gst && gstPattern.test(extracted.vendor_gst) 
-      ? extracted.vendor_gst 
+    const validatedGst = extracted.vendor_gst && gstPattern.test(extracted.vendor_gst)
+      ? extracted.vendor_gst
       : null;
-    
+
     // Log GST validation result
     if (extracted.vendor_gst && !validatedGst) {
       console.log('GST validation failed:', extracted.vendor_gst, '- does not match GSTIN format');
     }
 
     // ============= Duplicate Detection =============
+    stage = 'duplicate-check';
     console.log('Checking for duplicate bills...');
     const duplicateCheck = await checkForDuplicateBill(
       supabase,
@@ -624,6 +961,7 @@ Deno.serve(async (req: Request) => {
       console.log('Duplicate bill detected:', duplicateCheck);
     }
 
+    stage = 'update-bill-row';
     const { data: updatedBill, error: updateError } = await supabase
       .from('bills')
       .update({
@@ -651,6 +989,7 @@ Deno.serve(async (req: Request) => {
     if (updateError) throw updateError;
 
     if (extracted.items && extracted.items.length > 0) {
+      stage = 'write-line-items';
       await supabase
         .from('expense_line_items')
         .delete()
@@ -661,7 +1000,12 @@ Deno.serve(async (req: Request) => {
         item_description: item.item_description || '',
         quantity: item.quantity || 1,
         unit_price: item.unit_price || 0,
-        tax_rate: item.tax_rate || 0,
+        // ?? not ||: a genuinely-read 0% (nil-rated) must survive as 0 while
+        // "not found" survives as null — they cannot collapse to the same
+        // value, because buildBillSyncJobs in jobs.ts tells taxable and
+        // unknown apart with `tax_rate != null`, and needs both.
+        tax_rate: item.tax_rate ?? null,
+        hsn_code: item.hsn_code ?? null,
         amount: item.amount || 0,
       }));
 
@@ -676,6 +1020,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('Bill extraction completed successfully', duplicateCheck.isDuplicate ? '(DUPLICATE DETECTED)' : '');
 
+    stage = 'build-response';
     return new Response(JSON.stringify({
       ...updatedBill,
       duplicate_detected: duplicateCheck.isDuplicate,
@@ -686,13 +1031,33 @@ Deno.serve(async (req: Request) => {
         confidence: duplicateCheck.confidence,
         match_details: duplicateCheck.matchDetails,
       } : null,
+      ...(debugOcr
+        ? {
+            // null whenever Gemini succeeded — there was no separate OCR step
+            // for this bill, which is expected, not an error.
+            ocr_text: ocrText ?? null,
+            ocr_text_length: ocrText?.length ?? 0,
+            parsed_items: extracted.items,
+            tax_summary: extracted.tax_summary ?? null,
+            rate_corrections: extracted.rate_corrections ?? null,
+          }
+        : {}),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in bill-extract:', error);
+    // DIAGNOSTIC, temporary. describeError never returns the bare string
+    // 'Unknown error' — every shape of throw yields something identifying, so
+    // a 500 from here always names what actually failed and at which stage.
+    const described = describeError(error);
+    console.error('Error in bill-extract at stage', stage, '::', described);
+    console.error('Raw thrown value:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({
+        error: described.message ?? `Non-Error throw (${described.kind}) at stage "${stage}"`,
+        stage,
+        diagnostic: described,
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

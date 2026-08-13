@@ -38,6 +38,9 @@ import { serializeVoucherToXML } from "@tally/serializer";
 
 // Display-only. The agent gets the authoritative company name from the cloud.
 const TALLY_COMPANY_NAME = "Guhanesh";
+// Manual-download preview only. The sync path reads the real state code from
+// the company record server-side; this mirrors the seeded company (Karnataka).
+const TALLY_COMPANY_STATE_CODE = "29";
 
 interface DuplicateMatchDetails {
   matched_bill_id: string;
@@ -222,7 +225,9 @@ const buildTallyImportRows = (bill: Bill, items: ExpenseLineItem[]) => {
  * renders the XML at send time through this same serializer.
  */
 const buildBillTallyXml = (bill: Bill, items: ExpenseLineItem[]) => {
-  const { voucher } = buildBillSyncJobs(bill, items);
+  const { voucher } = buildBillSyncJobs(bill, items, {
+    companyStateCode: TALLY_COMPANY_STATE_CODE,
+  });
   return serializeVoucherToXML(voucher, TALLY_COMPANY_NAME);
 };
 
@@ -278,43 +283,24 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
       if (insertError) throw insertError;
 
       const billData = bill as unknown as { id: string };
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-      const extractResponse = await fetch(
-        `${supabaseUrl}/functions/v1/bill-extract`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${supabaseKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ billId: billData.id }),
-        }
+      const { data: extractedBill, error: extractError } = await supabase.functions.invoke(
+        "bill-extract",
+        { body: { billId: billData.id } }
       );
 
-      if (!extractResponse.ok) {
-        const errorText = await extractResponse.text();
-        throw new Error(`Extraction failed: ${errorText}`);
+      if (extractError) {
+        throw new Error(`Extraction failed: ${extractError.message}`);
       }
 
-      const extractedBill = await extractResponse.json();
-
       try {
-        await fetch(
-          `${supabaseUrl}/functions/v1/bill-generate-tally`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${supabaseKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ billId: billData.id }),
-          }
-        );
+        await supabase.functions.invoke("bill-generate-tally", {
+          body: { billId: billData.id },
+        });
       } catch (error) {
         console.warn("Tally payload generation skipped after extraction", error);
       }
+
 
       return extractedBill;
     },

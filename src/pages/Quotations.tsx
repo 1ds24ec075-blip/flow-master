@@ -71,10 +71,12 @@ export default function Quotations() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      // company_id is stamped by the database trigger from the caller's
+      // membership, so it is intentionally absent from the payload.
       const { error } = await supabase.from("quotations").insert({
         ...data,
         amount: parseFloat(data.amount),
-      });
+      } as never);
       if (error) throw error;
     },
     onSuccess: () => {
