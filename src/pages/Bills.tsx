@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { format } from "date-fns";
+import { RequireCompany, useActiveCompanyId } from "@/contexts/CompanyContext";
 
 import { buildBillSyncJobs, stockItemNameFor, DEFAULT_STOCK_UNIT } from "@tally/jobs";
 import { serializeVoucherToXML } from "@tally/serializer";
@@ -245,12 +246,29 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   const [tallyProcessingId, setTallyProcessingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
+  // null means no company is safely established. Every query below is disabled
+  // and every mutation refuses rather than falling through to an unfiltered
+  // statement. RLS would still hold the line, but a page that silently queries
+  // across companies is wrong even when the database saves it.
+  const activeCompanyId = useActiveCompanyId();
+
+  const requireCompany = () => {
+    if (!activeCompanyId) {
+      throw new Error("No company is selected — pick one before making changes.");
+    }
+    return activeCompanyId;
+  };
+
   const { data: bills, isLoading } = useQuery({
-    queryKey: ["bills"],
+    // activeCompanyId is part of the key so a switch cannot serve the previous
+    // company's rows out of the react-query cache.
+    queryKey: ["bills", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bills" as any)
         .select("*")
+        .eq("company_id", activeCompanyId)
         .order("created_at", { ascending: false })
         .limit(500);
 
@@ -261,9 +279,14 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
+      const companyId = requireCompany();
+
       const fileName = `${Date.now()}-${file.name}`;
       const filePath = fileName;
 
+      // "bills" here is the STORAGE BUCKET, not the table — no company filter
+      // applies to it. Object paths are not tenant-scoped today; that is a
+      // separate gap from this cycle's.
       const { error: uploadError } = await supabase.storage
         .from("bills" as any)
         .upload(filePath, file);
@@ -276,6 +299,11 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
           image_url: filePath,
           vendor_name: "Processing...",
           payment_status: "pending",
+          // Explicit, not left to the fill_company_id trigger. The trigger
+          // resolves from the caller's membership, which is ambiguous the
+          // moment a user belongs to two companies — this is the value the
+          // user is actually looking at.
+          company_id: companyId,
         } as any)
         .select()
         .single();
@@ -286,7 +314,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
       const { data: extractedBill, error: extractError } = await supabase.functions.invoke(
         "bill-extract",
-        { body: { billId: billData.id } }
+        { body: { billId: billData.id, companyId } }
       );
 
       if (extractError) {
@@ -295,7 +323,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
       try {
         await supabase.functions.invoke("bill-generate-tally", {
-          body: { billId: billData.id },
+          body: { billId: billData.id, companyId },
         });
       } catch (error) {
         console.warn("Tally payload generation skipped after extraction", error);
@@ -305,7 +333,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
       return extractedBill;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      queryClient.invalidateQueries({ queryKey: ["bills", activeCompanyId] });
     },
     onError: (error: Error) => {
       toast.error(`Failed to process bill: ${error.message}`);
@@ -314,17 +342,23 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const deleteMutation = useMutation({
     mutationFn: async (billId: string) => {
+      const companyId = requireCompany();
+
       const bill = bills?.find((b) => b.id === billId);
       if (bill?.image_url) {
         await supabase.storage.from("bills" as any).remove([bill.image_url]);
       }
 
-      const { error } = await supabase.from("bills" as any).delete().eq("id", billId);
+      const { error } = await supabase
+        .from("bills" as any)
+        .delete()
+        .eq("id", billId)
+        .eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Bill deleted successfully");
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      queryClient.invalidateQueries({ queryKey: ["bills", activeCompanyId] });
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete bill: ${error.message}`);
@@ -333,19 +367,22 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const verifyMutation = useMutation({
     mutationFn: async (billId: string) => {
+      const companyId = requireCompany();
+
       const { error } = await supabase
         .from("bills" as any)
         .update({
           is_verified: true,
           verified_at: new Date().toISOString(),
         } as any)
-        .eq("id", billId);
+        .eq("id", billId)
+        .eq("company_id", companyId);
 
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Bill verified successfully");
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      queryClient.invalidateQueries({ queryKey: ["bills", activeCompanyId] });
     },
     onError: (error: Error) => {
       toast.error(`Failed to verify bill: ${error.message}`);
@@ -354,13 +391,18 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const updateBillMutation = useMutation({
     mutationFn: async ({ billId, updates }: { billId: string; updates: Partial<Bill> }) => {
+      const companyId = requireCompany();
+
       // .select() matters: without it an UPDATE that matches no row still comes
       // back error-free, and the edit is reported as saved when nothing changed.
-      // RLS filtering out the row looks exactly like success otherwise.
+      // RLS filtering out the row looks exactly like success otherwise. The
+      // company_id filter added below makes that outcome more reachable, not
+      // less, so this check matters more now than it did before.
       const { data, error } = await supabase
         .from("bills" as any)
         .update(updates as any)
         .eq("id", billId)
+        .eq("company_id", companyId)
         .select("id");
 
       if (error) throw error;
@@ -372,7 +414,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
     },
     onSuccess: () => {
       toast.success("Bill updated successfully");
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      queryClient.invalidateQueries({ queryKey: ["bills", activeCompanyId] });
       setIsEditing(false);
       setViewDialogOpen(false);
     },
@@ -383,6 +425,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
   const generateTallyMutation = useMutation({
     mutationFn: async ({ bill, sendToTally }: { bill: Bill; sendToTally: boolean }) => {
+      const companyId = requireCompany();
       setTallyProcessingId(bill.id);
 
       if (bill.is_duplicate) throw new Error("Duplicate bills cannot be sent to Tally");
@@ -408,7 +451,9 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
             apikey: supabaseKey,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ billId: bill.id }),
+          // companyId is sent for the server to VERIFY against company_members,
+          // not to trust. Phase 3 adds that check; until then this is inert.
+          body: JSON.stringify({ billId: bill.id, companyId }),
         });
 
         const payload = await response.json().catch(() => ({}));
@@ -422,6 +467,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
         .from("expense_line_items" as any)
         .select("item_description, quantity, unit_price, tax_rate, amount")
         .eq("bill_id", bill.id)
+        .eq("company_id", companyId)
         .order("created_at", { ascending: true });
 
       if (itemsError) throw itemsError;
@@ -430,7 +476,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
       return { queued: false as const, jobs: 0, tally_xml: tallyXml };
     },
     onSuccess: (payload, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
+      queryClient.invalidateQueries({ queryKey: ["bills", activeCompanyId] });
 
       if (payload.queued) {
         toast.success(`Queued for Tally (${payload.jobs} job${payload.jobs === 1 ? "" : "s"})`, {
@@ -475,10 +521,10 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
 
     setUploading(true);
     setUploadProgress({ current: 0, total: selectedFiles.length });
-    
+
     let successCount = 0;
     let failCount = 0;
-    
+
     for (let i = 0; i < selectedFiles.length; i++) {
       setUploadProgress({ current: i + 1, total: selectedFiles.length });
       try {
@@ -488,11 +534,11 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
         failCount++;
       }
     }
-    
+
     setUploading(false);
     setSelectedFiles([]);
     setUploadProgress({ current: 0, total: 0 });
-    
+
     if (successCount > 0) {
       toast.success(`${successCount} bill(s) uploaded and processed successfully!`);
     }
@@ -514,6 +560,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
           .from('expense_line_items' as any)
           .select('*')
           .eq('bill_id', bill.id)
+          .eq('company_id', activeCompanyId)
           .order('id', { ascending: true });
 
         if (error) throw error;
@@ -605,10 +652,13 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   }, [selectedBill?.image_url]);
 
   const fetchBillLineItems = async (billId: string) => {
+    const companyId = requireCompany();
+
     const { data: items, error } = await supabase
       .from("expense_line_items" as any)
       .select("item_description, quantity, unit_price, tax_rate, amount")
       .eq("bill_id", billId)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: true });
 
     if (error) throw error;
@@ -720,6 +770,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
   };
 
   return (
+    <RequireCompany>
     <div className="space-y-6">
       {!embedded && (
         <div>
@@ -1028,7 +1079,7 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
                   <div className="text-sm text-red-600 space-y-1">
                     <p><strong>Match Type:</strong> {selectedBill.duplicate_match_details.match_type.replace(/_/g, " ")}</p>
                     <p><strong>Confidence:</strong> <span className={`font-medium ${
-                      selectedBill.duplicate_match_details.confidence === "high" ? "text-red-700" : 
+                      selectedBill.duplicate_match_details.confidence === "high" ? "text-red-700" :
                       selectedBill.duplicate_match_details.confidence === "medium" ? "text-orange-600" : "text-yellow-600"
                     }`}>{selectedBill.duplicate_match_details.confidence.toUpperCase()}</span></p>
                     {selectedBill.duplicate_match_details.matched_bill_number && (
@@ -1221,5 +1272,6 @@ export default function Bills({ embedded = false }: { embedded?: boolean }) {
         </DialogContent>
       </Dialog>
     </div>
+    </RequireCompany>
   );
 }

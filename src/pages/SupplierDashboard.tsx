@@ -24,6 +24,7 @@ import {
 import { Plus, CheckCircle, XCircle, Edit, Trash2, Upload, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
+import { RequireCompany, useActiveCompanyId } from "@/contexts/CompanyContext";
 
 export default function SupplierDashboard() {
   const [tab, setTab] = useState("dashboard");
@@ -41,15 +42,31 @@ export default function SupplierDashboard() {
   });
   const queryClient = useQueryClient();
 
+  // null means no company is safely established. Queries stay disabled and
+  // mutations refuse rather than running unfiltered.
+  const activeCompanyId = useActiveCompanyId();
+
+  const requireCompany = () => {
+    if (!activeCompanyId) {
+      throw new Error("No company is selected — pick one before making changes.");
+    }
+    return activeCompanyId;
+  };
+
   const resetSupplierForm = () => {
     setSupplierForm({ name: "", email: "", gst_number: "", material_type: "", payment_terms: "", notes: "", bank_account: "", bank_name: "", upi_payment_patterns: "" });
     setEditingSupplier(null);
   };
 
   const { data: suppliers } = useQuery({
-    queryKey: ["suppliers_all"],
+    queryKey: ["suppliers_all", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
-      const { data, error } = await supabase.from("suppliers").select("*").order("name");
+      const { data, error } = await supabase
+        .from("suppliers")
+        .select("*")
+        .eq("company_id", activeCompanyId)
+        .order("name");
       if (error) throw error;
       return data;
     },
@@ -103,11 +120,13 @@ export default function SupplierDashboard() {
   }, [suppliers]);
 
   const { data: invoices, isLoading: invoicesLoading } = useQuery({
-    queryKey: ["raw_material_invoices"],
+    queryKey: ["raw_material_invoices", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_material_invoices")
         .select("*, purchase_orders(po_number), suppliers(name)")
+        .eq("company_id", activeCompanyId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -115,9 +134,10 @@ export default function SupplierDashboard() {
   });
 
   const { data: purchaseOrders } = useQuery({
-    queryKey: ["available_pos"],
+    queryKey: ["available_pos", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
-      const { data, error } = await supabase.from("purchase_orders").select("id, po_number").in("status", ["sent", "processing"]).order("po_number");
+      const { data, error } = await supabase.from("purchase_orders").select("id, po_number").eq("company_id", activeCompanyId).in("status", ["sent", "processing"]).order("po_number");
       if (error) throw error;
       return data;
     },
@@ -126,6 +146,7 @@ export default function SupplierDashboard() {
   // Invoice Mutations
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      const companyId = requireCompany();
       let invoice_file: string | null = null;
 
       // Upload file if provided
@@ -148,13 +169,17 @@ export default function SupplierDashboard() {
         invoice_file,
         extracted_data: extractedInvoiceData || null,
         due_date: data.due_date || null,
+        // Explicit rather than left to the fill_company_id trigger, which
+        // resolves from the caller's membership and is ambiguous once a user
+        // belongs to more than one company.
+        company_id: companyId,
       };
 
       const { error } = await supabase.from("raw_material_invoices").insert(insertData);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices", activeCompanyId] });
       toast.success("Invoice uploaded");
       setInvoiceDialogOpen(false);
       setFormData({ po_id: "", supplier_id: "", invoice_number: "", amount: "", invoice_date: "", due_date: "" });
@@ -168,28 +193,32 @@ export default function SupplierDashboard() {
 
   const approveMutation = useMutation({
     mutationFn: async (invoice: any) => {
-      await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", invoice.id);
-      await supabase.from("purchase_orders").update({ status: "materials_received" }).eq("id", invoice.po_id);
-      await supabase.from("approvals").insert({ linked_invoice_type: "raw_materials", linked_invoice_id: invoice.id, status: "approved" });
-      // Sync to liquidity: mark linked line items as completed
+      const companyId = requireCompany();
+      await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", invoice.id).eq("company_id", companyId);
+      await supabase.from("purchase_orders").update({ status: "materials_received" }).eq("id", invoice.po_id).eq("company_id", companyId);
+      await supabase.from("approvals").insert({ linked_invoice_type: "raw_materials", linked_invoice_id: invoice.id, status: "approved", company_id: companyId });
+      // Sync to liquidity: mark linked line items as completed.
+      // liquidity_line_items is NOT company-scoped yet — no filter is applied
+      // here because the column does not exist. It stays on the deferred list.
       await supabase.from("liquidity_line_items")
         .update({ status: "completed", actual_amount: invoice.amount, payment_date: new Date().toISOString().split("T")[0] })
         .eq("linked_invoice_id", invoice.id)
         .eq("linked_invoice_type", "supplier");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices", activeCompanyId] });
       toast.success("Invoice approved & liquidity updated");
     },
   });
 
   const rejectMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("raw_material_invoices").update({ status: "rejected" }).eq("id", id);
+      const companyId = requireCompany();
+      const { error } = await supabase.from("raw_material_invoices").update({ status: "rejected" }).eq("id", id).eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices", activeCompanyId] });
       toast.success("Invoice rejected");
     },
   });
@@ -197,12 +226,13 @@ export default function SupplierDashboard() {
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (id: string) => {
       // Also delete linked liquidity line items
+      const companyId = requireCompany();
       await supabase.from("liquidity_line_items").delete().eq("linked_invoice_id", id).eq("linked_invoice_type", "supplier");
-      const { error } = await supabase.from("raw_material_invoices").delete().eq("id", id);
+      const { error } = await supabase.from("raw_material_invoices").delete().eq("id", id).eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["raw_material_invoices", activeCompanyId] });
       toast.success("Invoice deleted");
     },
   });
@@ -210,12 +240,17 @@ export default function SupplierDashboard() {
   // Supplier Mutations
   const createSupplierMutation = useMutation({
     mutationFn: async (data: typeof supplierForm) => {
-      // company_id is stamped by the database trigger from the caller's membership.
-      const { error } = await supabase.from("suppliers").insert(data as never);
+      // Explicit, replacing the fill_company_id trigger this previously relied
+      // on: the trigger reads the caller's membership, which cannot tell which
+      // company the user was actually looking at.
+      const companyId = requireCompany();
+      const { error } = await supabase
+        .from("suppliers")
+        .insert({ ...data, company_id: companyId } as never);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers_all"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers_all", activeCompanyId] });
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       toast.success("Supplier created");
       setSupplierDialogOpen(false);
@@ -225,11 +260,12 @@ export default function SupplierDashboard() {
 
   const updateSupplierMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof supplierForm }) => {
-      const { error } = await supabase.from("suppliers").update(data).eq("id", id);
+      const companyId = requireCompany();
+      const { error } = await supabase.from("suppliers").update(data).eq("id", id).eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers_all"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers_all", activeCompanyId] });
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       toast.success("Supplier updated");
       setSupplierDialogOpen(false);
@@ -239,11 +275,12 @@ export default function SupplierDashboard() {
 
   const deleteSupplierMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("suppliers").delete().eq("id", id);
+      const companyId = requireCompany();
+      const { error } = await supabase.from("suppliers").delete().eq("id", id).eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["suppliers_all"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers_all", activeCompanyId] });
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       toast.success("Supplier deleted");
     },
@@ -338,6 +375,7 @@ export default function SupplierDashboard() {
   }, [detailSupplierId, suppliers, invoices]);
 
   return (
+    <RequireCompany>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -543,5 +581,6 @@ export default function SupplierDashboard() {
 
       <SupplierDetailDialog supplier={detailSupplier} open={!!detailSupplierId} onOpenChange={(o) => { if (!o) setDetailSupplierId(null); }} />
     </div>
+    </RequireCompany>
   );
 }
