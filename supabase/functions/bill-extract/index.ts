@@ -492,9 +492,169 @@ async function checkForDuplicateBill(
   return noMatch;
 }
 
+// ============= Tax Rate Reconciliation =============
+
+interface TaxSummaryRow {
+  hsn_code?: string | null;
+  combined_rate?: number | null;
+}
+
+/** Digits only, so "3923" and "HSN 3923" and "3923.00" all compare equal. */
+function normalizeHsn(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const digits = String(value).replace(/\D/g, '');
+  return digits.length >= 4 ? digits : null;
+}
+
+/**
+ * Finds the rates a summary table gives for one HSN code.
+ *
+ * Exact match first. Failing that, the 4-digit heading: a line may carry the
+ * full 8-digit code while the table groups by the 4-digit heading it sits
+ * under, and those should still match. The caller refuses to act whenever this
+ * turns up more than one distinct rate, so widening the search cannot silently
+ * pick the wrong one.
+ */
+function ratesForHsn(hsn: string, byHsn: Map<string, Set<number>>): Set<number> {
+  const exact = byHsn.get(hsn);
+  if (exact && exact.size > 0) return exact;
+
+  const heading = hsn.slice(0, 4);
+  const merged = new Set<number>();
+  for (const [key, rates] of byHsn) {
+    if (key.slice(0, 4) === heading) {
+      for (const rate of rates) merged.add(rate);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Rebuilds each line item's tax_rate from the HSN-wise summary table, in code.
+ *
+ * The model is asked to transcribe the table and to read each line's own HSN,
+ * but NOT to join the two — joining row-by-row is the step it demonstrably
+ * drifts on, having twice returned rates shifted one row down from the items
+ * they belong to. Every field it drifted on is one this function overwrites
+ * from the table, so a shifted rate cannot survive.
+ *
+ * Worth being explicit about why the existing total-based tax check cannot
+ * catch this on its own: swapping the rates of two items with equal amounts
+ * leaves the summed tax identical, so the bill reconciles to the rupee with
+ * every individual rate wrong. Only an HSN-to-rate check sees it.
+ *
+ * Never invents a rate. An HSN absent from the table, or listed against more
+ * than one rate, leaves the item at null.
+ */
+function reconcileTaxRates(
+  items: Array<Record<string, unknown>>,
+  taxSummary: TaxSummaryRow[],
+): { items: Array<Record<string, unknown>>; corrections: string[] } {
+  const byHsn = new Map<string, Set<number>>();
+  for (const row of taxSummary ?? []) {
+    const hsn = normalizeHsn(row?.hsn_code);
+    const rate = Number(row?.combined_rate);
+    if (!hsn || !Number.isFinite(rate)) continue;
+    if (!byHsn.has(hsn)) byHsn.set(hsn, new Set());
+    byHsn.get(hsn)!.add(rate);
+  }
+
+  const corrections: string[] = [];
+  if (byHsn.size === 0) return { items, corrections };
+
+  const reconciled = items.map((item, index) => {
+    const label = String(item?.item_description ?? `item ${index + 1}`);
+    const hsn = normalizeHsn(item?.hsn_code);
+    if (!hsn) return item;
+
+    const rates = ratesForHsn(hsn, byHsn);
+    if (rates.size === 0) return item;
+
+    const claimed = item?.tax_rate === null || item?.tax_rate === undefined ? null : Number(item.tax_rate);
+
+    if (rates.size > 1) {
+      corrections.push(
+        `${label}: HSN ${hsn} appears against ${rates.size} different rates in the summary table, tax_rate set to null`,
+      );
+      return { ...item, tax_rate: null };
+    }
+
+    const authoritative = [...rates][0];
+    if (claimed !== authoritative) {
+      corrections.push(
+        `${label}: HSN ${hsn} -> ${authoritative}% from summary table (model returned ${claimed === null ? 'null' : claimed})`,
+      );
+    }
+    return { ...item, tax_rate: authoritative };
+  });
+
+  return { items: reconciled, corrections };
+}
+
+// ============= Error Reporting =============
+
+/**
+ * DIAGNOSTIC, temporary. Turns any thrown value into something readable.
+ *
+ * The old handler was `error instanceof Error ? error.message : 'Unknown error'`,
+ * which collapsed every non-Error throw into one useless string. That check is
+ * wrong for the most common failure in this file. supabase-js only wraps an
+ * error in the PostgrestError class on the .throwOnError() path; the `error`
+ * handed back in `{ data, error }` is the raw `JSON.parse(body)` result, a
+ * plain object. So `throw fetchError` / `throw updateError` throw plain
+ * objects, `instanceof Error` is false, and a perfectly descriptive message
+ * like "JSON object requested, multiple (or no) rows returned" was being
+ * discarded and reported as "Unknown error".
+ *
+ * Reading `.message` off the object directly is what actually fixes it. The
+ * same bug exists at ~30 other `throw <someError>` sites across these
+ * functions.
+ */
+function describeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      kind: 'Error',
+      constructor: error.constructor?.name ?? 'Error',
+      name: error.name,
+      message: error.message,
+      // Non-standard properties that Supabase/Postgrest/Storage errors carry.
+      extra: Object.fromEntries(
+        Object.getOwnPropertyNames(error)
+          .filter((key) => !['name', 'message', 'stack'].includes(key))
+          .map((key) => [key, (error as unknown as Record<string, unknown>)[key]]),
+      ),
+      stack: error.stack?.split('\n').slice(0, 6).join('\n') ?? null,
+    };
+  }
+
+  if (error !== null && typeof error === 'object') {
+    const obj = error as Record<string, unknown>;
+    return {
+      kind: 'non-Error object',
+      constructor: (error as { constructor?: { name?: string } }).constructor?.name ?? 'unknown',
+      message: typeof obj.message === 'string' ? obj.message : null,
+      ownProperties: Object.getOwnPropertyNames(obj),
+      // Cheap stringify; circular structures fall back to a marker rather than
+      // throwing a second error inside the error handler.
+      json: (() => {
+        try {
+          return JSON.stringify(obj);
+        } catch {
+          return '(unserializable)';
+        }
+      })(),
+    };
+  }
+
+  return { kind: typeof error, constructor: null, message: String(error), value: String(error) };
+}
+
 // ============= Main Handler =============
 
 Deno.serve(async (req: Request) => {
+  // DIAGNOSTIC, temporary. A non-Error throw carries no stack, so without this
+  // there is nothing to say WHERE it happened. Updated as the handler advances.
+  let stage = 'init';
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,
@@ -516,6 +676,7 @@ Deno.serve(async (req: Request) => {
 
 
   try {
+    stage = 'parse-request';
     const body = await req.json();
     console.log('Received request body:', body);
 
@@ -550,6 +711,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('Extracting Bill:', billId);
 
+    stage = 'fetch-bill-row';
     const { data: bill, error: fetchError } = await supabase
       .from('bills')
       .select('*')
@@ -562,6 +724,7 @@ Deno.serve(async (req: Request) => {
       throw new Error('Bill has no image to extract');
     }
 
+    stage = 'download-image';
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('bills')
       .download(bill.image_url);
@@ -570,6 +733,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('File downloaded, size:', fileData.size, 'bytes');
 
+    stage = 'encode-base64';
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
@@ -595,6 +759,7 @@ Deno.serve(async (req: Request) => {
     // ---- Primary engine: Gemini 2.5 Flash via Lovable AI Gateway ----
     if (lovableApiKey) {
       try {
+        stage = 'gemini-request';
         const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -613,6 +778,7 @@ Deno.serve(async (req: Request) => {
                   '"vendor_gst":string|null,"vendor_tin":string|null,"bill_date":"YYYY-MM-DD"|null,' +
                   '"subtotal":number,"tax_amount":number,"total_amount":number,"currency":string,' +
                   '"payment_method":string|null,"confidence":number,' +
+                  '"tax_summary":[{"hsn_code":string,"combined_rate":number|null}],' +
                   '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number|null,"hsn_code":string|null,"amount":number}]}. ' +
                   'vendor_gst must be a valid 15-character GSTIN or null. Amounts are plain numbers without symbols or commas. ' +
                   'confidence is 0-100. Never invent values: use null/0 when not present on the document. ' +
@@ -624,15 +790,17 @@ Deno.serve(async (req: Request) => {
                   'If a line has no visible HSN/SAC code, set hsn_code to null; never fabricate one. ' +
                   'If a line has no legible tax rate, set tax_rate to null rather than 0 — 0 means you read a ' +
                   'confirmed nil-rated or exempt line, null means the rate could not be determined. ' +
-                  'One exception: some invoices print rates only in a separate tax-rate summary table (often ' +
-                  'listing HSN/SAC code, taxable value, and CGST/SGST/IGST rate per HSN group) instead of on each ' +
-                  'item line. If such a table is present and is organized by HSN/SAC code, and the hsn_code on a ' +
-                  'line matches exactly one row of that table, take the rate for that line from that row. ' +
-                  'Read that row column by column before answering, because these tables come in three layouts ' +
-                  'and they are easy to confuse: ' +
-                  '(a) ONE combined column, headed GST Rate or Rate or Tax Rate — use that number as tax_rate directly; ' +
+                  'Many invoices also print a separate HSN-wise tax summary table (listing HSN/SAC code, ' +
+                  'taxable value, and CGST/SGST/IGST rate per HSN group). Transcribe that table into ' +
+                  'tax_summary, one object per printed row, in the order printed, without reordering, merging ' +
+                  'or deduplicating rows. Use an empty array when the document has no such table. ' +
+                  'Do NOT use the table to fill in the item lines yourself and do NOT copy its rates onto ' +
+                  'items: transcribe it as data and leave the matching alone. ' +
+                  'Compute combined_rate for each summary row by reading its columns, because these tables ' +
+                  'come in three layouts and they are easy to confuse: ' +
+                  '(a) ONE combined column, headed GST Rate or Rate or Tax Rate — use that number directly; ' +
                   '(b) TWO separate columns, one CGST Rate or Central Tax and one SGST Rate or UTGST or State Tax — ' +
-                  'tax_rate is their SUM, so CGST 9 with SGST 9 gives tax_rate 18, and CGST 2.5 with SGST 2.5 gives tax_rate 5; ' +
+                  'combined_rate is their SUM, so CGST 9 with SGST 9 gives 18, and CGST 2.5 with SGST 2.5 gives 5; ' +
                   '(c) a single IGST Rate or Integrated Tax column — that figure is already the full rate, so use it ' +
                   'directly and do NOT double it. ' +
                   'In layout (b), returning only the CGST column value is wrong: that is half the real rate. ' +
@@ -641,10 +809,13 @@ Deno.serve(async (req: Request) => {
                   'half of 18 and half of 5 — go back to the row and confirm you have not picked up only the CGST or ' +
                   'only the SGST column. Fix it by adding the two component columns together, never by rounding or ' +
                   'snapping the rate to the nearest slab. ' +
-                  'If the same HSN code appears against more than one combined rate, the table is not clearly organized by ' +
-                  'HSN, or the HSN on a line does not clearly match any row, leave tax_rate null — do not guess or ' +
-                  'average. This exception never overrides the rule above: a rate read this way must still be tied ' +
-                  'to a specific HSN group, never applied as one flat rate across items with different HSN codes.',
+                  'Emit items in the exact order they are printed, one object per printed item line. Every field ' +
+                  'of an item must be read from that same printed row. Before emitting each item, re-read the row ' +
+                  'it came from and confirm the hsn_code you are about to write is the code printed on that row, ' +
+                  'next to that description. Never carry a value down from the row above or up from the row below: ' +
+                  'a rate or code that belongs to a neighbouring line is worse than null, because null is visibly ' +
+                  'missing whereas a shifted value looks correct and is not. ' +
+                  'If the rate on a line itself is not legible, leave its tax_rate null and let tax_summary carry the rate.',
               },
               {
                 role: 'user',
@@ -663,10 +834,20 @@ Deno.serve(async (req: Request) => {
           throw new Error(`AI gateway returned ${aiResponse.status}: ${await aiResponse.text()}`);
         }
 
+        stage = 'gemini-parse-response';
         const aiData = await aiResponse.json();
         const content = aiData.choices?.[0]?.message?.content ?? '';
         const jsonText = content.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
         const parsed = JSON.parse(jsonText);
+
+        const parsedItems = Array.isArray(parsed.items) ? parsed.items : [];
+        const taxSummary: TaxSummaryRow[] = Array.isArray(parsed.tax_summary) ? parsed.tax_summary : [];
+        const reconciliation = reconcileTaxRates(parsedItems, taxSummary);
+        if (reconciliation.corrections.length > 0) {
+          console.log('Tax rate reconciliation applied:', reconciliation.corrections);
+        } else if (taxSummary.length > 0) {
+          console.log('Tax rate reconciliation: summary table agreed with every line item');
+        }
 
         extracted = {
           bill_number: parsed.bill_number ?? null,
@@ -679,7 +860,9 @@ Deno.serve(async (req: Request) => {
           total_amount: Number(parsed.total_amount) || 0,
           currency: parsed.currency || 'INR',
           payment_method: parsed.payment_method ?? null,
-          items: Array.isArray(parsed.items) ? parsed.items : [],
+          items: reconciliation.items,
+          tax_summary: taxSummary,
+          rate_corrections: reconciliation.corrections,
           confidence: Number(parsed.confidence) || 85,
           extraction_notes: 'Extracted with Gemini 2.5 Flash.',
         };
@@ -693,6 +876,7 @@ Deno.serve(async (req: Request) => {
 
     // ---- Fallback engine: Google Vision OCR + regex parsing ----
     if (!extracted && visionApiKey) {
+      stage = 'vision-ocr';
       console.log('Falling back to Google Vision OCR...');
       const visionResponse = await fetch(
         `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
@@ -761,6 +945,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ============= Duplicate Detection =============
+    stage = 'duplicate-check';
     console.log('Checking for duplicate bills...');
     const duplicateCheck = await checkForDuplicateBill(
       supabase,
@@ -776,6 +961,7 @@ Deno.serve(async (req: Request) => {
       console.log('Duplicate bill detected:', duplicateCheck);
     }
 
+    stage = 'update-bill-row';
     const { data: updatedBill, error: updateError } = await supabase
       .from('bills')
       .update({
@@ -803,6 +989,7 @@ Deno.serve(async (req: Request) => {
     if (updateError) throw updateError;
 
     if (extracted.items && extracted.items.length > 0) {
+      stage = 'write-line-items';
       await supabase
         .from('expense_line_items')
         .delete()
@@ -833,6 +1020,7 @@ Deno.serve(async (req: Request) => {
 
     console.log('Bill extraction completed successfully', duplicateCheck.isDuplicate ? '(DUPLICATE DETECTED)' : '');
 
+    stage = 'build-response';
     return new Response(JSON.stringify({
       ...updatedBill,
       duplicate_detected: duplicateCheck.isDuplicate,
@@ -850,15 +1038,26 @@ Deno.serve(async (req: Request) => {
             ocr_text: ocrText ?? null,
             ocr_text_length: ocrText?.length ?? 0,
             parsed_items: extracted.items,
+            tax_summary: extracted.tax_summary ?? null,
+            rate_corrections: extracted.rate_corrections ?? null,
           }
         : {}),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in bill-extract:', error);
+    // DIAGNOSTIC, temporary. describeError never returns the bare string
+    // 'Unknown error' — every shape of throw yields something identifying, so
+    // a 500 from here always names what actually failed and at which stage.
+    const described = describeError(error);
+    console.error('Error in bill-extract at stage', stage, '::', described);
+    console.error('Raw thrown value:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({
+        error: described.message ?? `Non-Error throw (${described.kind}) at stage "${stage}"`,
+        stage,
+        diagnostic: described,
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
