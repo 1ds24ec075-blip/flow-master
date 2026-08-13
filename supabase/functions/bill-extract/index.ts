@@ -616,6 +616,9 @@ Deno.serve(async (req: Request) => {
                   '"items":[{"item_description":string,"quantity":number,"unit_price":number,"tax_rate":number|null,"hsn_code":string|null,"amount":number}]}. ' +
                   'vendor_gst must be a valid 15-character GSTIN or null. Amounts are plain numbers without symbols or commas. ' +
                   'confidence is 0-100. Never invent values: use null/0 when not present on the document. ' +
+                  'tax_rate is always the COMBINED GST rate for that line, as a single percentage: CGST plus ' +
+                  'SGST/UTGST added together, or the IGST rate on its own. It is never one component by itself. ' +
+                  'An 18% item is tax_rate 18, not 9. A 5% item is tax_rate 5, not 2.5. ' +
                   'For each line item, read tax_rate and hsn_code only from what is printed on that specific line — ' +
                   'do not copy a rate or code from a different line, and do not apply one bill-wide rate to every item. ' +
                   'If a line has no visible HSN/SAC code, set hsn_code to null; never fabricate one. ' +
@@ -624,8 +627,21 @@ Deno.serve(async (req: Request) => {
                   'One exception: some invoices print rates only in a separate tax-rate summary table (often ' +
                   'listing HSN/SAC code, taxable value, and CGST/SGST/IGST rate per HSN group) instead of on each ' +
                   'item line. If such a table is present and is organized by HSN/SAC code, and the hsn_code on a ' +
-                  'line matches exactly one row in that table with exactly one rate, use that rate for tax_rate. ' +
-                  'If the same HSN code appears against more than one rate, the table is not clearly organized by ' +
+                  'line matches exactly one row of that table, take the rate for that line from that row. ' +
+                  'Read that row column by column before answering, because these tables come in three layouts ' +
+                  'and they are easy to confuse: ' +
+                  '(a) ONE combined column, headed GST Rate or Rate or Tax Rate — use that number as tax_rate directly; ' +
+                  '(b) TWO separate columns, one CGST Rate or Central Tax and one SGST Rate or UTGST or State Tax — ' +
+                  'tax_rate is their SUM, so CGST 9 with SGST 9 gives tax_rate 18, and CGST 2.5 with SGST 2.5 gives tax_rate 5; ' +
+                  '(c) a single IGST Rate or Integrated Tax column — that figure is already the full rate, so use it ' +
+                  'directly and do NOT double it. ' +
+                  'In layout (b), returning only the CGST column value is wrong: that is half the real rate. ' +
+                  'Check yourself before answering: a combined Indian GST rate is normally 0, 0.25, 3, 5, 12, 18 or 28. ' +
+                  'If the number you are about to return is not one of those — 9 and 2.5 are the classic signs, being ' +
+                  'half of 18 and half of 5 — go back to the row and confirm you have not picked up only the CGST or ' +
+                  'only the SGST column. Fix it by adding the two component columns together, never by rounding or ' +
+                  'snapping the rate to the nearest slab. ' +
+                  'If the same HSN code appears against more than one combined rate, the table is not clearly organized by ' +
                   'HSN, or the HSN on a line does not clearly match any row, leave tax_rate null — do not guess or ' +
                   'average. This exception never overrides the rule above: a rate read this way must still be tied ' +
                   'to a specific HSN group, never applied as one flat rate across items with different HSN codes.',
