@@ -65,3 +65,14 @@ Since I can't run the CLI against a project I don't hold credentials for, this p
 4. `vite.config.ts` + `.env.example` changed to real env vars.
 5. An AI-provider switch in the five AI functions, behind a `GEMINI_API_KEY`/`OPENAI_API_KEY` env var, so they work off-platform.
 6. A verification SQL script: row counts per table, RLS check, orphan-FK check, sequence reset.
+
+## Pre-existing build errors to fix first
+
+Four insert calls break typecheck because `company_id` is now required (multi-tenancy migration) and the inserts still pass a bare object:
+
+- `src/pages/Clients.tsx:54` — clients insert
+- `src/pages/Quotations.tsx:108` — purchase_orders insert
+- `src/pages/RawMaterialInvoices.tsx:93` — approvals insert
+- `src/pages/SupplierDashboard.tsx:173` — approvals insert
+
+Fix: pass the current company id (resolved from `company_members`) on each insert, or rely on the `fill_company_id` trigger and cast accordingly. Done as step 0, before the backend move.
