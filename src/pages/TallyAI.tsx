@@ -86,10 +86,22 @@ export default function TallyAI() {
     setMessages(prev => [...prev, tempMsg]);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tally-ai-chat`, {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey =
+        import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      // The session token, not the anon key. The anon key ships inside this
+      // bundle, so sending it as the caller's identity left tally-ai-chat
+      // callable by anyone who read the JS — and gave the function no
+      // auth.uid() to attribute the conversation to or to enforce RLS with.
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) throw new Error("Please sign in to use TalligenceAI.");
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/tally-ai-chat`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          Authorization: `Bearer ${session.session.access_token}`,
+          apikey: supabaseKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ message: userMessage, conversationId: currentConversationId }),
@@ -98,6 +110,10 @@ export default function TallyAI() {
       if (!response.ok) {
         if (response.status === 429) throw new Error("Rate limit exceeded. Please wait a moment.");
         if (response.status === 402) throw new Error("AI credits exhausted. Add funds in Settings > Workspace > Usage.");
+        // Reachable now in a way it was not before: a real token can expire,
+        // where the anon key never did. Say so rather than "Failed to get
+        // response", which would send someone hunting the wrong problem.
+        if (response.status === 401) throw new Error("Your session expired. Sign in again to continue.");
         throw new Error("Failed to get response");
       }
 

@@ -16,6 +16,19 @@ import { OrderSentTable } from "@/components/inventory/OrderSentTable";
 import { useLowStockAlerts } from "@/components/inventory/LowStockAlert";
 import type { InventoryItem } from "@/components/inventory/ReorderConfirmDialog";
 
+/**
+ * KNOWN GAP: this page is not company-scoped, deliberately.
+ *
+ * `inventory_items` and `reorder_requests` were left out of the Phase 1 and
+ * Phase 2 multi-tenancy migrations and have no company_id column. `suppliers`
+ * does have one, but filtering only that would be worse than filtering nothing:
+ * the supplier dropdown would show one company's suppliers while the item table
+ * showed everyone's, letting a reorder attach the wrong company's supplier to
+ * an item. Half-scoping was tried and reverted on 2026-08-13 for that reason.
+ *
+ * Fix order: migrate both tables to carry company_id, then scope all three
+ * queries here together — not one at a time.
+ */
 export default function Inventory() {
   const [search, setSearch] = useState("");
   const [reorderItem, setReorderItem] = useState<InventoryItem | null>(null);

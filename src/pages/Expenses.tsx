@@ -42,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RequireCompany, useActiveCompanyId } from "@/contexts/CompanyContext";
 
 interface Bill {
   id: string;
@@ -81,7 +82,21 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
   const [editStatus, setEditStatus] = useState<string>("");
   const queryClient = useQueryClient();
 
+  // null means no company is safely established. Both bill queries stay
+  // disabled and the update refuses rather than running unfiltered.
+  const activeCompanyId = useActiveCompanyId();
+
+  const requireCompany = () => {
+    if (!activeCompanyId) {
+      throw new Error("No company is selected — pick one before making changes.");
+    }
+    return activeCompanyId;
+  };
+
   const { data: categories } = useQuery({
+    // expense_categories has no company_id column — it is shared reference
+    // data, not tenant data, so there is nothing to filter on and the key
+    // stays company-independent.
     queryKey: ["expense-categories"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -96,8 +111,10 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
   });
 
   const { data: bills, isLoading } = useQuery({
-    queryKey: ["expenses", selectedMonth],
+    queryKey: ["expenses", activeCompanyId, selectedMonth],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
+      const companyId = requireCompany();
       const startDate = startOfMonth(new Date(selectedMonth + "-01"));
       const endDate = endOfMonth(new Date(selectedMonth + "-01"));
 
@@ -109,6 +126,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
           expense_categories(name, color)
         `
         )
+        .eq("company_id", companyId)
         .eq("is_verified", true)
         .gte("bill_date", format(startDate, "yyyy-MM-dd"))
         .lte("bill_date", format(endDate, "yyyy-MM-dd"))
@@ -126,8 +144,10 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
   );
 
   const { data: previousBills } = useQuery({
-    queryKey: ["expenses", previousMonth],
+    queryKey: ["expenses", activeCompanyId, previousMonth],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
+      const companyId = requireCompany();
       const startDate = startOfMonth(new Date(previousMonth + "-01"));
       const endDate = endOfMonth(new Date(previousMonth + "-01"));
 
@@ -139,6 +159,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
           expense_categories(name, color)
         `
         )
+        .eq("company_id", companyId)
         .eq("is_verified", true)
         .gte("bill_date", format(startDate, "yyyy-MM-dd"))
         .lte("bill_date", format(endDate, "yyyy-MM-dd"))
@@ -159,6 +180,8 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
       categoryId?: string;
       paymentStatus?: string;
     }) => {
+      const companyId = requireCompany();
+
       const updates: any = {};
       if (categoryId) updates.category_id = categoryId;
       if (paymentStatus) updates.payment_status = paymentStatus;
@@ -166,13 +189,16 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
       const { error } = await supabase
         .from("bills" as any)
         .update(updates)
-        .eq("id", billId);
+        .eq("id", billId)
+        .eq("company_id", companyId);
 
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Bill updated successfully");
-      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      // Company-qualified prefix: matches both the selected and the previous
+      // month for this company, and nothing belonging to another one.
+      queryClient.invalidateQueries({ queryKey: ["expenses", activeCompanyId] });
       setEditingBill(null);
     },
     onError: (error: Error) => {
@@ -260,6 +286,7 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
   };
 
   return (
+    <RequireCompany>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         {!embedded && (
@@ -685,5 +712,6 @@ export default function Expenses({ embedded = false }: { embedded?: boolean }) {
         </CardContent>
       </Card>
     </div>
+    </RequireCompany>
   );
 }

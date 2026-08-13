@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { RequireCompany, useActiveCompanyId } from "@/contexts/CompanyContext";
 
 export default function Clients() {
   const [open, setOpen] = useState(false);
@@ -37,12 +38,26 @@ export default function Clients() {
 
   const queryClient = useQueryClient();
 
+  // null means no company is safely established. The query stays disabled and
+  // every mutation refuses rather than running unfiltered.
+  const activeCompanyId = useActiveCompanyId();
+
+  const requireCompany = () => {
+    if (!activeCompanyId) {
+      throw new Error("No company is selected — pick one before making changes.");
+    }
+    return activeCompanyId;
+  };
+
   const { data: clients, isLoading } = useQuery({
-    queryKey: ["clients"],
+    queryKey: ["clients", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
+      const companyId = requireCompany();
       const { data, error } = await supabase
         .from("clients")
         .select("*")
+        .eq("company_id", companyId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -51,11 +66,16 @@ export default function Clients() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase.from("clients").insert(data);
+      // Explicit rather than left to the fill_company_id trigger. The trigger
+      // resolves from the caller's membership, which cannot tell which company
+      // the user was actually looking at. The generated types also declare
+      // company_id as required on the clients Insert type.
+      const companyId = requireCompany();
+      const { error } = await supabase.from("clients").insert({ ...data, company_id: companyId });
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients", activeCompanyId] });
       toast.success("Client created successfully");
       setOpen(false);
       resetForm();
@@ -67,11 +87,16 @@ export default function Clients() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
-      const { error } = await supabase.from("clients").update(data).eq("id", id);
+      const companyId = requireCompany();
+      const { error } = await supabase
+        .from("clients")
+        .update(data)
+        .eq("id", id)
+        .eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients", activeCompanyId] });
       toast.success("Client updated successfully");
       setOpen(false);
       resetForm();
@@ -83,11 +108,16 @@ export default function Clients() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("clients").delete().eq("id", id);
+      const companyId = requireCompany();
+      const { error } = await supabase
+        .from("clients")
+        .delete()
+        .eq("id", id)
+        .eq("company_id", companyId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients", activeCompanyId] });
       toast.success("Client deleted successfully");
     },
     onError: () => {
@@ -130,6 +160,7 @@ export default function Clients() {
   };
 
   return (
+    <RequireCompany>
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -267,5 +298,6 @@ export default function Clients() {
         )}
       </div>
     </div>
+    </RequireCompany>
   );
 }

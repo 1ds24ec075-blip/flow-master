@@ -21,17 +21,63 @@ import { useInsights } from "@/hooks/useInsights";
 import { ValidationAlerts } from "@/components/dashboard/ValidationAlerts";
 import { Link } from "react-router-dom";
 import { MorningBriefCard, CashCrisisCard, LiveAgentFeed } from "@/components/dashboard/AgenticWidgets";
+import { RequireCompany, useActiveCompanyId } from "@/contexts/CompanyContext";
+import type { ReactNode } from "react";
+
+/**
+ * Marks a panel that is NOT filtered by the active company.
+ *
+ * The stat cards on this page are company-scoped; these panels are not. On a
+ * multi-company account they can therefore disagree with the figures directly
+ * above them, and the label exists so that disagreement reads as a known
+ * limitation rather than as one of the two numbers being wrong.
+ *
+ * It describes what the reader is looking at, not why, so it is applied
+ * uniformly even though the underlying causes differ and will be fixed at
+ * different times: MorningBrief, CashCrisis, LiveAgentFeed and ValidationAlerts
+ * read tables with no company_id column (a migration), while InsightsSummary
+ * comes from the generate-insights edge function aggregating server-side with
+ * no company filter (Phase 3). Both look identical from the user's seat.
+ *
+ * Delete this wrapper — not just the label — as each source is scoped.
+ */
+function NotCompanySpecific({ children }: { children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <span className="inline-block rounded border border-dashed border-muted-foreground/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        Not yet company-specific
+      </span>
+      {children}
+    </div>
+  );
+}
 
 export default function Dashboard() {
+  // null means no company is safely established. The stat query stays disabled
+  // rather than counting across every company the caller can see.
+  const activeCompanyId = useActiveCompanyId();
+
+  const requireCompany = () => {
+    if (!activeCompanyId) {
+      throw new Error("No company is selected — pick one to see your figures.");
+    }
+    return activeCompanyId;
+  };
+
   const { data: stats } = useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", activeCompanyId],
+    enabled: activeCompanyId !== null,
     queryFn: async () => {
+      // Narrowed to a plain string here, which is also what the generated
+      // column type on .eq() expects — activeCompanyId itself is string | null.
+      const companyId = requireCompany();
+
       const [quotations, purchaseOrders, rawMaterialInvoices, clientInvoices, approvals] = await Promise.all([
-        supabase.from("quotations").select("*", { count: "exact" }),
-        supabase.from("purchase_orders").select("*", { count: "exact" }),
-        supabase.from("raw_material_invoices").select("*", { count: "exact" }),
-        supabase.from("client_invoices").select("*", { count: "exact" }),
-        supabase.from("approvals").select("*", { count: "exact" }),
+        supabase.from("quotations").select("*", { count: "exact" }).eq("company_id", companyId),
+        supabase.from("purchase_orders").select("*", { count: "exact" }).eq("company_id", companyId),
+        supabase.from("raw_material_invoices").select("*", { count: "exact" }).eq("company_id", companyId),
+        supabase.from("client_invoices").select("*", { count: "exact" }).eq("company_id", companyId),
+        supabase.from("approvals").select("*", { count: "exact" }).eq("company_id", companyId),
       ]);
 
       const pendingQuotations = quotations.data?.filter((q) => q.status === "draft" || q.status === "sent").length || 0;
@@ -70,6 +116,7 @@ export default function Dashboard() {
   const aiRecommendations = insights?.insights?.filter(i => i.id.startsWith('ai-rec')) || [];
 
   return (
+    <RequireCompany>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -99,17 +146,31 @@ export default function Dashboard() {
       </div>
 
       {/* Agentic Layer: Morning Brief + Cash Crisis + Live Feed */}
+      {/* Each wrapped individually rather than the grid as a whole, so the
+          label sits with the panel it applies to when the row wraps on
+          narrow screens. */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <MorningBriefCard />
-        <CashCrisisCard />
-        <LiveAgentFeed />
+        <NotCompanySpecific>
+          <MorningBriefCard />
+        </NotCompanySpecific>
+        <NotCompanySpecific>
+          <CashCrisisCard />
+        </NotCompanySpecific>
+        <NotCompanySpecific>
+          <LiveAgentFeed />
+        </NotCompanySpecific>
       </div>
 
-      {/* AI Summary Banner */}
-      <InsightsSummary summary={insights?.summary || null} isLoading={insightsLoading} />
+      {/* AI Summary Banner — useInsights calls the generate-insights edge
+          function, which aggregates server-side with no company filter. */}
+      <NotCompanySpecific>
+        <InsightsSummary summary={insights?.summary || null} isLoading={insightsLoading} />
+      </NotCompanySpecific>
 
-      {/* Data Validation Alerts */}
-      <ValidationAlerts />
+      {/* Data Validation Alerts — reads activity_log, which has no company_id. */}
+      <NotCompanySpecific>
+        <ValidationAlerts />
+      </NotCompanySpecific>
 
       {/* Alerts Section */}
       {sortedAlerts.length > 0 && (
@@ -248,5 +309,6 @@ export default function Dashboard() {
         </Card>
       </div>
     </div>
+    </RequireCompany>
   );
 }
