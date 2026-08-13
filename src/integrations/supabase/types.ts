@@ -87,6 +87,7 @@ export type Database = {
         Row: {
           approved_by: string | null
           comment: string | null
+          company_id: string
           created_at: string | null
           id: string
           linked_invoice_id: string
@@ -97,6 +98,7 @@ export type Database = {
         Insert: {
           approved_by?: string | null
           comment?: string | null
+          company_id: string
           created_at?: string | null
           id?: string
           linked_invoice_id: string
@@ -107,6 +109,7 @@ export type Database = {
         Update: {
           approved_by?: string | null
           comment?: string | null
+          company_id?: string
           created_at?: string | null
           id?: string
           linked_invoice_id?: string
@@ -114,7 +117,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["approval_status"] | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "approvals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bank_statements: {
         Row: {
@@ -464,6 +475,7 @@ export type Database = {
       clients: {
         Row: {
           address: string | null
+          company_id: string
           contact_person: string | null
           created_at: string | null
           email: string | null
@@ -475,6 +487,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          company_id: string
           contact_person?: string | null
           created_at?: string | null
           email?: string | null
@@ -486,6 +499,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          company_id?: string
           contact_person?: string | null
           created_at?: string | null
           email?: string | null
@@ -495,7 +509,15 @@ export type Database = {
           notes?: string | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       companies: {
         Row: {
@@ -833,6 +855,7 @@ export type Database = {
         Row: {
           amount: number | null
           bill_id: string | null
+          company_id: string
           created_at: string | null
           hsn_code: string | null
           id: string
@@ -844,6 +867,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           bill_id?: string | null
+          company_id: string
           created_at?: string | null
           hsn_code?: string | null
           id?: string
@@ -855,6 +879,7 @@ export type Database = {
         Update: {
           amount?: number | null
           bill_id?: string | null
+          company_id?: string
           created_at?: string | null
           hsn_code?: string | null
           id?: string
@@ -869,6 +894,13 @@ export type Database = {
             columns: ["bill_id"]
             isOneToOne: false
             referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_line_items_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -1734,6 +1766,7 @@ export type Database = {
         Row: {
           amount: number | null
           client_id: string | null
+          company_id: string
           created_at: string | null
           created_by: string | null
           id: string
@@ -1748,6 +1781,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           client_id?: string | null
+          company_id: string
           created_at?: string | null
           created_by?: string | null
           id?: string
@@ -1762,6 +1796,7 @@ export type Database = {
         Update: {
           amount?: number | null
           client_id?: string | null
+          company_id?: string
           created_at?: string | null
           created_by?: string | null
           id?: string
@@ -1779,6 +1814,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
           {
