@@ -104,13 +104,14 @@ export default function Quotations() {
   const generatePOMutation = useMutation({
     mutationFn: async (quotation: any) => {
       const poNumber = `PO-${Date.now()}`;
+      // company_id is stamped by the database trigger from the caller's membership.
       const { error } = await supabase.from("purchase_orders").insert({
         po_number: poNumber,
         quotation_id: quotation.id,
         client_id: quotation.client_id,
         amount: quotation.amount,
         status: "draft",
-      });
+      } as never);
       if (error) throw error;
       return poNumber;
     },

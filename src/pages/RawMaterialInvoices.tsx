@@ -90,7 +90,8 @@ export default function RawMaterialInvoices() {
     mutationFn: async (invoice: any) => {
       await supabase.from("raw_material_invoices").update({ status: "approved" }).eq("id", invoice.id);
       await supabase.from("purchase_orders").update({ status: "materials_received" }).eq("id", invoice.po_id);
-      await supabase.from("approvals").insert({ linked_invoice_type: "raw_materials", linked_invoice_id: invoice.id, status: "approved" });
+      // company_id is stamped by the database trigger from the caller's membership.
+      await supabase.from("approvals").insert({ linked_invoice_type: "raw_materials", linked_invoice_id: invoice.id, status: "approved" } as never);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["raw_material_invoices"] });
