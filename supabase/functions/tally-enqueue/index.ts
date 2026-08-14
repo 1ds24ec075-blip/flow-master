@@ -9,7 +9,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { corsHeaders, json, preflight, errorMessage } from "../_shared/http.ts";
-import { serviceClient, requireUserOrService } from "../_shared/agent-auth.ts";
+import { serviceClient } from "../_shared/agent-auth.ts";
+import {
+  authenticateCaller,
+  requireCompanyMembership,
+  resolveResourceCompany,
+  CompanyAccessError,
+  COMPANY_ACCESS_DENIED,
+} from "../_shared/company-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { loadBillSyncOptions } from "../_shared/tally/context.ts";
 import { TallyValidationError, TallyReviewRequired, isVoucherJob, isLedgerMaster } from "../_shared/tally/types.ts";
@@ -24,46 +31,74 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
 
   try {
-    await requireUserOrService(req);
+    const caller = await authenticateCaller(req);
 
-    const { billId, agentId } = await req.json();
+    const { billId, agentId, companyId: claimedCompanyId } = await req.json();
     if (!billId) throw new Error("billId is required");
 
     const supabase = serviceClient();
 
-    // Pick the target agent: explicit, or the single active installation.
+    // The bill is loaded before anything else because it, not the request body,
+    // decides which company this call is operating on. maybeSingle rather than
+    // single so a missing bill reads as "not found" instead of a raw
+    // Postgrest error surfacing as a 500.
+    const { data: bill, error: billError } = await supabase
+      .from("bills")
+      .select("*, expense_categories(name)")
+      .eq("id", billId)
+      .maybeSingle();
+
+    if (billError) throw billError;
+    if (!bill) throw new Error("Bill not found");
+
+    // Authorization gate. The company comes from the bill; the companyId in the
+    // body is only cross-checked against it. Trusting the body alone would let
+    // someone pair another company's billId with their own companyId and pass.
+    const companyId = resolveResourceCompany(bill.company_id, claimedCompanyId, `bill ${billId}`);
+    await requireCompanyMembership(supabase, caller, companyId);
+
+    if (bill.is_duplicate) throw new Error("Duplicate bills cannot be sent to Tally");
+
+    // Pick the target agent, always within this company. An agent belonging to
+    // another company would deliver this voucher into that company's Tally —
+    // a cross-tenant write that no amount of row filtering downstream undoes.
     let targetAgentId = agentId as string | undefined;
-    if (!targetAgentId) {
+    if (targetAgentId) {
+      const { data: namedAgent, error: namedAgentError } = await supabase
+        .from("tally_agents")
+        .select("id")
+        .eq("id", targetAgentId)
+        .eq("company_id", companyId)
+        .is("revoked_at", null)
+        .maybeSingle();
+      if (namedAgentError) throw namedAgentError;
+      // Same message whether the agent is missing, revoked, or another
+      // company's — naming which would confirm that someone else's agent id
+      // exists.
+      if (!namedAgent) throw new CompanyAccessError(COMPANY_ACCESS_DENIED);
+    } else {
       const { data: agents, error: agentError } = await supabase
         .from("tally_agents")
         .select("id")
+        .eq("company_id", companyId)
         .is("revoked_at", null)
         .order("created_at", { ascending: true })
         .limit(2);
       if (agentError) throw agentError;
       if (!agents?.length) {
-        throw new Error("No Tally agent is registered. Install the desktop agent and register it first.");
+        throw new Error("No Tally agent is registered for this company. Install the desktop agent and register it first.");
       }
       if (agents.length > 1) {
-        throw new Error("Multiple Tally agents are registered — pass agentId to choose one.");
+        throw new Error("Multiple Tally agents are registered for this company — pass agentId to choose one.");
       }
       targetAgentId = agents[0].id;
     }
-
-    const { data: bill, error: billError } = await supabase
-      .from("bills")
-      .select("*, expense_categories(name)")
-      .eq("id", billId)
-      .single();
-
-    if (billError) throw billError;
-    if (!bill) throw new Error("Bill not found");
-    if (bill.is_duplicate) throw new Error("Duplicate bills cannot be sent to Tally");
 
     const { data: lineItems, error: lineItemsError } = await supabase
       .from("expense_line_items")
       .select("item_description, quantity, unit_price, tax_rate, amount, hsn_code")
       .eq("bill_id", billId)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: true });
 
     if (lineItemsError) throw lineItemsError;
@@ -73,6 +108,11 @@ serve(async (req) => {
 
     const rows = [...masters, voucher].map((payload) => ({
       agent_id: targetAgentId,
+      // Explicit, not left to the fill_company_id trigger. This runs on the
+      // service-role client, where auth.uid() is NULL, so the trigger cannot
+      // resolve a membership at all — it only succeeds today by falling back to
+      // "there is exactly one company", and raises the moment a second exists.
+      company_id: companyId,
       job_type: jobTypeFor(payload),
       payload_json: payload,
       tally_guid: payload.guid,
@@ -106,7 +146,8 @@ serve(async (req) => {
         tally_queued_at: new Date().toISOString(),
         tally_error: null,
       })
-      .eq("id", bill.id);
+      .eq("id", bill.id)
+      .eq("company_id", companyId);
 
     return json({
       agent_id: targetAgentId,
@@ -134,11 +175,13 @@ serve(async (req) => {
       );
     }
 
-    const status = error instanceof TallyValidationError
-      ? 422
-      : message === "Authentication required"
-        ? 401
-        : 500;
+    const status = error instanceof CompanyAccessError
+      ? 403
+      : error instanceof TallyValidationError
+        ? 422
+        : message === "Authentication required"
+          ? 401
+          : 500;
     return new Response(JSON.stringify({ error: message }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

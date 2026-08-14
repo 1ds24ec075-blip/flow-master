@@ -15,6 +15,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { corsHeaders, json, preflight } from "../_shared/http.ts";
 import { requireUser, serviceClient } from "../_shared/agent-auth.ts";
+import {
+  requireCompanyMembership,
+  CompanyAccessError,
+  COMPANY_ACCESS_DENIED,
+  type Caller,
+} from "../_shared/company-auth.ts";
 import { normalizeStockItemName, normalizeVendorName } from "../_shared/tally/matching.ts";
 
 class ValidationError extends Error {}
@@ -34,8 +40,10 @@ serve(async (req) => {
 
   try {
     // A resolution is a human judgment, so it needs a human: no service-role
-    // bypass here — resolved_by has to be a real user.
+    // bypass here — resolved_by has to be a real user. requireUser rather than
+    // authenticateCaller for exactly that reason.
     const user = await requireUser(req);
+    const caller: Caller = { kind: "user", id: user.id, email: user.email };
 
     const body = (await req.json()) as ResolveRequest;
     const { businessId, rawName, itemType, resolution, sourceBillId } = body;
@@ -59,6 +67,11 @@ serve(async (req) => {
 
     const supabase = serviceClient();
 
+    // Authorization gate, before any read or write keyed on businessId. This
+    // client is service-role and bypasses RLS, so without this check any
+    // signed-in user could write a resolution into any company's table.
+    await requireCompanyMembership(supabase, caller, businessId);
+
     // A 'matched' answer has to point at a master this business's agent has
     // actually delivered — otherwise a typo'd GUID becomes a permanent answer
     // that silently matches nothing.
@@ -80,12 +93,31 @@ serve(async (req) => {
       }
     }
 
+    // The bill must belong to this business before it can be re-enqueued below.
+    // The enqueue call carries the service-role key, which makes tally-enqueue
+    // skip its own membership check and trust this one — so if this is not
+    // verified here, nothing verifies it at all, and any signed-in user could
+    // drive another company's bill onto its Tally queue.
+    if (sourceBillId) {
+      const { data: sourceBill, error: sourceBillError } = await supabase
+        .from("bills")
+        .select("id, company_id")
+        .eq("id", sourceBillId)
+        .maybeSingle();
+      if (sourceBillError) throw sourceBillError;
+      if (!sourceBill || sourceBill.company_id !== businessId) {
+        throw new CompanyAccessError(COMPANY_ACCESS_DENIED);
+      }
+    }
+
     // Upsert: a person is allowed to change their mind, and the newest answer
     // wins — resolved_at/resolved_by record who said so last.
     const { data: saved, error: saveError } = await supabase
       .from("item_match_resolutions")
       .upsert(
         {
+          // business_id, not company_id: this table predates the rename and
+          // keeps its own column name. It references companies(id) all the same.
           business_id: businessId,
           raw_name_normalized: normalized,
           item_type: itemType,
@@ -112,7 +144,7 @@ serve(async (req) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ billId: sourceBillId }),
+        body: JSON.stringify({ billId: sourceBillId, companyId: businessId }),
       });
       enqueue = { status: response.status, body: await response.json().catch(() => ({})) };
     }
@@ -121,11 +153,13 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("resolve-item-match failed:", message);
-    const status = error instanceof ValidationError
-      ? 422
-      : message === "Authentication required"
-        ? 401
-        : 500;
+    const status = error instanceof CompanyAccessError
+      ? 403
+      : error instanceof ValidationError
+        ? 422
+        : message === "Authentication required"
+          ? 401
+          : 500;
     return new Response(JSON.stringify({ error: message }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

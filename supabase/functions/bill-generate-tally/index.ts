@@ -13,30 +13,27 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 import { corsHeaders, json, preflight, errorMessage } from "../_shared/http.ts";
 import { serviceClient } from "../_shared/agent-auth.ts";
+import {
+  authenticateCaller,
+  requireCompanyMembership,
+  resolveResourceCompany,
+  CompanyAccessError,
+} from "../_shared/company-auth.ts";
 import { buildBillSyncJobs } from "../_shared/tally/jobs.ts";
 import { serializeVoucherToXML } from "../_shared/tally/serializer.ts";
 import { loadBillSyncOptions } from "../_shared/tally/context.ts";
 import { TallyValidationError, TallyReviewRequired } from "../_shared/tally/types.ts";
 
-import { requireUserOrService } from "../_shared/agent-auth.ts";
 serve(async (req) => {
   if (req.method === "OPTIONS") return preflight();
 
-  // Security gate: reject anything that is not a signed-in user or an
-  // internal service-role call. verify_jwt alone is satisfied by the public
-  // anon key, so the token must resolve to a real user.
   try {
-    await requireUserOrService(req);
-  } catch {
-    return new Response(JSON.stringify({ error: "Authentication required" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+    // Rejects anything that is not a signed-in user or an internal
+    // service-role call. verify_jwt alone is satisfied by the public anon key,
+    // so the token has to resolve to a real user.
+    const caller = await authenticateCaller(req);
 
-
-  try {
-    const { billId, enqueue = false } = await req.json();
+    const { billId, enqueue = false, companyId: claimedCompanyId } = await req.json();
     if (!billId) throw new Error("billId is required");
 
     const supabase = serviceClient();
@@ -45,25 +42,36 @@ serve(async (req) => {
       .from("bills")
       .select("*, expense_categories(name)")
       .eq("id", billId)
-      .single();
+      .maybeSingle();
 
     if (billError) throw billError;
     if (!bill) throw new Error("Bill not found");
+
+    // The bill decides the company; the body's companyId is only a cross-check.
+    // This runs on a service-role client, which bypasses RLS, so nothing else
+    // is stopping a caller from naming a bill that is not theirs.
+    const companyId = resolveResourceCompany(bill.company_id, claimedCompanyId, `bill ${billId}`);
+    await requireCompanyMembership(supabase, caller, companyId);
+
     if (bill.is_duplicate) throw new Error("Duplicate bills cannot be sent to Tally");
 
     const { data: lineItems, error: lineItemsError } = await supabase
       .from("expense_line_items")
       .select("item_description, quantity, unit_price, tax_rate, amount, hsn_code")
       .eq("bill_id", billId)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: true });
 
     if (lineItemsError) throw lineItemsError;
 
     // Rendered here only so the UI can preview/download it. The agent renders
-    // its own copy at send time from the queued JSON.
+    // its own copy at send time from the queued JSON. Scoped to this company:
+    // another company's agent carries a different Tally company name, which
+    // would produce XML addressed to the wrong set of books.
     const { data: agent } = await supabase
       .from("tally_agents")
       .select("id, company_name")
+      .eq("company_id", companyId)
       .is("revoked_at", null)
       .order("created_at", { ascending: true })
       .limit(1)
@@ -71,7 +79,7 @@ serve(async (req) => {
 
     if (!agent?.id) {
       throw new TallyValidationError(
-        "No Tally agent is registered. Install and register the desktop agent before generating Tally data.",
+        "No Tally agent is registered for this company. Install and register the desktop agent before generating Tally data.",
       );
     }
 
@@ -90,6 +98,7 @@ serve(async (req) => {
         tally_error: null,
       })
       .eq("id", billId)
+      .eq("company_id", companyId)
       .select()
       .single();
 
@@ -97,13 +106,16 @@ serve(async (req) => {
 
     let queued = 0;
     if (enqueue) {
+      // Service-role call, so tally-enqueue skips its own membership check and
+      // relies on the one above. companyId is still passed so it can verify the
+      // bill it loads agrees with the company vetted here.
       const enqueueResponse = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/tally-enqueue`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ billId }),
+        body: JSON.stringify({ billId, companyId }),
       });
       const enqueueResult = await enqueueResponse.json().catch(() => ({}));
       if (!enqueueResponse.ok) throw new Error(enqueueResult?.error ?? "Could not queue the bill");
@@ -134,8 +146,15 @@ serve(async (req) => {
       );
     }
 
+    const status = error instanceof CompanyAccessError
+      ? 403
+      : error instanceof TallyValidationError
+        ? 422
+        : message === "Authentication required"
+          ? 401
+          : 500;
     return new Response(JSON.stringify({ error: message }), {
-      status: error instanceof TallyValidationError ? 422 : 500,
+      status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
