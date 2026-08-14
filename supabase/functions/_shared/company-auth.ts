@@ -87,6 +87,47 @@ export async function requireCompanyMembership(
 }
 
 /**
+ * Resolves the company for a caller who is CREATING a row, where there is no
+ * existing resource to read the company from.
+ *
+ * bill-extract can take the company off the bill it is processing.
+ * gmail-sync creates the bill, so there is nothing to read it from — the
+ * company has to come from the caller instead.
+ *
+ * Refuses rather than guesses when the caller belongs to more than one
+ * company. Silently taking the first membership would file one company's bills
+ * into another's books, and an accounting error that nobody is told about is
+ * far worse than an error the caller can act on.
+ */
+export async function resolveCallerCompany(
+  supabase: SupabaseClient,
+  userId: string,
+  claimedCompanyId?: string | null,
+): Promise<string> {
+  if (claimedCompanyId) {
+    await requireCompanyMembership(supabase, { kind: "user", id: userId }, claimedCompanyId);
+    return claimedCompanyId;
+  }
+
+  const { data, error } = await supabase
+    .from("company_members")
+    .select("company_id")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  const ids = (data ?? []).map((row) => row.company_id as string);
+  if (ids.length === 0) throw new CompanyAccessError(COMPANY_ACCESS_DENIED);
+  if (ids.length > 1) {
+    throw new CompanyAccessError(
+      "You belong to more than one company — pass companyId to say which this sync is for.",
+    );
+  }
+
+  return ids[0];
+}
+
+/**
  * Decides which company a request is really operating on, given the row it
  * names and the company the client claimed.
  *

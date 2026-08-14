@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { google } from "https://esm.sh/googleapis@128";
+import { resolveCallerCompany, CompanyAccessError } from "../_shared/company-auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -159,7 +160,11 @@ async function processAttachments(
   gmail: any,
   message: GmailMessage,
   supabase: any,
-  _processedEmailId: string
+  _processedEmailId: string,
+  // Passed in rather than resolved here: it is the same for every attachment in
+  // a run, and resolving it once at the request boundary means a caller who
+  // belongs to several companies is refused before any file is uploaded.
+  companyId: string
 ): Promise<number> {
   let billsCreated = 0;
   const attachmentParts = collectAttachmentParts(message.payload.parts || []);
@@ -189,6 +194,7 @@ async function processAttachments(
             image_url: fileName,
             vendor_name: 'Processing from Gmail...',
             payment_status: 'pending',
+            company_id: companyId,
           })
           .select()
           .single();
@@ -231,11 +237,11 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  let requestBody: { integrationId?: string } = {};
+  let requestBody: { integrationId?: string; companyId?: string } = {};
 
   try {
     requestBody = await req.json();
-    const { integrationId } = requestBody;
+    const { integrationId, companyId: claimedCompanyId } = requestBody;
 
     if (!integrationId) throw new Error('integrationId is required');
 
@@ -274,6 +280,16 @@ Deno.serve(async (req: Request) => {
     if (!integration.access_token) {
       throw new Error('No access token available');
     }
+
+    // Resolved once, up front, and used on every bill this run creates.
+    //
+    // The insert below cannot fall back to the fill_company_id trigger: this
+    // runs on the service-role client, where auth.uid() is NULL, so the trigger
+    // resolves nothing and survives only on its "exactly one company" fallback.
+    // It RAISEs the moment a second company exists, which would stop Gmail
+    // import dead. Resolving it here also fails with a message that says what
+    // to do, instead of a trigger exception from inside an INSERT.
+    const companyId = await resolveCallerCompany(supabase, userId, claimedCompanyId);
 
     // Refresh access token if needed
     const accessToken = await refreshAccessTokenIfNeeded(supabase, integration);
@@ -362,7 +378,8 @@ Deno.serve(async (req: Request) => {
           gmail,
           message,
           supabase,
-          processedEmail.id
+          processedEmail.id,
+          companyId
         );
 
         await supabase
@@ -423,9 +440,14 @@ Deno.serve(async (req: Request) => {
           .eq('id', requestBody.integrationId);
       }
     }
+    // A company failure is the caller's to fix and will never succeed on
+    // retry, so it must not be reported as a server fault.
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        status: error instanceof CompanyAccessError ? 403 : 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     );
   }
 });

@@ -995,8 +995,24 @@ Deno.serve(async (req: Request) => {
         .delete()
         .eq('bill_id', billId);
 
+      // Explicit company_id, NOT the fill_company_id trigger.
+      //
+      // This function runs on the service-role client, where auth.uid() is
+      // NULL. The trigger therefore cannot resolve a membership and only
+      // succeeds today via its "there is exactly one company" fallback — it
+      // RAISEs as soon as a second company exists. That would take out line
+      // item extraction on every ingestion path, browser upload and Gmail
+      // alike, at the moment a second company is created.
+      //
+      // The parent bill is the authority: expense_line_items must always carry
+      // the same company as the bill it belongs to.
+      if (!bill.company_id) {
+        throw new Error(`Bill ${billId} has no company_id — refusing to write unattributed line items`);
+      }
+
       const lineItems = extracted.items.map((item: any) => ({
         bill_id: billId,
+        company_id: bill.company_id,
         item_description: item.item_description || '',
         quantity: item.quantity || 1,
         unit_price: item.unit_price || 0,

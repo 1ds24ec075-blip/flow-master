@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Mail, RefreshCw, Trash2, Loader2, Plug, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveCompanyId } from "@/contexts/CompanyContext";
 
 interface GmailIntegrationRow {
   id: string;
@@ -21,6 +22,7 @@ interface GmailIntegrationRow {
 const GmailIntegration = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const activeCompanyId = useActiveCompanyId();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -87,7 +89,12 @@ const GmailIntegration = () => {
   const handleSync = async (id: string) => {
     setSyncingId(id);
     try {
-      const { data, error } = await supabase.functions.invoke("gmail-sync", { body: { integrationId: id } });
+      // Which company the imported bills belong to. gmail-sync can infer this
+      // for a single-company user, but not for someone who belongs to more
+      // than one — it refuses rather than guessing, so send it explicitly.
+      const { data, error } = await supabase.functions.invoke("gmail-sync", {
+        body: { integrationId: id, companyId: activeCompanyId },
+      });
       if (error) throw error;
       toast({
         title: "Sync complete",
