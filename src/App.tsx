@@ -65,7 +65,8 @@ function AppRoutes() {
 
         <Route path="/bills" element={<ProtectedRoute><Layout><BillsExpenses /></Layout></ProtectedRoute>} />
         <Route path="/gmail-integration" element={<ProtectedRoute><Layout><GmailIntegration /></Layout></ProtectedRoute>} />
-        <Route path="/excel-integration" element={<ProtectedRoute><Layout><ExcelIntegration /></Layout></ProtectedRoute>} />
+        {/* Excel/Microsoft integration disabled during the Supabase migration (Azure OAuth callback not re-registered). Uncomment to restore. */}
+        {/* <Route path="/excel-integration" element={<ProtectedRoute><Layout><ExcelIntegration /></Layout></ProtectedRoute>} /> */}
         <Route path="/po-dashboard" element={<ProtectedRoute><Layout><PODashboard /></Layout></ProtectedRoute>} />
         <Route path="/customer-master" element={<ProtectedRoute><Layout><CustomerMaster /></Layout></ProtectedRoute>} />
         <Route path="/review" element={<ProtectedRoute><Layout><Review /></Layout></ProtectedRoute>} />

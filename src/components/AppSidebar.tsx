@@ -57,7 +57,9 @@ const navigationItems = [
   { title: "Bills & Expenses", url: "/bills", icon: Camera },
   { title: "Liquidity Dashboard", url: "/liquidity", icon: Wallet },
   { title: "Gmail Integration", url: "/gmail-integration", icon: Mail },
-  { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
+  // Excel/Microsoft integration is disabled during the Supabase migration
+  // (Azure OAuth callback is not being re-registered). Restore this line to re-enable.
+  // { title: "Excel Integration", url: "/excel-integration", icon: FileSpreadsheet },
   { title: "Data Export", url: "/data-export", icon: Download },
   { title: "Tally Sync", url: "/tally-sync", icon: Plug },
 ];
