@@ -425,7 +425,7 @@ serve(async (req) => {
     console.log(`Found ${rulesMap.size} existing rules for ${effectiveBusinessName}`);
 
     // Use AI to classify transactions
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     
     const classifiedTransactions: ClassifiedTransaction[] = [];
 
@@ -459,7 +459,7 @@ serve(async (req) => {
       });
 
       // Use AI for unmatched transactions
-      if (needsAI.length > 0 && LOVABLE_API_KEY) {
+      if (needsAI.length > 0 && OPENAI_API_KEY) {
         const txForAI = needsAI.map(idx => validTransactions[idx]);
         
         const prompt = `You are a financial transaction classifier for small businesses. Classify each transaction into one of these categories:
@@ -478,14 +478,14 @@ Respond with JSON array only, no explanation:
 [{"index": 1, "category": "Business Expense", "confidence": 85}, ...]`;
 
         try {
-          const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
+              model: 'gpt-4o-mini',
               messages: [
                 { role: 'system', content: 'You are a financial transaction classifier. Respond only with valid JSON arrays.' },
                 { role: 'user', content: prompt }

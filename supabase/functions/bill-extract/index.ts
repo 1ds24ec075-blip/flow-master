@@ -689,18 +689,18 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     const visionApiKey = Deno.env.get('GOOGLE_VISION_API_KEY') || Deno.env.get('GOOGLE_API_KEY') || Deno.env.get('VISION_API_KEY');
 
     console.log('Environment check:', {
       hasSupabaseUrl: !!supabaseUrl,
       hasSupabaseKey: !!supabaseKey,
-      hasLovableApiKey: !!lovableApiKey,
+      hasOpenaiApiKey: !!openaiApiKey,
       hasVisionApiKey: !!visionApiKey,
     });
 
-    if (!lovableApiKey && !visionApiKey) {
-      throw new Error('No extraction engine configured (LOVABLE_API_KEY missing)');
+    if (!openaiApiKey && !visionApiKey) {
+      throw new Error('No extraction engine configured (OPENAI_API_KEY missing)');
     }
 
     if (!supabaseUrl || !supabaseKey) {
@@ -756,18 +756,18 @@ Deno.serve(async (req: Request) => {
     // is correct, not a regression. See ocr_text handling in the response.
     let ocrText: string | undefined;
 
-    // ---- Primary engine: Gemini 2.5 Flash via Lovable AI Gateway ----
-    if (lovableApiKey) {
+    // ---- Primary engine: gpt-4o-mini via OpenAI ----
+    if (openaiApiKey) {
       try {
         stage = 'gemini-request';
-        const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${lovableApiKey}`,
+            'Authorization': `Bearer ${openaiApiKey}`,
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
+            model: 'gpt-4o-mini',
             response_format: { type: 'json_object' },
             messages: [
               {
